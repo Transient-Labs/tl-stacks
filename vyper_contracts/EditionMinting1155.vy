@@ -5,6 +5,11 @@ from interfaces.IOwnableAccessControl import IOwnableAccessControl
 from utils.merkle import verify_proof
 
 #//////////////////////////////////////////////////////////////////////////
+#                              Constants
+#//////////////////////////////////////////////////////////////////////////
+ADMIN_ROLE: constant(bytes32) = keccak256("ADMIN_ROLE")
+
+#//////////////////////////////////////////////////////////////////////////
 #                                Enums
 #//////////////////////////////////////////////////////////////////////////
 
@@ -180,91 +185,45 @@ def close_drop(
 
     log DropClosed(msg.sender, nft_addr, token_id)
 
-# @external
-# def update_drop_param(
-#     nft_addr: address, 
-#     token_id: uint256, 
-#     phase: DropPhase, 
-#     param: DropParam, 
-#     param_value: bytes32
-# ):
-#     if not self.is_drop_admin(nft_addr, msg.sender):
-#         raise "unauthorized"
-    
-#     if phase == DropPhase.PRESALE:
-#         if param == DropParam.MERKLE_ROOT:
-#             self.drops[nft_addr][token_id].presale_merkle_root = merkle_root
-
-#             log DropUpdated(DropPhase.PRESALE, DropParam.MERKLE_ROOT, merkle_root)
-#     elif phase == DropPhase.PUBLIC:
-#         if param == DropParam.MERKLE_ROOT:
-#             self.drops[nft_addr][token_id].presale_merkle_root = merkle_root
-
-#             log DropUpdated(DropPhase.PRESALE, DropParam.MERKLE_ROOT, merkle_root)
-
-
 @external
-def update_merkle(nft_addr: address, token_id: uint256, merkle_root: bytes32):
+def update_drop_param(
+    nft_addr: address, 
+    token_id: uint256, 
+    phase: DropPhase, 
+    param: DropParam, 
+    param_value: bytes32
+):
     if not self.is_drop_admin(nft_addr, msg.sender):
         raise "unauthorized"
 
-    self.drops[nft_addr][token_id].presale_merkle_root = merkle_root
+    if phase == DropPhase.PRESALE:
+        if param == DropParam.MERKLE_ROOT:
+            self.drops[nft_addr][token_id].presale_merkle_root = param_value
+        elif param == DropParam.COST:
+            self.drops[nft_addr][token_id].presale_cost = convert(param_value, uint256)
+        elif param == DropParam.DURATION:
+            self.drops[nft_addr][token_id].presale_duration = convert(param_value, uint256)
+        else:
+            raise "unknown param update"
+    elif phase == DropPhase.PUBLIC_SALE:
+        if param == DropParam.ALLOWANCE:
+            self.drops[nft_addr][token_id].allowance = convert(param_value, uint256)
+        elif param == DropParam.COST:
+            self.drops[nft_addr][token_id].presale_cost = convert(param_value, uint256)
+        elif param == DropParam.DURATION:
+            self.drops[nft_addr][token_id].public_duration = convert(param_value, uint256)
+        else:
+            raise "unknown param update"
+    elif phase == DropPhase.NOT_CONFIGURED:
+        if param == DropParam.PAYOUT_ADDRESS:
+            self.drops[nft_addr][token_id].payout_receiver = convert(param_value, address)
+        else:
+            raise "unknown param update"
+    else:
+        raise "unknown param update"
 
-    log DropUpdated(DropPhase.PRESALE, DropParam.MERKLE_ROOT, merkle_root)
+    log DropUpdated(phase, param, param_value)
 
-@external
-def update_public_mint_allowance(nft_addr: address, token_id: uint256, allowance: uint256):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].allowance = allowance
-
-    log DropUpdated(DropPhase.PUBLIC_SALE, DropParam.ALLOWANCE, convert(allowance, bytes32))
-
-@external
-def update_presale_cost(nft_addr: address, token_id: uint256, cost: uint256):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].presale_cost = cost
-
-    log DropUpdated(DropPhase.PRESALE, DropParam.COST, convert(cost, bytes32))
-
-@external
-def update_public_cost(nft_addr: address, token_id: uint256, cost: uint256):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].public_cost = cost
-
-    log DropUpdated(DropPhase.PUBLIC_SALE, DropParam.COST, convert(cost, bytes32))
-
-@external
-def update_receiver_address(nft_addr: address, token_id: uint256, receiver: address):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].payout_receiver = receiver
-
-    log DropUpdated(DropPhase.PUBLIC_SALE, DropParam.PAYOUT_ADDRESS, convert(receiver, bytes32))
-
-@external
-def update_presale_duration(nft_addr: address, token_id: uint256, duration: uint256):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].presale_duration = duration
-
-    log DropUpdated(DropPhase.PRESALE, DropParam.DURATION, convert(duration, bytes32))
-
-@external
-def update_public_duration(nft_addr: address, token_id: uint256, duration: uint256):
-    if not self.is_drop_admin(nft_addr, msg.sender):
-        raise "unauthorized"
-
-    self.drops[nft_addr][token_id].public_duration = duration
-
-    log DropUpdated(DropPhase.PUBLIC_SALE, DropParam.DURATION, convert(duration, bytes32))
 
 #//////////////////////////////////////////////////////////////////////////
 #                         External Write Function
@@ -286,7 +245,10 @@ def mint(
 
     if drop_phase == DropPhase.PRESALE:
         pass
-    # elif drop_phase == DropPhase.
+    elif drop_phase == DropPhase.PUBLIC_SALE:
+        pass
+    else:
+        raise "you shall not mint"
 
 #//////////////////////////////////////////////////////////////////////////
 #                         External Read Function
@@ -321,7 +283,7 @@ def is_paused() -> bool:
 @internal
 def is_drop_admin(nft_addr: address, operator: address) -> bool:
     return IOwnableAccessControl(nft_addr).owner() == operator \
-        or IOwnableAccessControl(nft_addr).hasRole(empty(bytes32), operator)
+        or IOwnableAccessControl(nft_addr).hasRole(ADMIN_ROLE, operator)
 
 @view
 @internal
