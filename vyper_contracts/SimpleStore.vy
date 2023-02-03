@@ -1,4 +1,4 @@
-
+# @version 0.3.7
 val: uint256
 
 @external
