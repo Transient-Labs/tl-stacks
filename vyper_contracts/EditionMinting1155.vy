@@ -1,11 +1,22 @@
 # @version 0.3.7
 
-from interfaces.IERC1155TL import IERC1155TL
-from interfaces.IOwnableAccessControl import IOwnableAccessControl
+
+#//////////////////////////////////////////////////////////////////////////
+#                              Interfaces
+#//////////////////////////////////////////////////////////////////////////
+
+interface IERC1155TL:
+    def mintToken(tokenId: uint256, addresses: DynArray[address, 100], amounts: DynArray[uint256, 100]): nonpayable
+
+interface IOwnableAccessControl:
+    def owner() -> address: view
+    def hasRole(role: bytes32, operator: address) -> bool: view
+    
 
 #//////////////////////////////////////////////////////////////////////////
 #                              Constants
 #//////////////////////////////////////////////////////////////////////////
+
 ADMIN_ROLE: constant(bytes32) = keccak256("ADMIN_ROLE")
 
 #//////////////////////////////////////////////////////////////////////////
