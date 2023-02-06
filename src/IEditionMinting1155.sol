@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
-interface Editionminting1155 {
+interface IEditionMinting1155 {
     enum DropPhase {
         NOT_CONFIGURED,
         BEFORE_SALE,

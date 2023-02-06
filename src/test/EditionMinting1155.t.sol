@@ -11,18 +11,20 @@ contract EditionMinting1155Test is Test {
 
     IEditionMinting1155 mintingContract;
 
+    address mintingOwner = address(0xdead);
+
     address alice = address(0xbeef);
     address bob = address(0x1337);
     address charles = address(0xcafe);
 
     function setUp() public {
         mintingContract = IEditionMinting1155(
-            vyperDeployer.deployContract("EditionMinting1155")
+            vyperDeployer.deployContract("EditionMinting1155", abi.encode(mintingOwner))
         );
     }
 
-    function test_init() public {
+    function test_init() public view {
         address owner = mintingContract.owner();
-        assert(owner == address(this));
+        assert(owner == mintingOwner);
     }
 }
