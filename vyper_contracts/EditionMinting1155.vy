@@ -48,7 +48,7 @@ struct Drop:
     decay_rate: int256
     allowance: uint256
     payout_receiver: address
-    presale_start_time: uint256
+    start_time: uint256
     presale_duration: uint256
     presale_cost: uint256
     presale_merkle_root: bytes32
@@ -136,7 +136,7 @@ def configure_drop(
     decay_rate: int256,
     allowance: uint256,
     payout_receiver: address,
-    presale_start_time: uint256,
+    start_time: uint256,
     presale_duration: uint256,
     presale_cost: uint256,
     presale_merkle_root: bytes32,
@@ -158,8 +158,7 @@ def configure_drop(
         raise "there is an existing drop"
 
     # Allowlist doesnt work with burn down/extending mints
-    if decay_rate != 0 and (presale_start_time != 0 or presale_duration != 0 \
-        or presale_merkle_root != empty(bytes32)):
+    if decay_rate != 0 and presale_duration != 0:
         raise "cant have allowlist with burn/extending"
 
     # No supply for velocity mint
@@ -173,7 +172,7 @@ def configure_drop(
         decay_rate: decay_rate,
         allowance: allowance,
         payout_receiver: payout_receiver,
-        presale_start_time: presale_start_time,
+        start_time: start_time,
         presale_duration: presale_duration,
         presale_cost: presale_cost,
         presale_merkle_root: presale_merkle_root,
@@ -306,7 +305,50 @@ def mint(
         IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
 
     elif drop_phase == DropPhase.PUBLIC_SALE:
-        pass
+        if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
+            raise "public sale is no more"
+
+        drop_round: uint256 = self.drop_round[nft_addr][token_id]
+        curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
+
+        mint_num: uint256 = num_mint
+
+        if curr_minted >= drop.allowance:
+            raise "already hit mint allowance"
+        elif curr_minted + num_mint > drop.allowance:
+            mint_num = drop.allowance - curr_minted
+        
+        if mint_num > drop.supply:
+            mint_num = drop.supply
+
+        if msg.value < mint_num * drop.presale_cost:
+            raise "not enough funds sent"
+
+        self.drops[nft_addr][token_id].supply -= mint_num
+        self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
+
+        if drop.decay_rate != 0:
+            adjust: uint256 = mint_num * convert(drop.decay_rate, uint256)
+            if drop.decay_rate < 0:
+                self.drops[nft_addr][token_id].public_duration -= adjust
+            else:
+                self.drops[nft_addr][token_id].public_duration += adjust
+
+        if mint_num != num_mint:
+            diff: uint256 = num_mint - mint_num
+            raw_call(
+                msg.sender,
+                _abi_encode(""),
+                max_outsize=0,
+                value=msg.value-(mint_num * drop.presale_cost),
+                revert_on_failure=True
+            )
+        
+        addrs: DynArray[address, 1] = [msg.sender]
+        amts: DynArray[uint256, 1] = [mint_num]
+
+        IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
+
     else:
         raise "you shall not mint"
 
@@ -353,14 +395,14 @@ def _get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
     if drop.supply == 0:
         return DropPhase.NOT_CONFIGURED
 
-    if block.timestamp < drop.presale_start_time:
+    if block.timestamp < drop.start_time:
         return DropPhase.BEFORE_SALE
 
-    if drop.presale_start_time <= block.timestamp and block.timestamp < drop.presale_start_time + drop.presale_duration:
+    if drop.start_time <= block.timestamp and block.timestamp < drop.start_time + drop.presale_duration:
         return DropPhase.PRESALE
 
-    if drop.presale_start_time + drop.presale_duration <= block.timestamp \
-        and block.timestamp < drop.presale_start_time + drop.presale_duration + drop.public_duration:
+    if drop.start_time + drop.presale_duration <= block.timestamp \
+        and block.timestamp < drop.start_time + drop.presale_duration + drop.public_duration:
         return DropPhase.PUBLIC_SALE
 
     return DropPhase.ENDED
