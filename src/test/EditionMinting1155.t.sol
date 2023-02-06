@@ -6,6 +6,8 @@ import {VyperDeployer} from "utils/VyperDeployer.sol";
 
 import {IEditionMinting1155} from "../IEditionMinting1155.sol";
 
+import {ERC1155TL} from "tl-core/ERC1155TL.sol";
+
 contract EditionMinting1155Test is Test {
     VyperDeployer vyperDeployer = new VyperDeployer();
 
