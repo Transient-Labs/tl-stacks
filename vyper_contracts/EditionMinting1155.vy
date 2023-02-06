@@ -42,8 +42,6 @@ enum DropParam:
 #//////////////////////////////////////////////////////////////////////////
 
 struct Drop:
-    nft_addr: address
-    token_id: uint256
     supply: uint256
     decay_rate: int256
     allowance: uint256
@@ -147,6 +145,9 @@ def configure_drop(
     if self.paused:
         raise "contract is paused"
 
+    if start_time == 0:
+        raise "start time cannot be 0"
+
     # Make sure the sender is the owner or admin on the contract
     if not self.is_drop_admin(nft_addr, msg.sender):
         raise "not authorized"
@@ -166,8 +167,6 @@ def configure_drop(
         raise "cant have burn down and a supply"
 
     drop = Drop({
-        nft_addr: nft_addr,
-        token_id: token_id,
         supply: supply,
         decay_rate: decay_rate,
         allowance: allowance,
@@ -179,6 +178,8 @@ def configure_drop(
         public_duration: public_duration,
         public_cost: public_cost
     })
+
+    self.drops[nft_addr][token_id] = drop
 
     log DropConfigured(msg.sender, nft_addr, token_id)
 
@@ -392,7 +393,7 @@ def is_drop_admin(nft_addr: address, operator: address) -> bool:
 def _get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
     drop: Drop = self.drops[nft_addr][token_id]
 
-    if drop.supply == 0:
+    if drop.start_time == 0:
         return DropPhase.NOT_CONFIGURED
 
     if block.timestamp < drop.start_time:
