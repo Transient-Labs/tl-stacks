@@ -321,7 +321,7 @@ def mint(
         if mint_num > drop.supply:
             mint_num = drop.supply
 
-        if msg.value < mint_num * drop.presale_cost:
+        if msg.value < mint_num * drop.public_cost:
             raise "not enough funds sent"
 
         self.drops[nft_addr][token_id].supply -= mint_num
