@@ -1,10 +1,6 @@
 ds-test/=lib/ds-test/src/
 forge-std/=lib/forge-std/src/
-openzeppelin-upgradeable/=lib/tl-core-contracts/lib/openzeppelin-contracts-upgradeable/contracts/
-openzeppelin/=lib/tl-core-contracts/lib/openzeppelin-contracts/contracts/
-story-contract/=lib/tl-core-contracts/lib/story-contract/src/
-tl-blocklist/=lib/tl-core-contracts/lib/blocklist/src/
+openzeppelin-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
+openzeppelin/=lib/openzeppelin-contracts/contracts/
 tl-core/=lib/tl-core-contracts/src/
-tl-sol-tools/=lib/tl-core-contracts/lib/tl-sol-tools/src/
-tl-story/=lib/tl-core-contracts/lib/story-contract/src/
 utils/=lib/utils/
