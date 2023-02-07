@@ -12,7 +12,7 @@
 #//////////////////////////////////////////////////////////////////////////
 
 interface IERC1155TL:
-    def mintToken(tokenId: uint256, addresses: DynArray[address, 100], amounts: DynArray[uint256, 100]): nonpayable
+    def externalMint(tokenId: uint256, addresses: DynArray[address, 100], amounts: DynArray[uint256, 100]): nonpayable
 
 interface IOwnableAccessControl:
     def owner() -> address: view
@@ -313,7 +313,7 @@ def mint(
         addrs: DynArray[address, 1] = [msg.sender]
         amts: DynArray[uint256, 1] = [mint_num]
 
-        IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
+        IERC1155TL(nft_addr).externalMint(token_id, addrs, amts)
 
         log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.presale_cost, True)
 
@@ -360,7 +360,7 @@ def mint(
         addrs: DynArray[address, 1] = [msg.sender]
         amts: DynArray[uint256, 1] = [mint_num]
 
-        IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
+        IERC1155TL(nft_addr).externalMint(token_id, addrs, amts)
 
         log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.public_cost, False)
 

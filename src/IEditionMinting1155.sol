@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
+import {IEditionMinting1155Events} from "./utils/IEditionMinting1155Events.sol";
+
 library DropPhase {
     uint256 constant NOT_CONFIGURED = 1;
     uint256 constant BEFORE_SALE = 2;
@@ -30,33 +32,7 @@ struct Drop {
     uint256 public_cost;
 }
 
-interface IEditionMinting1155 {
-    event OwnershipTransferred(
-        address indexed previousOwner,
-        address indexed newOwner
-    );
-
-    event DropConfigured(
-        address indexed configurer,
-        address indexed nftContract,
-        uint256 tokenId
-    );
-
-    event Purchase(
-        address indexed buyer,
-        address indexed nftContract,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 price,
-        bool isPresale
-    );
-
-    event DropClosed(
-        address indexed closer,
-        address indexed nftContract,
-        uint256 tokenId
-    );
-
+interface IEditionMinting1155 is IEditionMinting1155Events {
     event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
 
     event Paused(bool newStatus);
