@@ -6,7 +6,8 @@
 #//////////////////////////////////////////////////////////////////////////
 
 interface IERC721TL:
-    def externalMint(recipient: address, uri: String[100]): nonpayable
+    def externalMint(recipient: address, uri: String[1337]): nonpayable
+    def totalSupply() -> uint256: view
 
 interface IOwnableAccessControl:
     def owner() -> address: view
@@ -42,7 +43,7 @@ enum DropParam:
 #//////////////////////////////////////////////////////////////////////////
 
 struct Drop:
-    uri: String[100]
+    base_uri: String[100]
     supply: uint256
     decay_rate: int256
     allowance: uint256
@@ -131,7 +132,7 @@ def set_paused(paused: bool):
 def configure_drop(
     nft_addr: address,
     token_id: uint256,
-    uri: String[100],
+    base_uri: String[100],
     supply: uint256,
     decay_rate: int256,
     allowance: uint256,
@@ -169,7 +170,7 @@ def configure_drop(
         raise "cant have burn down and a supply"
 
     drop = Drop({
-        uri: uri,
+        base_uri: base_uri,
         supply: supply,
         decay_rate: decay_rate,
         allowance: allowance,
@@ -302,11 +303,14 @@ def mint(
                 value=msg.value-(mint_num * drop.presale_cost),
                 revert_on_failure=True
             )
+
+        token_id_counter: uint256 = IERC721TL(nft_addr).totalSupply() + 1
         
-        for i in range(0, max_value(uint256)):
+        for i in range(0, max_value(uint8)):
             if i == mint_num:
                 break
-            IERC721TL(nft_addr).externalMint(msg.sender, drop.uri)
+            IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
+            token_id_counter += 1
 
     elif drop_phase == DropPhase.PUBLIC_SALE:
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
@@ -348,10 +352,13 @@ def mint(
                 revert_on_failure=True
             )
         
-        for i in range(0, max_value(uint256)):
+        token_id_counter: uint256 = IERC721TL(nft_addr).totalSupply() + 1
+
+        for i in range(0, max_value(uint8)):
             if i == mint_num:
                 break
-            IERC721TL(nft_addr).externalMint(msg.sender, drop.uri)
+            IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
+            token_id_counter += 1
 
     else:
         raise "you shall not mint"
