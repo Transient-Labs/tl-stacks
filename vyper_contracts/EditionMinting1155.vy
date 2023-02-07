@@ -63,10 +63,6 @@ struct Drop:
 #                                Events
 #//////////////////////////////////////////////////////////////////////////
 
-event Payment:
-    amount: int128
-    sender: indexed(address)
-
 event OwnershipTransferred:
     previousOwner: indexed(address)
     newOwner: indexed(address)
@@ -75,6 +71,14 @@ event DropConfigured:
     configurer: indexed(address)
     nft_contract: indexed(address)
     token_id: uint256
+
+event Purchase:
+    buyer: indexed(address)
+    nft_addr: indexed(address)
+    token_id: uint256
+    amount: uint256
+    price: uint256
+    is_presale: bool
 
 event DropClosed:
     closer: indexed(address)
@@ -311,6 +315,8 @@ def mint(
 
         IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
 
+        log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.presale_cost, True)
+
     elif drop_phase == DropPhase.PUBLIC_SALE:
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
             raise "public sale is no more"
@@ -355,6 +361,8 @@ def mint(
         amts: DynArray[uint256, 1] = [mint_num]
 
         IERC1155TL(nft_addr).mintToken(token_id, addrs, amts)
+
+        log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.public_cost, False)
 
     else:
         raise "you shall not mint"

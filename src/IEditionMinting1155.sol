@@ -1,25 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
-enum DropPhase {
-    NOT_CONFIGURED,
-    BEFORE_SALE,
-    PRESALE,
-    PUBLIC_SALE,
-    ENDED
+library DropPhase {
+    uint256 constant NOT_CONFIGURED = 1;
+    uint256 constant BEFORE_SALE = 2;
+    uint256 constant PRESALE = 4;
+    uint256 constant PUBLIC_SALE = 8;
+    uint256 constant ENDED = 16;
 }
 
-enum DropParam {
-    MERKLE_ROOT,
-    ALLOWANCE,
-    COST,
-    DURATION,
-    PAYOUT_ADDRESS
+library DropParam {
+    uint256 constant MERKLE_ROOT = 1;
+    uint256 constant ALLOWANCE = 2;
+    uint256 constant COST = 4;
+    uint256 constant DURATION = 8;
+    uint256 constant PAYOUT_ADDRESS = 16;
 }
 
 struct Drop {
-    address nft_addr;
-    uint256 token_id;
     uint256 supply;
     int256 decay_rate;
     uint256 allowance;
@@ -33,6 +31,36 @@ struct Drop {
 }
 
 interface IEditionMinting1155 {
+    event OwnershipTransferred(
+        address indexed previousOwner,
+        address indexed newOwner
+    );
+
+    event DropConfigured(
+        address indexed configurer,
+        address indexed nftContract,
+        uint256 tokenId
+    );
+
+    event Purchase(
+        address indexed buyer,
+        address indexed nftContract,
+        uint256 tokenId,
+        uint256 amount,
+        uint256 price,
+        bool isPresale
+    );
+
+    event DropClosed(
+        address indexed closer,
+        address indexed nftContract,
+        uint256 tokenId
+    );
+
+    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
+
+    event Paused(bool newStatus);
+
     function set_paused(bool paused) external;
 
     function configure_drop(
@@ -55,8 +83,8 @@ interface IEditionMinting1155 {
     function update_drop_param(
         address nft_addr,
         uint256 token_id,
-        DropPhase phase,
-        DropParam param,
+        uint256 phase,
+        uint256 param,
         bytes32 param_value
     ) external;
 
@@ -82,7 +110,7 @@ interface IEditionMinting1155 {
     function get_drop_phase(address nft_addr, uint256 token_id)
         external
         view
-        returns (DropPhase);
+        returns (uint256);
 
     function is_paused() external view returns (bool);
 

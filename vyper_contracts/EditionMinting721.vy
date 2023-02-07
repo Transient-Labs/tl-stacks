@@ -78,6 +78,13 @@ event DropConfigured:
     nft_contract: indexed(address)
     token_id: uint256
 
+event Purchase:
+    buyer: indexed(address)
+    nft_addr: indexed(address)
+    amount: uint256
+    price: uint256
+    is_presale: bool
+
 event DropClosed:
     closer: indexed(address)
     nft_contract: indexed(address)
@@ -319,6 +326,8 @@ def mint(
             IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
             token_id_counter += 1
 
+        log Purchase(msg.sender, nft_addr, mint_num, drop.presale_cost, True)
+
     elif drop_phase == DropPhase.PUBLIC_SALE:
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
             raise "public sale is no more"
@@ -366,6 +375,8 @@ def mint(
                 break
             IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
             token_id_counter += 1
+
+        log Purchase(msg.sender, nft_addr, mint_num, drop.public_cost, True)
 
     else:
         raise "you shall not mint"
