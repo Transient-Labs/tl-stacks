@@ -7,7 +7,6 @@
 
 interface IERC721TL:
     def externalMint(recipient: address, uri: String[1337]): nonpayable
-    def totalSupply() -> uint256: view
 
 interface IOwnableAccessControl:
     def owner() -> address: view
@@ -44,6 +43,7 @@ enum DropParam:
 
 struct Drop:
     base_uri: String[100]
+    initial_supply: uint256
     supply: uint256
     decay_rate: int256
     allowance: uint256
@@ -171,6 +171,7 @@ def configure_drop(
 
     drop = Drop({
         base_uri: base_uri,
+        initial_supply: supply,
         supply: supply,
         decay_rate: decay_rate,
         allowance: allowance,
@@ -304,7 +305,7 @@ def mint(
                 revert_on_failure=True
             )
 
-        token_id_counter: uint256 = IERC721TL(nft_addr).totalSupply() + 1
+        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr][token_id].supply - mint_num
         
         for i in range(0, max_value(uint8)):
             if i == mint_num:
@@ -352,7 +353,7 @@ def mint(
                 revert_on_failure=True
             )
         
-        token_id_counter: uint256 = IERC721TL(nft_addr).totalSupply() + 1
+        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr][token_id].supply - mint_num
 
         for i in range(0, max_value(uint8)):
             if i == mint_num:
