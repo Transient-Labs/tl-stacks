@@ -33,10 +33,6 @@ struct Drop {
 }
 
 interface IEditionMinting1155 is IEditionMinting1155Events {
-    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
-
-    event Paused(bool newStatus);
-
     function set_paused(bool paused) external;
 
     function configure_drop(

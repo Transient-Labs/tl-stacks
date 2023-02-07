@@ -27,4 +27,8 @@ interface IEditionMinting1155Events {
         address indexed nftContract,
         uint256 tokenId
     );
+
+    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
+
+    event Paused(bool newStatus);
 }

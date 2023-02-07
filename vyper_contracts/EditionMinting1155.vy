@@ -412,6 +412,9 @@ def _get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
     if drop.start_time == 0:
         return DropPhase.NOT_CONFIGURED
 
+    if drop.supply == 0:
+        return DropPhase.ENDED
+
     if block.timestamp < drop.start_time:
         return DropPhase.BEFORE_SALE
 
