@@ -5,10 +5,11 @@ import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 
 import {IEditionMinting1155, Drop, DropPhase, DropParam} from "../IEditionMinting1155.sol";
+import {IEditionMinting1155Events} from "../utils/IEditionMinting1155Events.sol";
 
 import {ERC1155TL} from "tl-core/ERC1155TL.sol";
 
-contract EditionMinting1155Test is Test {
+contract EditionMinting1155Test is Test, IEditionMinting1155Events {
     VyperDeployer vyperDeployer = new VyperDeployer();
 
     IEditionMinting1155 mintingContract;
@@ -37,7 +38,7 @@ contract EditionMinting1155Test is Test {
         uint256[] memory amts = new uint256[](1);
 
         nft = new ERC1155TL(false);
-        nft.initialize("Karl", alice, 1_000, alice, empty, false, address(0));
+        nft.initialize("Karl", "LFG", alice, 1_000, alice, empty, false, address(0));
 
         vm.startPrank(alice);
         nft.setApprovedMintContracts(mintAddrs, true);
@@ -55,7 +56,7 @@ contract EditionMinting1155Test is Test {
         bool _warpToPublicSale,
         bytes32 _presaleRoot,
         uint256 _publicDuration
-    ) public {
+    ) public returns (Drop memory) {
         vm.prank(alice);
         mintingContract.configure_drop(
             address(nft),
@@ -75,6 +76,8 @@ contract EditionMinting1155Test is Test {
         if (_warpToPublicSale) {
             vm.warp(_startTime + _presaleDuration);
         }
+
+        return mintingContract.get_drop(address(nft), 1);
     }
 
     function test_init() public view {
@@ -94,7 +97,14 @@ contract EditionMinting1155Test is Test {
     }
 
     function test_open_edition_no_presale() public {
-        setup_open_edition_mint(
+        bytes32[] memory emptyProof;
+
+        assert(
+            mintingContract.get_drop_phase(address(nft), 1) ==
+                DropPhase.NOT_CONFIGURED
+        );
+
+        Drop memory drop = setup_open_edition_mint(
             block.timestamp + 300,
             0,
             false,
@@ -102,20 +112,70 @@ contract EditionMinting1155Test is Test {
             1 days
         );
 
-        Drop memory drop = mintingContract.get_drop(address(nft), 1);
-        // assert(false);
+        assert(
+            mintingContract.get_drop_phase(address(nft), 1) ==
+                DropPhase.BEFORE_SALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectRevert("you shall not mint");
+        mintingContract.mint{value: 0.02 ether}(address(nft), 1, 1, emptyProof, 0);
+        vm.stopPrank();
         
+        vm.warp(drop.start_time + drop.presale_duration + 1);
 
-        // emit log_uint(drop.start_time);
-        // assert(
-        //     mintingContract.get_drop_phase(address(nft), 1) ==
-        //         DropPhase.NOT_CONFIGURED
-        // );
+        assert(
+            mintingContract.get_drop_phase(address(nft), 1) ==
+                DropPhase.PUBLIC_SALE
+        );
 
+        vm.startPrank(bob);
+        vm.expectRevert("not enough funds sent");
+        mintingContract.mint(address(nft), 1, 1, emptyProof, 0);
+        vm.stopPrank();
 
-        // assert(
-        //     mintingContract.get_drop_phase(address(nft), 1) ==
-        //         DropPhase.BEFORE_SALE
-        // );
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, address(nft), 1, 1, .02 ether, false);
+        mintingContract.mint{value: 0.02 ether}(address(nft), 1, 1, emptyProof, 0);
+        vm.stopPrank();
+
+        assert(bob.balance == 100 ether - 0.02 ether);
+        assert(nft.balanceOf(bob, 1) == 1);
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, address(nft), 1, 3, .02 ether, false);
+        mintingContract.mint{value: 0.06 ether}(address(nft), 1, 3, emptyProof, 0);
+        vm.stopPrank();
+
+        assert(bob.balance == 100 ether - 0.08 ether);
+        assert(nft.balanceOf(bob, 1) == 4);
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, address(nft), 1, 1, .02 ether, false);
+        mintingContract.mint{value: 0.04 ether}(address(nft), 1, 2, emptyProof, 0);
+        vm.stopPrank();
+
+        assert(bob.balance == 100 ether - 0.1 ether);
+        assert(nft.balanceOf(bob, 1) == 5);
+
+        vm.startPrank(bob);
+        vm.expectRevert("already hit mint allowance");
+        mintingContract.mint{value: 0.02 ether}(address(nft), 1, 1, emptyProof, 0);
+        vm.stopPrank();
+
+        vm.warp(drop.start_time + drop.presale_duration + drop.public_duration + 1);
+
+        vm.startPrank(bob);
+        vm.expectRevert("you shall not mint");
+        mintingContract.mint{value: 0.02 ether}(address(nft), 1, 1, emptyProof, 0);
+        vm.stopPrank();
+
+        assert(
+            mintingContract.get_drop_phase(address(nft), 1) ==
+                DropPhase.ENDED
+        );
     }
 }

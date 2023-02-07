@@ -306,7 +306,7 @@ def mint(
                 msg.sender,
                 _abi_encode(""),
                 max_outsize=0,
-                value=msg.value-(mint_num * drop.presale_cost),
+                value=msg.value-(diff * drop.presale_cost),
                 revert_on_failure=True
             )
         
@@ -353,7 +353,7 @@ def mint(
                 msg.sender,
                 _abi_encode(""),
                 max_outsize=0,
-                value=msg.value-(mint_num * drop.presale_cost),
+                value=msg.value-(diff * drop.public_cost),
                 revert_on_failure=True
             )
         
