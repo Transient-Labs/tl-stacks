@@ -65,10 +65,6 @@ struct Drop:
 #                                Events
 #//////////////////////////////////////////////////////////////////////////
 
-event Payment:
-    amount: int128
-    sender: indexed(address)
-
 event OwnershipTransferred:
     previousOwner: indexed(address)
     newOwner: indexed(address)
@@ -76,7 +72,6 @@ event OwnershipTransferred:
 event DropConfigured:
     configurer: indexed(address)
     nft_contract: indexed(address)
-    token_id: uint256
 
 event Purchase:
     buyer: indexed(address)
@@ -88,7 +83,6 @@ event Purchase:
 event DropClosed:
     closer: indexed(address)
     nft_contract: indexed(address)
-    token_id: uint256
 
 event DropUpdated:
     phase_param: DropPhase
@@ -103,14 +97,14 @@ event Paused:
 #//////////////////////////////////////////////////////////////////////////
 owner: public(address)
 
-# nft_caddr => token_id => Drop
-drops: HashMap[address, HashMap[uint256, Drop]]
+# nft_caddr => Drop
+drops: HashMap[address, Drop]
 
-# nft_caddr => token_id => round_id => user => num_minted
-num_minted: HashMap[address, HashMap[uint256, HashMap[uint256, HashMap[address, uint256]]]]
+# nft_caddr => round_id => user => num_minted
+num_minted: HashMap[address, HashMap[uint256, HashMap[address, uint256]]]
 
-# nft_addr => token_id => round_num
-drop_round: HashMap[address, HashMap[uint256, uint256]]
+# nft_addr => round_num
+drop_round: HashMap[address, uint256]
 
 # determine if the contract is paused or not
 paused: bool
@@ -144,7 +138,6 @@ def set_paused(paused: bool):
 @external 
 def configure_drop(
     nft_addr: address,
-    token_id: uint256,
     base_uri: String[100],
     supply: uint256,
     decay_rate: int256,
@@ -168,7 +161,7 @@ def configure_drop(
     if not self.is_drop_admin(nft_addr, msg.sender):
         raise "not authorized"
 
-    drop: Drop = self.drops[nft_addr][token_id]
+    drop: Drop = self.drops[nft_addr]
 
     # Check if theres an existing drop that needs to be closed
     if drop.supply != 0:
@@ -197,14 +190,13 @@ def configure_drop(
         public_cost: public_cost
     })
 
-    self.drops[nft_addr][token_id] = drop
+    self.drops[nft_addr] = drop
 
-    log DropConfigured(msg.sender, nft_addr, token_id)
+    log DropConfigured(msg.sender, nft_addr)
 
 @external
 def close_drop(
-    nft_addr: address,
-    token_id: uint256
+    nft_addr: address
 ):
     if self.paused:
         raise "contract is paused"
@@ -212,15 +204,14 @@ def close_drop(
     if not self.is_drop_admin(nft_addr, msg.sender):
         raise "unauthorized"
     
-    self.drops[nft_addr][token_id] = empty(Drop)
-    self.drop_round[nft_addr][token_id] += 1
+    self.drops[nft_addr] = empty(Drop)
+    self.drop_round[nft_addr] += 1
 
-    log DropClosed(msg.sender, nft_addr, token_id)
+    log DropClosed(msg.sender, nft_addr)
 
 @external
 def update_drop_param(
     nft_addr: address, 
-    token_id: uint256, 
     phase: DropPhase, 
     param: DropParam, 
     param_value: bytes32
@@ -230,25 +221,25 @@ def update_drop_param(
 
     if phase == DropPhase.PRESALE:
         if param == DropParam.MERKLE_ROOT:
-            self.drops[nft_addr][token_id].presale_merkle_root = param_value
+            self.drops[nft_addr].presale_merkle_root = param_value
         elif param == DropParam.COST:
-            self.drops[nft_addr][token_id].presale_cost = convert(param_value, uint256)
+            self.drops[nft_addr].presale_cost = convert(param_value, uint256)
         elif param == DropParam.DURATION:
-            self.drops[nft_addr][token_id].presale_duration = convert(param_value, uint256)
+            self.drops[nft_addr].presale_duration = convert(param_value, uint256)
         else:
             raise "unknown param update"
     elif phase == DropPhase.PUBLIC_SALE:
         if param == DropParam.ALLOWANCE:
-            self.drops[nft_addr][token_id].allowance = convert(param_value, uint256)
+            self.drops[nft_addr].allowance = convert(param_value, uint256)
         elif param == DropParam.COST:
-            self.drops[nft_addr][token_id].presale_cost = convert(param_value, uint256)
+            self.drops[nft_addr].presale_cost = convert(param_value, uint256)
         elif param == DropParam.DURATION:
-            self.drops[nft_addr][token_id].public_duration = convert(param_value, uint256)
+            self.drops[nft_addr].public_duration = convert(param_value, uint256)
         else:
             raise "unknown param update"
     elif phase == DropPhase.NOT_CONFIGURED:
         if param == DropParam.PAYOUT_ADDRESS:
-            self.drops[nft_addr][token_id].payout_receiver = convert(param_value, address)
+            self.drops[nft_addr].payout_receiver = convert(param_value, address)
         else:
             raise "unknown param update"
     else:
@@ -266,7 +257,6 @@ def update_drop_param(
 @nonreentrant("lock")
 def mint(
     nft_addr: address,
-    token_id: uint256,
     num_mint: uint256,
     proof: DynArray[bytes32, 100],
     allowlist_allocation: uint256
@@ -274,40 +264,27 @@ def mint(
     if self.paused:
         raise "contract is paused"
 
-    drop: Drop = self.drops[nft_addr][token_id]
+    drop: Drop = self.drops[nft_addr]
 
     if drop.supply == 0:
         raise "no supply left"
     
-    drop_phase: DropPhase = self._get_drop_phase(nft_addr, token_id)
+    drop_phase: DropPhase = self._get_drop_phase(nft_addr)
 
     if drop_phase == DropPhase.PRESALE:
         leaf: bytes32 = keccak256(concat(convert(msg.sender, bytes32), convert(allowlist_allocation, bytes32)))
-        root: bytes32 = self.drops[nft_addr][token_id].presale_merkle_root
+        root: bytes32 = self.drops[nft_addr].presale_merkle_root
         
         # Check if user is part of allowlist
         if not self.verify_proof(proof, root, leaf):
             raise "not part of allowlist"
 
-        drop_round: uint256 = self.drop_round[nft_addr][token_id]
-        curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
-
-        mint_num: uint256 = num_mint
-
-        if curr_minted == allowlist_allocation:
-            raise "already hit mint allowance"
-        
-        if curr_minted + num_mint > allowlist_allocation:
-            mint_num = allowlist_allocation - curr_minted
-        
-        if mint_num > drop.supply:
-            mint_num = drop.supply
-
-        if msg.value < mint_num * drop.presale_cost:
-            raise "not enough funds sent"
-
-        self.drops[nft_addr][token_id].supply -= mint_num
-        self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
+        mint_num: uint256 = self.determine_mint_num(
+            nft_addr,
+            num_mint,
+            allowlist_allocation,
+            drop.presale_cost
+        )
 
         if mint_num != num_mint:
             diff: uint256 = num_mint - mint_num
@@ -319,7 +296,7 @@ def mint(
                 revert_on_failure=True
             )
 
-        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr][token_id].supply - mint_num
+        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr].supply - mint_num
         
         for i in range(0, max_value(uint8)):
             if i == mint_num:
@@ -327,38 +304,35 @@ def mint(
             IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
             token_id_counter += 1
 
+        raw_call(
+            drop.payout_receiver,
+            _abi_encode(""),
+            max_outsize=0,
+            value=mint_num * drop.presale_cost,
+            revert_on_failure=True
+        )
+
         log Purchase(msg.sender, nft_addr, mint_num, drop.presale_cost, True)
 
     elif drop_phase == DropPhase.PUBLIC_SALE:
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
             raise "public sale is no more"
 
-        drop_round: uint256 = self.drop_round[nft_addr][token_id]
-        curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
+        mint_num: uint256 = self.determine_mint_num(
+            nft_addr,
+            num_mint,
+            drop.allowance,
+            drop.public_cost
+        )
 
-        mint_num: uint256 = num_mint
-
-        if curr_minted >= drop.allowance:
-            raise "already hit mint allowance"
-        
-        if curr_minted + num_mint > drop.allowance:
-            mint_num = drop.allowance - curr_minted
-        
-        if mint_num > drop.supply:
-            mint_num = drop.supply
-
-        if msg.value < mint_num * drop.public_cost:
-            raise "not enough funds sent"
-
-        self.drops[nft_addr][token_id].supply -= mint_num
-        self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
-
-        if drop.decay_rate != 0:
-            adjust: uint256 = mint_num * convert(drop.decay_rate, uint256)
-            if drop.decay_rate < 0:
-                self.drops[nft_addr][token_id].public_duration -= adjust
+        adjust: uint256 = mint_num * convert(abs(drop.decay_rate), uint256)
+        if drop.decay_rate < 0:
+            if adjust > drop.public_duration:
+                self.drops[nft_addr].public_duration = 0
             else:
-                self.drops[nft_addr][token_id].public_duration += adjust
+                self.drops[nft_addr].public_duration -= adjust
+        elif drop.decay_rate > 0:
+            self.drops[nft_addr].public_duration += adjust
 
         if mint_num != num_mint:
             diff: uint256 = num_mint - mint_num
@@ -370,7 +344,7 @@ def mint(
                 revert_on_failure=True
             )
         
-        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr][token_id].supply - mint_num
+        token_id_counter: uint256 = drop.initial_supply - self.drops[nft_addr].supply - mint_num
 
         for i in range(0, max_value(uint8)):
             if i == mint_num:
@@ -378,7 +352,15 @@ def mint(
             IERC721TL(nft_addr).externalMint(msg.sender, concat(drop.base_uri, uint2str(token_id_counter)))
             token_id_counter += 1
 
-        log Purchase(msg.sender, nft_addr, mint_num, drop.public_cost, True)
+        raw_call(
+            drop.payout_receiver,
+            _abi_encode(""),
+            max_outsize=0,
+            value=mint_num * drop.public_cost,
+            revert_on_failure=True
+        )
+
+        log Purchase(msg.sender, nft_addr, mint_num, drop.public_cost, False)
 
     else:
         raise "you shall not mint"
@@ -389,19 +371,19 @@ def mint(
 
 @view
 @external
-def get_drop(nft_addr: address, token_id: uint256) -> Drop:
-    return self.drops[nft_addr][token_id]
+def get_drop(nft_addr: address) -> Drop:
+    return self.drops[nft_addr]
 
 @view
 @external
 def get_num_minted(nft_addr: address, token_id: uint256, user: address) -> uint256:
-    round_id: uint256 = self.drop_round[nft_addr][token_id]
-    return self.num_minted[nft_addr][token_id][round_id][user]
+    round_id: uint256 = self.drop_round[nft_addr]
+    return self.num_minted[nft_addr][round_id][user]
 
 @view
 @external
-def get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
-    return self._get_drop_phase(nft_addr, token_id)
+def get_drop_phase(nft_addr: address) -> DropPhase:
+    return self._get_drop_phase(nft_addr)
 
 @view
 @external
@@ -420,8 +402,8 @@ def is_drop_admin(nft_addr: address, operator: address) -> bool:
 
 @view
 @internal
-def _get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
-    drop: Drop = self.drops[nft_addr][token_id]
+def _get_drop_phase(nft_addr: address) -> DropPhase:
+    drop: Drop = self.drops[nft_addr]
 
     if drop.start_time == 0:
         return DropPhase.NOT_CONFIGURED
@@ -451,3 +433,35 @@ def verify_proof(proof: DynArray[bytes32, 100], root: bytes32, leaf: bytes32) ->
         else: 
             computed_hash = keccak256(concat(p, computed_hash))
     return computed_hash == root
+
+@internal
+@payable
+def determine_mint_num(
+    nft_addr: address,
+    num_mint: uint256,
+    allowance: uint256,
+    cost: uint256
+) -> uint256:
+    drop: Drop = self.drops[nft_addr]
+
+    drop_round: uint256 = self.drop_round[nft_addr]
+    curr_minted: uint256 = self.num_minted[nft_addr][drop_round][msg.sender]
+
+    mint_num: uint256 = num_mint
+
+    if curr_minted == allowance:
+        raise "already hit mint allowance"
+
+    if curr_minted + num_mint > allowance:
+        mint_num = allowance - curr_minted
+
+    if mint_num > drop.supply:
+        mint_num = drop.supply
+
+    if msg.value < mint_num * cost:
+        raise "not enough funds sent"
+
+    self.drops[nft_addr].supply -= mint_num
+    self.num_minted[nft_addr][drop_round][msg.sender] += mint_num
+
+    return mint_num

@@ -304,6 +304,14 @@ def mint(
 
         IERC1155TL(nft_addr).externalMint(token_id, addrs, amts)
 
+        raw_call(
+            drop.payout_receiver,
+            _abi_encode(""),
+            max_outsize=0,
+            value=mint_num * drop.presale_cost,
+            revert_on_failure=True
+        )
+
         log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.presale_cost, True)
 
     elif drop_phase == DropPhase.PUBLIC_SALE:
@@ -318,12 +326,14 @@ def mint(
             drop.public_cost
         )
 
-        if drop.decay_rate != 0:
-            adjust: uint256 = mint_num * convert(drop.decay_rate, uint256)
-            if drop.decay_rate < 0:
-                self.drops[nft_addr][token_id].public_duration -= adjust
+        adjust: uint256 = mint_num * convert(abs(drop.decay_rate), uint256)
+        if drop.decay_rate < 0:
+            if adjust > drop.public_duration:
+                self.drops[nft_addr][token_id].public_duration = 0
             else:
-                self.drops[nft_addr][token_id].public_duration += adjust
+                self.drops[nft_addr][token_id].public_duration -= adjust
+        elif drop.decay_rate > 0:
+            self.drops[nft_addr][token_id].public_duration += adjust
 
         if mint_num != num_mint:
             diff: uint256 = num_mint - mint_num
@@ -339,6 +349,14 @@ def mint(
         amts: DynArray[uint256, 1] = [mint_num]
 
         IERC1155TL(nft_addr).externalMint(token_id, addrs, amts)
+
+        raw_call(
+            drop.payout_receiver,
+            _abi_encode(""),
+            max_outsize=0,
+            value=mint_num * drop.public_cost,
+            revert_on_failure=True
+        )
 
         log Purchase(msg.sender, nft_addr, token_id, mint_num, drop.public_cost, False)
 
