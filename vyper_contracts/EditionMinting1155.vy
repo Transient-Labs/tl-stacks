@@ -281,25 +281,13 @@ def mint(
         if not self.verify_proof(proof, root, leaf):
             raise "not part of allowlist"
 
-        drop_round: uint256 = self.drop_round[nft_addr][token_id]
-        curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
-
-        mint_num: uint256 = num_mint
-
-        if curr_minted == allowlist_allocation:
-            raise "already hit mint allowance"
-        
-        if curr_minted + num_mint > allowlist_allocation:
-            mint_num = allowlist_allocation - curr_minted
-        
-        if mint_num > drop.supply:
-            mint_num = drop.supply
-
-        if msg.value < mint_num * drop.presale_cost:
-            raise "not enough funds sent"
-
-        self.drops[nft_addr][token_id].supply -= mint_num
-        self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
+        mint_num: uint256 = self.determine_mint_num(
+            nft_addr, 
+            token_id,
+            num_mint,
+            allowlist_allocation, 
+            drop.presale_cost
+        )
 
         if mint_num != num_mint:
             diff: uint256 = num_mint - mint_num
@@ -322,25 +310,13 @@ def mint(
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
             raise "public sale is no more"
 
-        drop_round: uint256 = self.drop_round[nft_addr][token_id]
-        curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
-
-        mint_num: uint256 = num_mint
-
-        if curr_minted >= drop.allowance:
-            raise "already hit mint allowance"
-        
-        if curr_minted + num_mint > drop.allowance:
-            mint_num = drop.allowance - curr_minted
-        
-        if mint_num > drop.supply:
-            mint_num = drop.supply
-
-        if msg.value < mint_num * drop.public_cost:
-            raise "not enough funds sent"
-
-        self.drops[nft_addr][token_id].supply -= mint_num
-        self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
+        mint_num: uint256 = self.determine_mint_num(
+            nft_addr, 
+            token_id,
+            num_mint,
+            drop.allowance,
+            drop.public_cost
+        )
 
         if drop.decay_rate != 0:
             adjust: uint256 = mint_num * convert(drop.decay_rate, uint256)
@@ -437,3 +413,40 @@ def verify_proof(proof: DynArray[bytes32, 100], root: bytes32, leaf: bytes32) ->
         else: 
             computed_hash = keccak256(concat(p, computed_hash))
     return computed_hash == root
+
+#//////////////////////////////////////////////////////////////////////////
+#                         Internal Write Function
+#//////////////////////////////////////////////////////////////////////////
+
+@internal
+@payable
+def determine_mint_num(
+    nft_addr: address,
+    token_id: uint256,
+    num_mint: uint256,
+    allowance: uint256,
+    cost: uint256
+) -> uint256:
+    drop: Drop = self.drops[nft_addr][token_id]
+
+    drop_round: uint256 = self.drop_round[nft_addr][token_id]
+    curr_minted: uint256 = self.num_minted[nft_addr][token_id][drop_round][msg.sender]
+
+    mint_num: uint256 = num_mint
+
+    if curr_minted == allowance:
+        raise "already hit mint allowance"
+
+    if curr_minted + num_mint > allowance:
+        mint_num = allowance - curr_minted
+
+    if mint_num > drop.supply:
+        mint_num = drop.supply
+
+    if msg.value < mint_num * cost:
+        raise "not enough funds sent"
+
+    self.drops[nft_addr][token_id].supply -= mint_num
+    self.num_minted[nft_addr][token_id][drop_round][msg.sender] += mint_num
+
+    return mint_num
