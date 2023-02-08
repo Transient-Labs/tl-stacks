@@ -4,15 +4,15 @@ pragma solidity 0.8.17;
 import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 
-import {IEditionMinting1155, Drop, DropPhase, DropParam} from "../src/IEditionMinting1155.sol";
-import {IEditionMinting1155Events} from "../src/utils/IEditionMinting1155Events.sol";
+import {ITLStacks1155, Drop, DropPhase, DropParam} from "../src/ITLStacks1155.sol";
+import {ITLStacks1155Events} from "../src/utils/ITLStacks1155Events.sol";
 
 import {ERC1155TL} from "tl-core/ERC1155TL.sol";
 
-contract EditionMinting1155Test is Test, IEditionMinting1155Events {
+contract TLStacks1155Test is Test, ITLStacks1155Events {
     VyperDeployer vyperDeployer = new VyperDeployer();
 
-    IEditionMinting1155 mintingContract;
+    ITLStacks1155 mintingContract;
     ERC1155TL nft;
 
     address mintingOwner = address(0xdead);
@@ -23,9 +23,9 @@ contract EditionMinting1155Test is Test, IEditionMinting1155Events {
     address david = address(0xcdb);
 
     function setUp() public {
-        mintingContract = IEditionMinting1155(
+        mintingContract = ITLStacks1155(
             vyperDeployer.deployContract(
-                "EditionMinting1155",
+                "TLStacks1155",
                 abi.encode(mintingOwner)
             )
         );

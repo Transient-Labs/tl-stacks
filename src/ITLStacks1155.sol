@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
-import {IEditionMinting1155Events} from "./utils/IEditionMinting1155Events.sol";
+import {ITLStacks1155Events} from "./utils/ITLStacks1155Events.sol";
 
 library DropPhase {
     uint256 constant NOT_CONFIGURED = 1;
@@ -32,7 +32,7 @@ struct Drop {
     uint256 public_cost;
 }
 
-interface IEditionMinting1155 is IEditionMinting1155Events {
+interface ITLStacks1155 is ITLStacks1155Events {
     function set_paused(bool paused) external;
 
     function configure_drop(

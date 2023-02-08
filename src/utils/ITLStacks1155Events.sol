@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
-interface IEditionMinting1155Events {
+interface ITLStacks1155Events {
     event OwnershipTransferred(
         address indexed previousOwner,
         address indexed newOwner
