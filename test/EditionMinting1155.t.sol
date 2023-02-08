@@ -4,8 +4,8 @@ pragma solidity 0.8.17;
 import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 
-import {IEditionMinting1155, Drop, DropPhase, DropParam} from "../IEditionMinting1155.sol";
-import {IEditionMinting1155Events} from "../utils/IEditionMinting1155Events.sol";
+import {IEditionMinting1155, Drop, DropPhase, DropParam} from "../src/IEditionMinting1155.sol";
+import {IEditionMinting1155Events} from "../src/utils/IEditionMinting1155Events.sol";
 
 import {ERC1155TL} from "tl-core/ERC1155TL.sol";
 
