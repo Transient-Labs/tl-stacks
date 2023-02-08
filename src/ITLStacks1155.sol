@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.17;
 
-import {ITLStacks1155Events} from "./utils/ITLStacks1155Events.sol";
+import {ITLStacks1155Events} from "tl-stacks/utils/ITLStacks1155Events.sol";
 
 library DropPhase {
     uint256 constant NOT_CONFIGURED = 1;

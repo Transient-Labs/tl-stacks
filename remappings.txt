@@ -2,3 +2,4 @@ ds-test/=lib/ds-test/src/
 forge-std/=lib/forge-std/src/
 utils/=lib/utils/
 tl-core/=lib/tl-core-contracts/src/
+tl-stacks/=src/

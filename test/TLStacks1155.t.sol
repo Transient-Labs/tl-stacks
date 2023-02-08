@@ -4,8 +4,8 @@ pragma solidity 0.8.17;
 import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 
-import {ITLStacks1155, Drop, DropPhase, DropParam} from "../src/ITLStacks1155.sol";
-import {ITLStacks1155Events} from "../src/utils/ITLStacks1155Events.sol";
+import {ITLStacks1155, Drop, DropPhase, DropParam} from "tl-stacks/ITLStacks1155.sol";
+import {ITLStacks1155Events} from "tl-stacks/utils/ITLStacks1155Events.sol";
 
 import {ERC1155TL} from "tl-core/ERC1155TL.sol";
 
