@@ -12,11 +12,11 @@
 #//////////////////////////////////////////////////////////////////////////
 
 interface IERC1155TL:
-    def externalMint(tokenId: uint256, addresses: DynArray[address, 100], amounts: DynArray[uint256, 100]): nonpayable
+    def externalMint(_tokenId: uint256, _addresses: DynArray[address, 100], _amounts: DynArray[uint256, 100]): nonpayable
 
 interface IOwnableAccessControl:
     def owner() -> address: view
-    def hasRole(role: bytes32, operator: address) -> bool: view
+    def hasRole(_role: bytes32, _operator: address) -> bool: view
     
 
 #//////////////////////////////////////////////////////////////////////////
@@ -124,13 +124,13 @@ def __init__(_owner: address):
 #//////////////////////////////////////////////////////////////////////////
 
 @external
-def set_paused(paused: bool):
+def set_paused(_paused: bool):
     if self.owner != msg.sender:
         raise "not authorized"
 
-    self.paused = paused
+    self.paused = _paused
 
-    log Paused(paused)
+    log Paused(_paused)
 
 #//////////////////////////////////////////////////////////////////////////
 #                         Admin Write Function
@@ -274,7 +274,12 @@ def mint(
     drop_phase: DropPhase = self._get_drop_phase(_nft_addr, _token_id)
 
     if drop_phase == DropPhase.PRESALE:
-        leaf: bytes32 = keccak256(concat(convert(msg.sender, bytes32), convert(_allowlist_allocation, bytes32)))
+        leaf: bytes32 = keccak256(
+            concat(
+                convert(msg.sender, bytes32), 
+                convert(_allowlist_allocation, bytes32)
+            )
+        )
         root: bytes32 = self.drops[_nft_addr][_token_id].presale_merkle_root
         
         # Check if user is part of allowlist
