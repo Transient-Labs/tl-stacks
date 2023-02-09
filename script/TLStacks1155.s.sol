@@ -10,19 +10,36 @@ interface IOwnable {
 }
 
 contract TLStacks1155Script is Script {
-    function run() external {
-        VyperDeployer vyperDeployer = new VyperDeployer();
+    function run(address sender, string calldata rpc, address owner) external {
+        // VyperDeployer vyperDeployer = new VyperDeployer();
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast();
 
-        vm.startBroadcast(deployerPrivateKey);
+        string[] memory vyperInput = new string[](2);
+        vyperInput[0] = "vyper";
+        vyperInput[1] = "vyper_contracts/TLStacks1155.vy";
 
-        address stacks1155 = vyperDeployer.deployContract(
-            "TLStacks1155",
-            abi.encode(msg.sender)
-        );
+        bytes memory bytecode = vm.ffi(vyperInput);
 
-        assert(msg.sender == IOwnable(stacks1155).owner());
+        string[] memory input = new string[](9);
+        input[0] = "cast";
+        input[1] = "send";
+        input[2] = "--rpc-url";
+        input[3] = rpc;
+        input[4] = "--from";
+        input[5] = vm.toString(sender);
+        input[6] = "--create";
+        input[7] = vm.toString(bytecode);
+        input[8] = vm.toString(abi.encode(owner));
+
+        vm.ffi(input);
+
+        // address stacks1155 = vyperDeployer.deployContract(
+        //     "TLStacks1155",
+        //     abi.encode(owner)
+        // );
+
+        // assert(owner == IOwnable(stacks1155).owner());
 
         vm.stopBroadcast();
     }
