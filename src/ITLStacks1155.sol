@@ -64,6 +64,7 @@ interface ITLStacks1155 is ITLStacks1155Events {
         address _nft_addr,
         uint256 _token_id,
         uint256 _num_mint,
+        address _receiver,
         bytes32[] calldata _proof,
         uint256 _allowlist_allocation
     ) external payable;

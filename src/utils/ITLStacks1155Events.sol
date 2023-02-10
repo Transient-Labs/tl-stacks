@@ -15,6 +15,7 @@ interface ITLStacks1155Events {
 
     event Purchase(
         address indexed buyer,
+        address indexed receiver,
         address indexed nftContract,
         uint256 tokenId,
         uint256 amount,
