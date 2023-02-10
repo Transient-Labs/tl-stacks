@@ -75,6 +75,7 @@ event DropConfigured:
 
 event Purchase:
     buyer: indexed(address)
+    receiver: indexed(address)
     nft_addr: indexed(address)
     amount: uint256
     price: uint256
@@ -258,6 +259,7 @@ def update_drop_param(
 def mint(
     _nft_addr: address,
     _num_mint: uint256,
+    _receiver: address,
     _proof: DynArray[bytes32, 100],
     _allowlist_allocation: uint256
 ):
@@ -274,7 +276,7 @@ def mint(
     if drop_phase == DropPhase.PRESALE:
         leaf: bytes32 = keccak256(
             concat(
-                convert(msg.sender, bytes32), 
+                convert(_receiver, bytes32), 
                 convert(_allowlist_allocation, bytes32)
             )
         )
@@ -286,6 +288,7 @@ def mint(
 
         mint_num: uint256 = self.determine_mint_num(
             _nft_addr,
+            _receiver,
             _num_mint,
             _allowlist_allocation,
             drop.presale_cost
@@ -293,12 +296,13 @@ def mint(
 
         self._settle_up(
             _nft_addr,
+            _receiver,
             mint_num,
             _num_mint,
             drop.presale_cost
         )
 
-        log Purchase(msg.sender, _nft_addr, mint_num, drop.presale_cost, True)
+        log Purchase(msg.sender, _receiver, _nft_addr, mint_num, drop.presale_cost, True)
 
     elif drop_phase == DropPhase.PUBLIC_SALE:
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
@@ -306,6 +310,7 @@ def mint(
 
         mint_num: uint256 = self.determine_mint_num(
             _nft_addr,
+            _receiver,
             _num_mint,
             drop.allowance,
             drop.public_cost
@@ -322,12 +327,13 @@ def mint(
 
         self._settle_up(
             _nft_addr,
+            _receiver,
             mint_num,
             _num_mint,
             drop.public_cost
         )
 
-        log Purchase(msg.sender, _nft_addr, mint_num, drop.public_cost, False)
+        log Purchase(msg.sender, _receiver, _nft_addr, mint_num, drop.public_cost, False)
 
     else:
         raise "you shall not mint"
@@ -405,6 +411,7 @@ def verify_proof(_proof: DynArray[bytes32, 100], _root: bytes32, _leaf: bytes32)
 @payable
 def determine_mint_num(
     _nft_addr: address,
+    _receiver: address,
     _num_mint: uint256,
     _allowance: uint256,
     _cost: uint256
@@ -412,7 +419,7 @@ def determine_mint_num(
     drop: Drop = self.drops[_nft_addr]
 
     drop_round: uint256 = self.drop_round[_nft_addr]
-    curr_minted: uint256 = self.num_minted[_nft_addr][drop_round][msg.sender]
+    curr_minted: uint256 = self.num_minted[_nft_addr][drop_round][_receiver]
 
     mint_num: uint256 = _num_mint
 
@@ -429,7 +436,7 @@ def determine_mint_num(
         raise "not enough funds sent"
 
     self.drops[_nft_addr].supply -= mint_num
-    self.num_minted[_nft_addr][drop_round][msg.sender] += mint_num
+    self.num_minted[_nft_addr][drop_round][_receiver] += mint_num
 
     return mint_num
 
@@ -437,6 +444,7 @@ def determine_mint_num(
 @payable
 def _settle_up(
     _nft_addr: address,
+    _receiver: address,
     _mint_num: uint256,
     _num_mint: uint256,
     _cost: uint256
@@ -459,7 +467,7 @@ def _settle_up(
         if i == _mint_num:
             break
         IERC721TL(_nft_addr).externalMint(
-            msg.sender, 
+            _receiver,
             concat(drop.base_uri, uint2str(token_id_counter))
         )
         token_id_counter += 1
