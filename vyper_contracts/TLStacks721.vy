@@ -159,7 +159,7 @@ def configure_drop(
         raise "start time cannot be 0"
 
     # Make sure the sender is the owner or admin on the contract
-    if not self.is_drop_admin(_nft_addr, msg.sender):
+    if not self._is_drop_admin(_nft_addr, msg.sender):
         raise "not authorized"
 
     drop: Drop = self.drops[_nft_addr]
@@ -202,7 +202,7 @@ def close_drop(
     if self.paused:
         raise "contract is paused"
         
-    if not self.is_drop_admin(_nft_addr, msg.sender):
+    if not self._is_drop_admin(_nft_addr, msg.sender):
         raise "unauthorized"
     
     self.drops[_nft_addr] = empty(Drop)
@@ -217,7 +217,7 @@ def update_drop_param(
     _param: DropParam, 
     _param_value: bytes32
 ):
-    if not self.is_drop_admin(_nft_addr, msg.sender):
+    if not self._is_drop_admin(_nft_addr, msg.sender):
         raise "unauthorized"
 
     if _phase == DropPhase.PRESALE:
@@ -283,10 +283,10 @@ def mint(
         root: bytes32 = self.drops[_nft_addr].presale_merkle_root
         
         # Check if user is part of allowlist
-        if not self.verify_proof(_proof, root, leaf):
+        if not self._verify_proof(_proof, root, leaf):
             raise "not part of allowlist"
 
-        mint_num: uint256 = self.determine_mint_num(
+        mint_num: uint256 = self._determine_mint_num(
             _nft_addr,
             _receiver,
             _num_mint,
@@ -308,7 +308,7 @@ def mint(
         if block.timestamp > drop.start_time + drop.presale_duration + drop.public_duration:
             raise "public sale is no more"
 
-        mint_num: uint256 = self.determine_mint_num(
+        mint_num: uint256 = self._determine_mint_num(
             _nft_addr,
             _receiver,
             _num_mint,
@@ -369,7 +369,7 @@ def is_paused() -> bool:
 
 @view
 @internal
-def is_drop_admin(_nft_addr: address, _operator: address) -> bool:
+def _is_drop_admin(_nft_addr: address, _operator: address) -> bool:
     return IOwnableAccessControl(_nft_addr).owner() == _operator \
         or IOwnableAccessControl(_nft_addr).hasRole(ADMIN_ROLE, _operator)
 
@@ -398,7 +398,7 @@ def _get_drop_phase(_nft_addr: address) -> DropPhase:
 
 @pure
 @internal
-def verify_proof(_proof: DynArray[bytes32, 100], _root: bytes32, _leaf: bytes32) -> bool:
+def _verify_proof(_proof: DynArray[bytes32, 100], _root: bytes32, _leaf: bytes32) -> bool:
     computed_hash: bytes32 = _leaf
     for p in _proof:
         if convert(computed_hash, uint256) < convert(p, uint256):
@@ -409,7 +409,7 @@ def verify_proof(_proof: DynArray[bytes32, 100], _root: bytes32, _leaf: bytes32)
 
 @internal
 @payable
-def determine_mint_num(
+def _determine_mint_num(
     _nft_addr: address,
     _receiver: address,
     _num_mint: uint256,
