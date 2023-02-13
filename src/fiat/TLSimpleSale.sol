@@ -29,6 +29,8 @@ contract TLSimpleSale is ReentrancyGuardUpgradeable {
         uint256 _providedAmt
     );
 
+    error WrongCurrency();
+
     /*//////////////////////////////////////////////////////////////////////////
                                 State Variables
     //////////////////////////////////////////////////////////////////////////*/
@@ -87,6 +89,8 @@ contract TLSimpleSale is ReentrancyGuardUpgradeable {
                 );
             }
         } else {
+            if (msg.value != 0) revert WrongCurrency();
+
             IERC20Upgradeable erc20 = IERC20Upgradeable(currencyAddress);
             if (
                 erc20.allowance(msg.sender, address(this)) < _qty * cost ||
