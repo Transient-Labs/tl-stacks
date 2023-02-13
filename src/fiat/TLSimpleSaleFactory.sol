@@ -30,8 +30,10 @@ contract TLSimpleSaleFactory is OwnableAccessControl {
                                 Constructor
     //////////////////////////////////////////////////////////////////////////*/
 
-    constructor() {
+    /// @param _initOwner: Initial Owner of factory
+    constructor(address _initOwner) {
         simpleSaleTemplate = address(new TLSimpleSale(true));
+        _transferOwnership(_initOwner);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
