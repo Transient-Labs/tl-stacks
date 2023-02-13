@@ -4,7 +4,6 @@ pragma solidity 0.8.17;
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
 import {TLSimpleSale} from "tl-stacks/fiat/TLSimpleSale.sol";
 import {ClonesUpgradeable} from "openzeppelin-upgradeable/proxy/ClonesUpgradeable.sol";
-import {Initializable} from "openzeppelin-upgradeable/proxy/utils/Initializable.sol";
 
 /*
     ____        _ __    __   ____  _ ________                     __ 
@@ -16,7 +15,7 @@ import {Initializable} from "openzeppelin-upgradeable/proxy/utils/Initializable.
 /// @title TLSimpleSale.sol
 /// @notice Transient Labs Contract for a Simple Sale Factory
 /// @author transientlabs.xyz
-contract TLSimpleSaleFactory is OwnableAccessControl, Initializable {
+contract TLSimpleSaleFactory is OwnableAccessControl {
     /*//////////////////////////////////////////////////////////////////////////
                                     Errors
     //////////////////////////////////////////////////////////////////////////*/
@@ -31,9 +30,8 @@ contract TLSimpleSaleFactory is OwnableAccessControl, Initializable {
                                 Constructor
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @param _disable: boolean to disable initialization for the implementation contract
-    constructor(bool _disable) {
-        if (_disable) _disableInitializers();
+    constructor() {
+        simpleSaleTemplate = address(new TLSimpleSale(true));
     }
 
     /*//////////////////////////////////////////////////////////////////////////
