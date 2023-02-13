@@ -8,3 +8,6 @@
 [submodule "lib/tl-core-contracts"]
 	path = lib/tl-core-contracts
 	url = https://github.com/Transient-Labs/tl-core-contracts
+[submodule "lib/murky"]
+	path = lib/murky
+	url = https://github.com/dmfxyz/murky
