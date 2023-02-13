@@ -4,3 +4,5 @@ utils/=lib/utils/
 tl-core/=lib/tl-core-contracts/src/
 tl-stacks/=src/
 murky/=lib/murky/src/
+tl-sol-tools/=lib/tl-sol-tools/src/
+openzeppelin-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
