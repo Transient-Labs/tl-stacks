@@ -298,7 +298,6 @@ def mint(
             _nft_addr,
             _receiver,
             mint_num,
-            _num_mint,
             drop.presale_cost
         )
 
@@ -329,7 +328,6 @@ def mint(
             _nft_addr,
             _receiver,
             mint_num,
-            _num_mint,
             drop.public_cost
         )
 
@@ -446,18 +444,16 @@ def _settle_up(
     _nft_addr: address,
     _receiver: address,
     _mint_num: uint256,
-    _num_mint: uint256,
     _cost: uint256
 ):
     drop: Drop = self.drops[_nft_addr]
 
-    if _mint_num != _num_mint:
-        diff: uint256 = _num_mint - _mint_num
+    if msg.value > _mint_num * _cost:
         raw_call(
             msg.sender,
             _abi_encode(""),
             max_outsize=0,
-            value=diff * _cost,
+            value=msg.value - (_mint_num * _cost),
             revert_on_failure=True
         )
     

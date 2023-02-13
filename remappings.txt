@@ -3,3 +3,4 @@ forge-std/=lib/forge-std/src/
 utils/=lib/utils/
 tl-core/=lib/tl-core-contracts/src/
 tl-stacks/=src/
+murky/=lib/murky/src/

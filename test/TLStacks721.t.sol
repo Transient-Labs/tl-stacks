@@ -3,6 +3,7 @@ pragma solidity 0.8.17;
 
 import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
+import {Merkle} from "murky/Merkle.sol";
 
 import {ITLStacks721, Drop} from "tl-stacks/ITLStacks721.sol";
 import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
@@ -609,5 +610,104 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         uint256 endTime = block.timestamp;
 
         assert(endTime - startTime < 30 minutes);
+    }
+
+    function test_open_edition_presale() public {
+        bytes32[] memory emptyProof;
+
+        Merkle m = new Merkle();
+        bytes32[] memory data = new bytes32[](4);
+        data[0] = keccak256(abi.encode(alice, uint256(1)));
+        data[1] = keccak256(abi.encode(bob, uint256(3)));
+        data[2] = keccak256(abi.encode(charles, uint256(4)));
+        data[3] = keccak256(abi.encode(david, uint256(5)));
+        bytes32 root = m.getRoot(data);
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.NOT_CONFIGURED
+        );
+
+        Drop memory drop = setup_open_edition_mint(
+            block.timestamp + 300,
+            500,
+            false,
+            root,
+            1 days
+        );
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.BEFORE_SALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectRevert("you shall not mint");
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        vm.warp(drop.start_time + 1);
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) == DropPhase.PRESALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, bob, address(nft), 1, .01 ether, true);
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            m.getProof(data, 1),
+            3
+        );
+        vm.stopPrank();
+
+        vm.warp(drop.start_time + drop.presale_duration + 1);
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.PUBLIC_SALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectRevert("not enough funds sent");
+        mintingContract.mint(address(nft), 1, bob, emptyProof, 0);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        assert(bob.balance == 100 ether - 0.03 ether);
+        assert(alice.balance == 100 ether + 0.03 ether);
+        assert(nft.balanceOf(bob) == 2);
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
+        mintingContract.mint{value: 0.06 ether}(
+            address(nft),
+            3,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
     }
 }
