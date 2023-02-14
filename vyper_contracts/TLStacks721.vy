@@ -347,7 +347,7 @@ def get_drop(_nft_addr: address) -> Drop:
 
 @view
 @external
-def get_num_minted(_nft_addr: address, _token_id: uint256, _user: address) -> uint256:
+def get_num_minted(_nft_addr: address, _user: address) -> uint256:
     round_id: uint256 = self.drop_round[_nft_addr]
     return self.num_minted[_nft_addr][round_id][_user]
 
