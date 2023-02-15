@@ -464,7 +464,7 @@ def _settle_up(
     if msg.value > _mint_num * _cost:
         raw_call(
             msg.sender,
-            _abi_encode(""),
+            b"",
             max_outsize=0,
             value=msg.value - (_mint_num * _cost),
             revert_on_failure=True
@@ -477,7 +477,7 @@ def _settle_up(
 
     raw_call(
         _payout_receiver,
-        _abi_encode(""),
+        b"",
         max_outsize=0,
         value=_mint_num * _cost,
         revert_on_failure=True
