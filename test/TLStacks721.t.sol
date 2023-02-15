@@ -11,6 +11,14 @@ import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
 import {ERC721TL} from "tl-core/ERC721TL.sol";
 
+contract Receiver {
+    fallback() external {
+        revert();
+    }
+
+    receive() external payable {}
+}
+
 contract TLStacks721Test is Test, ITLStacks721Events {
     VyperDeployer vyperDeployer = new VyperDeployer();
 
@@ -76,6 +84,37 @@ contract TLStacks721Test is Test, ITLStacks721Events {
             0,
             5,
             alice,
+            _startTime,
+            _presaleDuration,
+            .01 ether,
+            _presaleRoot,
+            _publicDuration,
+            .02 ether
+        );
+
+        if (_warpToPublicSale) {
+            vm.warp(_startTime + _presaleDuration);
+        }
+
+        return mintingContract.get_drop(address(nft));
+    }
+
+    function setup_open_edition_mint_with_receiver(
+        uint256 _startTime,
+        uint256 _presaleDuration,
+        bool _warpToPublicSale,
+        bytes32 _presaleRoot,
+        uint256 _publicDuration,
+        address _receiver
+    ) internal returns (Drop memory) {
+        vm.prank(alice);
+        mintingContract.configure_drop(
+            address(nft),
+            "testBaseUri/",
+            type(uint256).max,
+            0,
+            5,
+            _receiver,
             _startTime,
             _presaleDuration,
             .01 ether,
@@ -709,5 +748,44 @@ contract TLStacks721Test is Test, ITLStacks721Events {
             0
         );
         vm.stopPrank();
+    }
+
+    function test_open_edition_with_contract_payout() public {
+        bytes32[] memory emptyProof;
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.NOT_CONFIGURED
+        );
+
+        address receiver = address(new Receiver());
+
+        Drop memory drop = setup_open_edition_mint_with_receiver(
+            block.timestamp + 300,
+            0,
+            false,
+            bytes32(0),
+            1 days,
+            receiver
+        );
+
+        vm.warp(drop.start_time + drop.presale_duration + 1);
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        assert(bob.balance == 100 ether - 0.02 ether);
+        assert(receiver.balance == 0.02 ether);
+        assert(nft.balanceOf(bob) == 1);
+
     }
 }
