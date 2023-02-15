@@ -1,5 +1,5 @@
 # @version 0.3.7
-# SPDX-License-Identifier: Apache-2.0
+# @license Apache-2.0
 
 #    ____        _ __    __   ____  _ ________                     __ 
 #   / __ )__  __(_) /___/ /  / __ \(_) __/ __/__  ________  ____  / /_
