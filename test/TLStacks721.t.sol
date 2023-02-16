@@ -788,4 +788,113 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         assert(nft.balanceOf(bob) == 1);
 
     }
+
+    function test_marathon_mint() public {
+        bytes32[] memory emptyProof;
+
+        uint256 startTime = block.timestamp;
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.NOT_CONFIGURED
+        );
+
+        Drop memory drop = setup_velocity_mint(
+            block.timestamp + 300,
+            0,
+            false,
+            bytes32(0),
+            30 minutes,
+            5 minutes
+        );
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.BEFORE_SALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectRevert("you shall not mint");
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        vm.warp(drop.start_time + drop.presale_duration + 1);
+
+        assert(drop.public_duration == 30 minutes);
+
+        assert(
+            mintingContract.get_drop_phase(address(nft)) ==
+                DropPhase.PUBLIC_SALE
+        );
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        mintingContract.mint{value: 0.02 ether}(
+            address(nft),
+            1,
+            bob,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        drop = mintingContract.get_drop(address(nft));
+
+        assert(bob.balance == 100 ether - 0.02 ether);
+        assert(alice.balance == 100 ether + 0.02 ether);
+        assert(nft.balanceOf(bob) == 1);
+        assert(drop.public_duration == 35 minutes);
+
+        vm.startPrank(charles);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
+        mintingContract.mint{value: 0.06 ether}(
+            address(nft),
+            3,
+            charles,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        drop = mintingContract.get_drop(address(nft));
+
+        assert(charles.balance == 100 ether - 0.06 ether);
+        assert(alice.balance == 100 ether + 0.08 ether);
+        assert(nft.balanceOf(bob) == 1);
+        assert(nft.balanceOf(charles) == 3);
+        assert(drop.public_duration == 50 minutes);
+
+        vm.startPrank(david);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(david, david, address(nft), 2, .02 ether, false);
+        mintingContract.mint{value: 0.04 ether}(
+            address(nft),
+            2,
+            david,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        drop = mintingContract.get_drop(address(nft));
+
+        assert(david.balance == 100 ether - 0.04 ether);
+        assert(alice.balance == 100 ether + 0.12 ether);
+        assert(nft.balanceOf(bob) == 1);
+        assert(nft.balanceOf(charles) == 3);
+        assert(nft.balanceOf(david) == 2);
+        assert(drop.public_duration == 60 minutes);
+
+        uint256 endTime = drop.start_time + drop.presale_duration + drop.public_duration;
+
+        assert(endTime - startTime > 30 minutes);
+    }
 }
