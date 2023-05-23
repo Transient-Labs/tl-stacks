@@ -9,7 +9,7 @@ import {ITLStacks1155, Drop} from "tl-stacks/ITLStacks1155.sol";
 import {ITLStacks1155Events} from "tl-stacks/utils/ITLStacks1155Events.sol";
 import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
-import {ERC1155TL} from "tl-core/ERC1155TL.sol";
+import {ERC1155TL} from "tl-core/core/ERC1155TL.sol";
 
 contract TLStacks1155Test is Test, ITLStacks1155Events {
     VyperDeployer vyperDeployer = new VyperDeployer();
