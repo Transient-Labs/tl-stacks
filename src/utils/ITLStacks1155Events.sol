@@ -1,12 +1,7 @@
-// SPDX-License-Identifier: Apache-2.0
-pragma solidity 0.8.17;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.19;
 
 interface ITLStacks1155Events {
-    event OwnershipTransferred(
-        address indexed previousOwner,
-        address indexed newOwner
-    );
-
     event DropConfigured(
         address indexed configurer,
         address indexed nftContract,

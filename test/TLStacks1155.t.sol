@@ -1,20 +1,16 @@
-// SPDX-License-Identifier: Apache-2.0
-pragma solidity 0.8.17;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.19;
 
 import {Test} from "forge-std/Test.sol";
-import {VyperDeployer} from "utils/VyperDeployer.sol";
 import {Merkle} from "murky/Merkle.sol";
 
-import {ITLStacks1155, Drop} from "tl-stacks/ITLStacks1155.sol";
+import {TLStacks1155, Drop, ITLStacks1155} from "tl-stacks/TLStacks1155.sol";
 import {ITLStacks1155Events} from "tl-stacks/utils/ITLStacks1155Events.sol";
-import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
 import {ERC1155TL} from "tl-core/core/ERC1155TL.sol";
 
 contract TLStacks1155Test is Test, ITLStacks1155Events {
-    VyperDeployer vyperDeployer = new VyperDeployer();
-
-    ITLStacks1155 mintingContract;
+    TLStacks1155 mintingContract;
     ERC1155TL nft;
 
     address mintingOwner = address(0xdead);
@@ -25,12 +21,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
     address david = address(0xcdb);
 
     function setUp() public {
-        mintingContract = ITLStacks1155(
-            vyperDeployer.deployContract(
-                "TLStacks1155",
-                abi.encode(mintingOwner)
-            )
-        );
+        mintingContract = new TLStacks1155(false);
+        mintingContract.initialize(mintingOwner);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
@@ -68,10 +60,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         uint256 _presaleDuration,
         bool _warpToPublicSale,
         bytes32 _presaleRoot,
-        uint256 _publicDuration
+        uint256 _publicDuration,
+        address _currencyAddr
     ) internal returns (Drop memory) {
         vm.prank(alice);
-        mintingContract.configure_drop(
+        mintingContract.configureDrop(
             address(nft),
             1,
             type(uint256).max,
@@ -80,6 +73,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             alice,
             _startTime,
             _presaleDuration,
+            _currencyAddr,
             .01 ether,
             _presaleRoot,
             _publicDuration,
@@ -90,7 +84,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             vm.warp(_startTime + _presaleDuration);
         }
 
-        return mintingContract.get_drop(address(nft), 1);
+        return mintingContract.getDrop(address(nft), 1);
     }
 
     function setup_limited_edition_mint(
@@ -99,10 +93,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bool _warpToPublicSale,
         bytes32 _presaleRoot,
         uint256 _publicDuration,
-        uint256 _supply
+        uint256 _supply,
+        address _currencyAddr
     ) internal returns (Drop memory) {
         vm.prank(alice);
-        mintingContract.configure_drop(
+        mintingContract.configureDrop(
             address(nft),
             1,
             _supply,
@@ -111,6 +106,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             alice,
             _startTime,
             _presaleDuration,
+            _currencyAddr,
             .01 ether,
             _presaleRoot,
             _publicDuration,
@@ -121,7 +117,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             vm.warp(_startTime + _presaleDuration);
         }
 
-        return mintingContract.get_drop(address(nft), 1);
+        return mintingContract.getDrop(address(nft), 1);
     }
 
     function setup_velocity_mint(
@@ -130,10 +126,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bool _warpToPublicSale,
         bytes32 _presaleRoot,
         uint256 _publicDuration,
-        int256 _decay_rate
+        int256 _decay_rate,
+        address _currencyAddr
     ) internal returns (Drop memory) {
         vm.prank(alice);
-        mintingContract.configure_drop(
+        mintingContract.configureDrop(
             address(nft),
             1,
             type(uint256).max,
@@ -142,6 +139,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             alice,
             _startTime,
             _presaleDuration,
+            _currencyAddr,
             .01 ether,
             _presaleRoot,
             _publicDuration,
@@ -152,7 +150,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             vm.warp(_startTime + _presaleDuration);
         }
 
-        return mintingContract.get_drop(address(nft), 1);
+        return mintingContract.getDrop(address(nft), 1);
     }
 
     function test_init() public view {
@@ -175,8 +173,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bytes32[] memory emptyProof;
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_open_edition_mint(
@@ -184,12 +182,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             0,
             false,
             bytes32(0),
-            1 days
+            1 days,
+            address(0)
         );
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.BEFORE_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.BEFORE_SALE
         );
 
         vm.startPrank(bob);
@@ -204,11 +203,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PUBLIC_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PUBLIC_SALE
         );
 
         vm.startPrank(bob);
@@ -280,7 +279,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         vm.stopPrank();
 
         vm.warp(
-            drop.start_time + drop.presale_duration + drop.public_duration + 1
+            drop.startTime + drop.presaleDuration + drop.publicDuration + 1
         );
 
         vm.startPrank(bob);
@@ -296,7 +295,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         vm.stopPrank();
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) == DropPhase.ENDED
+            mintingContract.getDropPhase(address(nft), 1) == ITLStacks1155.DropPhase.ENDED
         );
     }
 
@@ -304,8 +303,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bytes32[] memory emptyProof;
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_open_edition_mint(
@@ -313,10 +312,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             0,
             false,
             bytes32(0),
-            1 days
+            1 days,
+            address(0)
         );
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
@@ -341,8 +341,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bytes32[] memory emptyProof;
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_limited_edition_mint(
@@ -351,19 +351,20 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             false,
             bytes32(0),
             1 days,
-            9
+            9,
+            address(0)
         );
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.BEFORE_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.BEFORE_SALE
         );
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PUBLIC_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PUBLIC_SALE
         );
 
         vm.startPrank(bob);
@@ -379,7 +380,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(bob.balance == 100 ether - 0.1 ether);
         assert(alice.balance == 100 ether + 0.1 ether);
@@ -399,7 +400,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(charles.balance == 100 ether - 0.08 ether);
         assert(nft.balanceOf(charles, 1) == 4);
@@ -418,7 +419,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         vm.stopPrank();
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) == DropPhase.ENDED
+            mintingContract.getDropPhase(address(nft), 1) == ITLStacks1155.DropPhase.ENDED
         );
     }
 
@@ -426,8 +427,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         bytes32[] memory emptyProof;
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_limited_edition_mint(
@@ -436,19 +437,20 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             false,
             bytes32(0),
             1 days,
-            9
+            9,
+            address(0)
         );
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.BEFORE_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.BEFORE_SALE
         );
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PUBLIC_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PUBLIC_SALE
         );
 
         vm.startPrank(bob);
@@ -464,7 +466,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(bob.balance == 100 ether - 0.06 ether);
         assert(alice.balance == 100 ether + 0.06 ether);
@@ -484,14 +486,14 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(charles.balance == 100 ether - 0.06 ether);
         assert(nft.balanceOf(charles, 1) == 3);
         assert(drop.supply == 3);
 
         vm.warp(
-            drop.start_time + drop.presale_duration + drop.public_duration + 1
+            drop.startTime + drop.presaleDuration + drop.publicDuration + 1
         );
 
         vm.startPrank(bob);
@@ -507,7 +509,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         vm.stopPrank();
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) == DropPhase.ENDED
+            mintingContract.getDropPhase(address(nft), 1) == ITLStacks1155.DropPhase.ENDED
         );
     }
 
@@ -517,8 +519,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         uint256 startTime = block.timestamp;
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_velocity_mint(
@@ -527,12 +529,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             false,
             bytes32(0),
             30 minutes,
-            -5 minutes
+            -5 minutes,
+            address(0)
         );
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.BEFORE_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.BEFORE_SALE
         );
 
         vm.startPrank(bob);
@@ -547,13 +550,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
-        assert(drop.public_duration == 30 minutes);
+        assert(drop.publicDuration == 30 minutes);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PUBLIC_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PUBLIC_SALE
         );
 
         vm.startPrank(bob);
@@ -569,12 +572,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(bob.balance == 100 ether - 0.02 ether);
         assert(alice.balance == 100 ether + 0.02 ether);
         assert(nft.balanceOf(bob, 1) == 1);
-        assert(drop.public_duration == 25 minutes);
+        assert(drop.publicDuration == 25 minutes);
 
         vm.startPrank(charles);
         vm.expectEmit(true, true, false, true);
@@ -589,13 +592,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(charles.balance == 100 ether - 0.06 ether);
         assert(alice.balance == 100 ether + 0.08 ether);
         assert(nft.balanceOf(bob, 1) == 1);
         assert(nft.balanceOf(charles, 1) == 3);
-        assert(drop.public_duration == 10 minutes);
+        assert(drop.publicDuration == 10 minutes);
 
         vm.startPrank(david);
         vm.expectEmit(true, true, false, true);
@@ -610,14 +613,14 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft), 1);
+        drop = mintingContract.getDrop(address(nft), 1);
 
         assert(david.balance == 100 ether - 0.04 ether);
         assert(alice.balance == 100 ether + 0.12 ether);
         assert(nft.balanceOf(bob, 1) == 1);
         assert(nft.balanceOf(charles, 1) == 3);
         assert(nft.balanceOf(david, 1) == 2);
-        assert(drop.public_duration == 0);
+        assert(drop.publicDuration == 0);
 
         vm.startPrank(bob);
         vm.expectRevert("you shall not mint");
@@ -632,8 +635,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         vm.stopPrank();
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.ENDED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.ENDED
         );
 
         uint256 endTime = block.timestamp;
@@ -646,15 +649,15 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
 
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(alice, uint256(1)));
-        data[1] = keccak256(abi.encode(bob, uint256(3)));
-        data[2] = keccak256(abi.encode(charles, uint256(4)));
-        data[3] = keccak256(abi.encode(david, uint256(5)));
+        data[0] = keccak256(abi.encodePacked(alice, uint256(1)));
+        data[1] = keccak256(abi.encodePacked(bob, uint256(3)));
+        data[2] = keccak256(abi.encodePacked(charles, uint256(4)));
+        data[3] = keccak256(abi.encodePacked(david, uint256(5)));
         bytes32 root = m.getRoot(data);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.NOT_CONFIGURED
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.NOT_CONFIGURED
         );
 
         Drop memory drop = setup_open_edition_mint(
@@ -662,12 +665,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
             500,
             false,
             root,
-            1 days
+            1 days,
+            address(0)
         );
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.BEFORE_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.BEFORE_SALE
         );
 
         vm.startPrank(bob);
@@ -682,11 +686,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        vm.warp(drop.start_time + 1);
+        vm.warp(drop.startTime + 1);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PRESALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PRESALE
         );
 
         vm.startPrank(bob);
@@ -702,11 +706,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events {
         );
         vm.stopPrank();
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
 
         assert(
-            mintingContract.get_drop_phase(address(nft), 1) ==
-                DropPhase.PUBLIC_SALE
+            mintingContract.getDropPhase(address(nft), 1) ==
+                ITLStacks1155.DropPhase.PUBLIC_SALE
         );
 
         vm.startPrank(bob);

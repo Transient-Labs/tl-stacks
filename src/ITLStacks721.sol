@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: Apache-2.0
-pragma solidity 0.8.17;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.19;
 
 import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
 
@@ -7,62 +7,79 @@ struct Drop {
     string baseUri;
     uint256 initialSupply;
     uint256 supply;
-    int256 decay_rate;
+    int256 decayRate;
     uint256 allowance;
-    address payout_receiver;
-    uint256 start_time;
-    uint256 presale_duration;
-    uint256 presale_cost;
-    bytes32 presale_merkle_root;
-    uint256 public_duration;
-    uint256 public_cost;
+    address payoutReceiver;
+    uint256 startTime;
+    uint256 presaleDuration;
+    address currencyAddr;
+    uint256 presaleCost;
+    bytes32 presaleMerkleRoot;
+    uint256 publicDuration;
+    uint256 publicCost;
 }
 
 interface ITLStacks721 is ITLStacks721Events {
-    function set_paused(bool paused) external;
+    enum DropPhase {
+        NOT_CONFIGURED,
+        BEFORE_SALE,
+        PRESALE,
+        PUBLIC_SALE,
+        ENDED
+    }
 
-    function configure_drop(
-        address _nft_addr,
-        string calldata _base_uri,
+    enum DropParam {
+        MERKLE_ROOT,
+        ALLOWANCE,
+        COST,
+        CURRENCY_ADDRESS,
+        DURATION,
+        PAYOUT_ADDRESS
+    }
+    
+    function setPaused(bool paused) external;
+
+    function configureDrop(
+        address _nftAddr,
+        string calldata _baseUri,
         uint256 _supply,
-        int256 _decay_rate,
+        int256 _decayRate,
         uint256 _allowance,
-        address _payout_receiver,
-        uint256 _start_time,
-        uint256 _presale_duration,
-        uint256 _presale_cost,
-        bytes32 _presale_merkle_root,
-        uint256 _public_duration,
-        uint256 _public_cost
+        address _payoutReceiver,
+        uint256 _startTime,
+        uint256 _presaleDuration,
+        address _currencyAddr,
+        uint256 _presaleCost,
+        bytes32 _presaleMerkleRoot,
+        uint256 _publicDuration,
+        uint256 _publicCost
     ) external;
 
-    function close_drop(address _nft_addr) external;
+    function closeDrop(address _nftAddr) external;
 
-    function update_drop_param(
-        address _nft_addr,
-        uint256 _phase,
-        uint256 _param,
-        bytes32 _param_value
+    function updateDropParam(
+        address _nftAddr,
+        DropPhase _phase,
+        DropParam _param,
+        bytes32 _paramValue
     ) external;
 
     function mint(
-        address _nft_addr,
-        uint256 _num_mint,
+        address _nftAddr,
+        uint256 _numMint,
         address _receiver,
         bytes32[] calldata _proof,
-        uint256 _allowlist_allocation
+        uint256 _allowlistAllocation
     ) external payable;
 
-    function get_drop(address _nft_addr) external view returns (Drop memory);
+    function getDrop(address _nftAddr) external view returns (Drop memory);
 
-    function get_num_minted(address _nft_addr, address _user)
+    function getNumMinted(address _nftAddr, address _user)
         external
         view
         returns (uint256);
 
-    function get_drop_phase(address _nft_addr) external view returns (uint256);
+    function getDropPhase(address _nftAddr) external view returns (DropPhase);
 
-    function is_paused() external view returns (bool);
-
-    function owner() external view returns (address);
+    function isPaused() external view returns (bool);
 }
