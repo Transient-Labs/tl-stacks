@@ -5,6 +5,7 @@ interface ITLStacks1155Events {
     event DropConfigured(
         address indexed configurer,
         address indexed nftContract,
+        address currencyAddr,
         uint256 tokenId
     );
 
@@ -12,6 +13,7 @@ interface ITLStacks1155Events {
         address indexed buyer,
         address indexed receiver,
         address indexed nftContract,
+        address currencyAddr,
         uint256 tokenId,
         uint256 amount,
         uint256 price,
@@ -24,7 +26,7 @@ interface ITLStacks1155Events {
         uint256 tokenId
     );
 
-    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
+    event DropUpdated(address nftContract, uint256 tokenId, uint256 dropPhase, uint256 dropParam, bytes32 value);
 
     event Paused(bool newStatus);
 }

@@ -9,6 +9,8 @@ import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
 
 import {ERC721TL} from "tl-core/core/ERC721TL.sol";
 
+import {ERC20PresetMinterPauserUpgradeable} from "openzeppelin-upgradeable/token/ERC20/presets/ERC20PresetMinterPauserUpgradeable.sol";
+
 contract Receiver {
     fallback() external {
         revert();
@@ -20,6 +22,7 @@ contract Receiver {
 contract TLStacks721Test is Test, ITLStacks721Events {
     TLStacks721 mintingContract;
     ERC721TL nft;
+    ERC20PresetMinterPauserUpgradeable erc20;
 
     address mintingOwner = address(0xdead);
 
@@ -52,12 +55,30 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(alice);
         nft.setApprovedMintContracts(mintAddrs, true);
+        erc20 = new ERC20PresetMinterPauserUpgradeable();
+        erc20.initialize("money", "MONEY");
+        erc20.mint(alice, 10000 * 10**18);
+        erc20.transfer(bob, 2000 * 10**18);
+        erc20.transfer(charles, 2000 * 10**18);
+        erc20.transfer(david, 2000 * 10**18);
         vm.stopPrank();
 
         vm.deal(alice, 100 ether);
         vm.deal(bob, 100 ether);
         vm.deal(charles, 100 ether);
         vm.deal(david, 100 ether);
+
+        vm.prank(alice);
+        erc20.approve(address(mintingContract), type(uint256).max);
+
+        vm.prank(bob);
+        erc20.approve(address(mintingContract), type(uint256).max);
+
+        vm.prank(charles);
+        erc20.approve(address(mintingContract), type(uint256).max);
+
+        vm.prank(david);
+        erc20.approve(address(mintingContract), type(uint256).max);
     }
 
     function setup_open_edition_mint(
@@ -254,7 +275,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -270,7 +291,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -286,7 +307,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.04 ether}(
             address(nft),
             2,
@@ -350,7 +371,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, charles, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, charles, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -398,7 +419,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 5, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 5, .02 ether, false);
         mintingContract.mint{value: 0.1 ether}(
             address(nft),
             5,
@@ -417,7 +438,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(charles);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 4, .02 ether, false);
+        emit Purchase(charles, charles, address(nft), address(0), 4, .02 ether, false);
         mintingContract.mint{value: 0.1 ether}(
             address(nft),
             5,
@@ -479,7 +500,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -498,7 +519,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(charles);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
+        emit Purchase(charles, charles, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -579,7 +600,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -598,7 +619,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(charles);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
+        emit Purchase(charles, charles, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -618,7 +639,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(david);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(david, david, address(nft), 2, .02 ether, false);
+        emit Purchase(david, david, address(nft), address(0), 2, .02 ether, false);
         mintingContract.mint{value: 0.04 ether}(
             address(nft),
             2,
@@ -704,7 +725,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .01 ether, true);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .01 ether, true);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -728,7 +749,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -744,7 +765,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -779,7 +800,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -842,7 +863,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(bob);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
+        emit Purchase(bob, bob, address(nft), address(0), 1, .02 ether, false);
         mintingContract.mint{value: 0.02 ether}(
             address(nft),
             1,
@@ -861,7 +882,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(charles);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
+        emit Purchase(charles, charles, address(nft), address(0), 3, .02 ether, false);
         mintingContract.mint{value: 0.06 ether}(
             address(nft),
             3,
@@ -881,7 +902,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(david);
         vm.expectEmit(true, true, false, true);
-        emit Purchase(david, david, address(nft), 2, .02 ether, false);
+        emit Purchase(david, david, address(nft), address(0), 2, .02 ether, false);
         mintingContract.mint{value: 0.04 ether}(
             address(nft),
             2,
@@ -903,5 +924,42 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         uint256 endTime = drop.startTime + drop.presaleDuration + drop.publicDuration;
 
         assert(endTime - startTime > 30 minutes);
+    }
+
+    function test_open_edition_no_presale_erc20() public {
+        bytes32[] memory emptyProof;
+
+        assert(
+            mintingContract.getDropPhase(address(nft)) ==
+                ITLStacks721.DropPhase.NOT_CONFIGURED
+        );
+
+        Drop memory drop = setup_open_edition_mint(
+            block.timestamp + 300,
+            0,
+            false,
+            bytes32(0),
+            1 days,
+            address(erc20)
+        );
+
+        vm.warp(drop.startTime + drop.presaleDuration + 1);
+
+        vm.startPrank(bob);
+        vm.expectEmit(true, true, false, true);
+        emit Purchase(bob, charles, address(nft), address(erc20), 1, .02 ether, false);
+        mintingContract.mint(
+            address(nft),
+            1,
+            charles,
+            emptyProof,
+            0
+        );
+        vm.stopPrank();
+
+        assert(erc20.balanceOf(bob) == 1999980000000000000000);
+        assert(erc20.balanceOf(alice) == 4000020000000000000000);
+        assert(nft.balanceOf(bob) == 0);
+        assert(nft.balanceOf(charles) == 1);
     }
 }

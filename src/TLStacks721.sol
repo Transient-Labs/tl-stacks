@@ -105,7 +105,7 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
 
 		drops[_nftAddr] = drop;
 
-		emit DropConfigured(msg.sender, _nftAddr);
+		emit DropConfigured(msg.sender, _nftAddr, _currencyAddr);
 	}
 
 	function closeDrop(address _nftAddr) external {
@@ -156,7 +156,7 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
 			revert("unknown param update");
 		}
 
-		emit DropUpdated(uint256(_phase), uint256(_param), _paramValue);
+		emit DropUpdated(_nftAddr, uint256(_phase), uint256(_param), _paramValue);
 	}
 
 	/*//////////////////////////////////////////////////////////////////////////
@@ -188,7 +188,7 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
 			
 			_settleUp(_nftAddr, _receiver, drop.currencyAddr, mintNum, drop.presaleCost);
 
-			emit Purchase(msg.sender, _receiver, _nftAddr, mintNum, drop.presaleCost, true);
+			emit Purchase(msg.sender, _receiver, _nftAddr, drop.currencyAddr, mintNum, drop.presaleCost, true);
 		} else if (dropPhase == DropPhase.PUBLIC_SALE) {
 			uint256 mintNum = _determineMintNum(_nftAddr, _receiver, _numMint, drop.allowance, drop.currencyAddr, drop.publicCost);
 
@@ -206,7 +206,7 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
 
 			_settleUp(_nftAddr, _receiver, drop.currencyAddr, mintNum, drop.publicCost);
 
-			emit Purchase(msg.sender, _receiver, _nftAddr, mintNum, drop.publicCost, false);
+			emit Purchase(msg.sender, _receiver, _nftAddr, drop.currencyAddr, mintNum, drop.publicCost, false);
 		} else {
 			revert("you shall not mint");
 		}
@@ -296,6 +296,8 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
 		IERC20Upgradeable erc20 = IERC20Upgradeable(_currencyAddress);
 		uint256 balanceBefore = erc20.balanceOf(address(this));
 
+		require(erc20.allowance(msg.sender, address(this)) >= _amount, "not enough allowance");
+
 		erc20.safeTransferFrom(msg.sender, address(this), _amount);
 
 		uint256 balanceAfter = erc20.balanceOf(address(this));
@@ -322,10 +324,10 @@ contract TLStacks721 is ITLStacks721, OwnableAccessControlUpgradeable, Reentranc
   			AddressUpgradeable.sendValue(payable(drop.payoutReceiver), _mintNum * _cost);
   		} else {
   			if (erc20.balanceOf(address(this)) > _mintNum * _cost) {
-  				erc20.safeTransferFrom(address(this), msg.sender, msg.value - (_mintNum * _cost));
+  				erc20.safeTransfer(msg.sender, msg.value - (_mintNum * _cost));
   			}
 
-  			erc20.safeTransferFrom(address(this), _receiver, _mintNum * _cost);
+  			erc20.safeTransfer(drop.payoutReceiver, _mintNum * _cost);
   		}
 
   		uint256 tokenId = drop.initialSupply - drop.supply - _mintNum;

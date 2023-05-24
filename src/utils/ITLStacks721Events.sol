@@ -4,13 +4,15 @@ pragma solidity 0.8.19;
 interface ITLStacks721Events {
     event DropConfigured(
         address indexed configurer,
-        address indexed nftContract
+        address indexed nftContract,
+        address currencyAddr
     );
 
     event Purchase(
         address indexed buyer,
         address indexed receiver,
         address indexed nftContract,
+        address currencyAddr,
         uint256 amount,
         uint256 price,
         bool isPresale
@@ -21,7 +23,7 @@ interface ITLStacks721Events {
         address indexed nftContract
     );
 
-    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
+    event DropUpdated(address nftContract, uint256 dropPhase, uint256 dropParam, bytes32 value);
 
     event Paused(bool newStatus);
 }
