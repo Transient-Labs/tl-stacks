@@ -4,3 +4,6 @@
 [submodule "lib/tl-creator-contracts"]
 	path = lib/tl-creator-contracts
 	url = https://github.com/Transient-Labs/tl-creator-contracts
+[submodule "lib/murky"]
+	path = lib/murky
+	url = https://github.com/dmfxyz/murky
