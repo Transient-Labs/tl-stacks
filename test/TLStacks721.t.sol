@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
@@ -9,7 +9,7 @@ import {ITLStacks721, Drop} from "tl-stacks/ITLStacks721.sol";
 import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
 import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
-import {ERC721TL} from "tl-core/ERC721TL.sol";
+import {ERC721TL} from "tl-creator-contracts/ERC721TL.sol";
 
 contract Receiver {
     fallback() external {
