@@ -8,8 +8,10 @@ clean:
 
 # Remove modules
 remove:
+	mv lib/utils ./
 	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules && git add . && git commit -m "modules"
-
+	mv ./utils lib/utils
+	
 # Install the Modules
 install:
 	forge install foundry-rs/forge-std
