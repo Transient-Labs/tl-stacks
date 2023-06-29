@@ -5,10 +5,11 @@ import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
 
 struct Drop {
     string baseUri;
-    uint256 initialSupply;
+    uint256 initial_supply;
     uint256 supply;
     int256 decay_rate;
     uint256 allowance;
+    address currency_addr;
     address payout_receiver;
     uint256 start_time;
     uint256 presale_duration;
@@ -19,50 +20,56 @@ struct Drop {
 }
 
 interface ITLStacks721 is ITLStacks721Events {
+
     function set_paused(bool paused) external;
 
+    function transfer_ownership(address new_owner) external;
+
+    function set_protocol_fee(uint256 new_fee, address new_fee_receiver) external;
+
     function configure_drop(
-        address _nft_addr,
-        string calldata _base_uri,
-        uint256 _supply,
-        int256 _decay_rate,
-        uint256 _allowance,
-        address _payout_receiver,
-        uint256 _start_time,
-        uint256 _presale_duration,
-        uint256 _presale_cost,
-        bytes32 _presale_merkle_root,
-        uint256 _public_duration,
-        uint256 _public_cost
+        address nft_addr,
+        string calldata base_uri,
+        uint256 supply,
+        int256 decay_rate,
+        uint256 allowance,
+        address currency_addr,
+        address payout_receiver,
+        uint256 start_time,
+        uint256 presale_duration,
+        uint256 presale_cost,
+        bytes32 presale_merkle_root,
+        uint256 public_duration,
+        uint256 public_cost
     ) external;
 
-    function close_drop(address _nft_addr) external;
+    function close_drop(address nft_addr) external;
 
     function update_drop_param(
-        address _nft_addr,
-        uint256 _phase,
-        uint256 _param,
-        bytes32 _param_value
+        address nft_addr,
+        uint256 phase,
+        uint256 param,
+        bytes32 param_value
     ) external;
 
     function mint(
-        address _nft_addr,
-        uint256 _num_mint,
-        address _receiver,
-        bytes32[] calldata _proof,
-        uint256 _allowlist_allocation
+        address nft_addr,
+        uint256 num_to_mint,
+        address receiver,
+        bytes32[] calldata proof,
+        uint256 allowlist_allocation
     ) external payable;
 
-    function get_drop(address _nft_addr) external view returns (Drop memory);
+    function get_drop(address nft_addr) external view returns (Drop memory);
 
-    function get_num_minted(address _nft_addr, address _user)
+    function get_num_minted(address nft_addr, address user)
         external
         view
         returns (uint256);
 
-    function get_drop_phase(address _nft_addr) external view returns (uint256);
+    function get_drop_phase(address nft_addr) external view returns (uint256);
 
-    function is_paused() external view returns (bool);
+    function paused() external view returns (bool);
 
     function owner() external view returns (address);
 }

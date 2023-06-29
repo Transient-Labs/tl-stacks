@@ -22,7 +22,7 @@ contract VyperDeployer {
         ///@notice create a list of strings with the commands necessary to compile Vyper contracts
         string[] memory cmds = new string[](2);
         cmds[0] = "vyper";
-        cmds[1] = string.concat("vyper_contracts/", fileName, ".vy");
+        cmds[1] = string.concat("src/", fileName, ".vy");
 
         ///@notice compile the Vyper contract and return the bytecode
         bytes memory bytecode = cheatCodes.ffi(cmds);

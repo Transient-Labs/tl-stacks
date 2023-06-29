@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
 library DropPhase {
@@ -15,4 +15,6 @@ library DropParam {
     uint256 constant COST = 4;
     uint256 constant DURATION = 8;
     uint256 constant PAYOUT_ADDRESS = 16;
+    uint256 constant CURRENCY_ADDRESS = 32;
+    uint256 constant START_TIME = 64;
 }

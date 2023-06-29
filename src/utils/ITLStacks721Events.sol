@@ -1,33 +1,35 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
 interface ITLStacks721Events {
     event OwnershipTransferred(
-        address indexed previousOwner,
-        address indexed newOwner
+        address indexed previous_owner,
+        address indexed new_owner
     );
+
+    event Paused(address indexed sender, bool indexed status);
+
+    event FeeChanged(address indexed sender, address indexed fee_receiver, uint256 indexed fee);
 
     event DropConfigured(
         address indexed configurer,
-        address indexed nftContract,
-        uint256 tokenId
+        address indexed nft_addr
     );
 
     event Purchase(
         address indexed buyer,
         address indexed receiver,
-        address indexed nftContract,
+        address indexed nft_addr,
+        address currency_addr,
         uint256 amount,
         uint256 price,
-        bool isPresale
+        bool is_presale
     );
 
     event DropClosed(
         address indexed closer,
-        address indexed nftContract
+        address indexed nft_addr
     );
 
-    event DropUpdated(uint256 dropPhase, uint256 dropParam, bytes32 value);
-
-    event Paused(bool newStatus);
+    event DropUpdated(address indexed updater, address indexed nft_addr, uint256 dropPhase, uint256 dropParam, bytes32 value);
 }

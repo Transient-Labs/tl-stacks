@@ -13,7 +13,7 @@ remove:
 # Install the Modules
 install:
 	forge install foundry-rs/forge-std
-	forge install Transient-Labs/tl-creator-contracts@2.3.0
+	forge install Transient-Labs/tl-creator-contracts@2.4.0
 	forge install dmfxyz/murky
 	
 # Update the modules
