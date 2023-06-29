@@ -12,6 +12,8 @@ remove:
 	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules && git add . && git commit -m "modules"
 	mkdir lib
 	mv ./utils lib/utils
+	git add .
+	git commit -m "moved utils back"
 
 # Install the Modules
 install:
