@@ -1,5 +1,4 @@
 blocklist/=lib/tl-creator-contracts/lib/blocklist/src/
-ds-test/=lib/ds-test/src/
 forge-std/=lib/forge-std/src/
 murky/=lib/murky/src/
 openzeppelin-contracts-upgradeable/=lib/tl-creator-contracts/lib/openzeppelin-contracts-upgradeable/
@@ -9,9 +8,7 @@ openzeppelin/=lib/tl-creator-contracts/lib/openzeppelin-contracts/contracts/
 sstore2/=lib/tl-creator-contracts/lib/sstore2/contracts/
 story-contract/=lib/tl-creator-contracts/lib/story-contract/src/
 tl-blocklist/=lib/tl-creator-contracts/lib/blocklist/src/
-tl-core/=lib/tl-core-contracts/src/
 tl-creator-contracts/=lib/tl-creator-contracts/src/
-tl-creator/=lib/tl-creator-contracts/src/
 tl-sol-tools/=lib/tl-creator-contracts/lib/tl-sol-tools/src/
 tl-stacks/=src/
 tl-story/=lib/tl-creator-contracts/lib/story-contract/src/

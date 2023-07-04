@@ -1,15 +1,16 @@
 # @version 0.3.9
 
 """
-@title Sales contracts for ERC721TL contracts
+@title TLStacks721
+@notice Limited or Open Edition sales contracts for ERC721TL contracts
 @author transientlabs.xyz
 @license MIT
 @custom:version 2.0.0
 """
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                              Interfaces
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 interface IERC721TL:
     def externalMint(recipient: address, uri: String[400]): nonpayable
@@ -23,15 +24,15 @@ interface IERC20:
     def allowance(owner: address, spender: address) -> uint256: view
     def transferFrom(from_: address, to: address, amount: uint256) -> bool: payable    
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                              Constants
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 ADMIN_ROLE: public(constant(bytes32)) = keccak256("ADMIN_ROLE")
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                                Enums
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 enum DropPhase:
     NOT_CONFIGURED
@@ -45,19 +46,16 @@ enum DropParam:
     ALLOWANCE
     COST
     DURATION
-    PAYOUT_ADDRESS
-    CURRENCY_ADDRESS
     START_TIME
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                                Structs
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 struct Drop:
     base_uri: String[300]
     initial_supply: uint256
     supply: uint256
-    decay_rate: int256
     allowance: uint256
     currency_addr: address
     payout_receiver: address
@@ -68,9 +66,9 @@ struct Drop:
     public_duration: uint256
     public_cost: uint256
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                                Events
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 event OwnershipTransferred:
     previous_owner: indexed(address)
@@ -80,14 +78,10 @@ event Paused:
     sender: indexed(address)
     status: indexed(bool)
 
-event FeeChanged:
-    sender: indexed(address)
-    fee_receiver: indexed(address)
-    fee: indexed(uint256)
-
 event DropConfigured:
     configurer: indexed(address)
     nft_addr: indexed(address)
+    block_number: indexed(uint256)
 
 event Purchase:
     buyer: indexed(address)
@@ -109,30 +103,28 @@ event DropUpdated:
     param_updated: DropParam
     value: bytes32
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                            State Variables
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 owner: public(address)
 paused: public(bool)
-fee: public(uint256)
-fee_receiver: public(address)
 _drops: HashMap[address, Drop]                                              # nft_addr -> Drop
 _num_minted: HashMap[address, HashMap[uint256, HashMap[address, uint256]]]  # nft_addr -> round -> receiver -> num_minted
 _drop_round: HashMap[address, uint256]                                      # nft_addr -> round
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                             Constructor
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @external
-def __init__(init_owner: address, init_fee: uint256, init_fee_receiver: address):
+def __init__(init_owner: address):
     self._transfer_ownership(init_owner)
-    self._set_protocol_fee(init_fee, init_fee_receiver)
 
-#//////////////////////////////////////////////////////////////////////////
+
+###########################################################################
 #                         Owner Write Functions
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @external
 def set_paused(paused: bool):
@@ -154,18 +146,6 @@ def transfer_ownership(new_owner: address):
     """
     assert msg.sender == self.owner, "caller not owner"
     self._transfer_ownership(new_owner)
-    
-
-@external
-def set_protocol_fee(new_fee: uint256, new_fee_receiver: address):
-    """
-    @notice function to set a new protocol fee
-    @dev requires msg.sender to be the contract owner
-    @param new_fee The new fee in wei for the protocol
-    @param new_fee_receiver The new protocol fee receiver address
-    """
-    assert msg.sender == self.owner, "caller not owner"
-    self._set_protocol_fee(new_fee, new_fee_receiver)
 
 @internal
 def _transfer_ownership(new_owner: address):
@@ -177,27 +157,15 @@ def _transfer_ownership(new_owner: address):
     self.owner = new_owner
     log OwnershipTransferred(prev_owner, new_owner)
 
-@internal
-def _set_protocol_fee(new_fee: uint256, new_fee_receiver: address):
-    """
-    @dev logs an `FeeChanged` event
-    @param new_fee The new protocol fee in wei
-    @param new_fee_receiver The new protocol fee receiver address
-    """
-    self.fee = new_fee
-    self.fee_receiver = new_fee_receiver
-    log FeeChanged(msg.sender, new_fee_receiver, new_fee)
-
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                        Drop Configuration Functions
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @external 
 def configure_drop(
     nft_addr: address,
     base_uri: String[300],
     supply: uint256,
-    decay_rate: int256,
     allowance: uint256,
     currency_addr: address,
     payout_receiver: address,
@@ -218,7 +186,6 @@ def configure_drop(
     @param nft_addr The nft contract to set the drop for
     @param base_uri The base uri for minting tokens, does NOT include a trailing "/"
     @param supply The supply for the drop
-    @param decay_rate A positive or negative value that either burns down or extends the mint duration
     @param allowance The number of nfts mintable during public sale
     @param currency_addr The currency address for ERC-20 tokens, or the zero address for ETH
     @param payout_receiver The address that receives the payout from the sale
@@ -233,16 +200,11 @@ def configure_drop(
     assert start_time != 0, "start time cannot be zero"
     assert self._is_drop_admin(nft_addr, msg.sender), "not authorized"
     assert self._get_drop_phase(nft_addr) == DropPhase.NOT_CONFIGURED, "there is an existing drop"
-    if decay_rate != 0 and presale_duration != 0:
-        raise "cannot have an allowlist with a decay rate"
-    if decay_rate != 0 and supply != max_value(uint256):
-        raise "cannot have a capped supply with a decay rate"
 
     drop: Drop = Drop({
         base_uri: base_uri,
         initial_supply: supply,
         supply: supply,
-        decay_rate: decay_rate,
         allowance: allowance,
         currency_addr: currency_addr,
         payout_receiver: payout_receiver,
@@ -256,7 +218,7 @@ def configure_drop(
 
     self._drops[nft_addr] = drop
 
-    log DropConfigured(msg.sender, nft_addr)
+    log DropConfigured(msg.sender, nft_addr, block.number)
 
 @external
 def close_drop(nft_addr: address):
@@ -306,17 +268,13 @@ def update_drop_param(
         if param == DropParam.ALLOWANCE:
             self._drops[nft_addr].allowance = convert(param_value, uint256)
         elif param == DropParam.COST:
-            self._drops[nft_addr].presale_cost = convert(param_value, uint256)
+            self._drops[nft_addr].public_cost = convert(param_value, uint256)
         elif param == DropParam.DURATION:
             self._drops[nft_addr].public_duration = convert(param_value, uint256)
         else:
             raise "unknown param update"
     elif phase == DropPhase.BEFORE_SALE:
-        if param == DropParam.PAYOUT_ADDRESS:
-            self._drops[nft_addr].payout_receiver = convert(param_value, address)
-        elif param == DropParam.CURRENCY_ADDRESS:
-            self._drops[nft_addr].currency_addr = convert(param_value, address)
-        elif param == DropParam.START_TIME:
+        if param == DropParam.START_TIME:
             self._drops[nft_addr].start_time = convert(param_value, uint256)
         else:
             raise "unknown param update"
@@ -326,9 +284,9 @@ def update_drop_param(
     log DropUpdated(msg.sender, nft_addr, phase, param, param_value)
 
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                            Mint Functions
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @external
 @payable
@@ -353,6 +311,7 @@ def mint(
     @param allowlist_allocation The number of mints in the allowlist allowed
     """
     assert not self.paused, "contract is paused"
+    assert num_to_mint > 0, "cannot mint zero tokens"
     drop: Drop = self._drops[nft_addr]
     assert drop.supply != 0, "no supply left"
     drop_phase: DropPhase = self._get_drop_phase(nft_addr)
@@ -389,15 +348,6 @@ def mint(
             num_to_mint,
             drop.allowance
         )
-
-        adjust: uint256 = num_can_mint * convert(abs(drop.decay_rate), uint256)
-        if drop.decay_rate < 0:
-            if adjust > drop.public_duration:
-                self._drops[nft_addr].public_duration = 0
-            else:
-                self._drops[nft_addr].public_duration -= adjust
-        elif drop.decay_rate > 0:
-            self._drops[nft_addr].public_duration += adjust
 
         self._settle_up(
             nft_addr,
@@ -456,7 +406,7 @@ def _settle_up(
 ):
     """
     @notice function to settle up the payment
-    @dev ensures token cost and protocol fees are paid in full
+    @dev ensures token cost is paid in full
     @dev does not store any funds in the contract and passes payment through to the proper receivers
     @param nft_addr The nft contract to specify drop
     @param receiver The receiver of the token(s)
@@ -465,23 +415,22 @@ def _settle_up(
     """
     drop: Drop = self._drops[nft_addr]
     total_cost: uint256 = num_can_mint * cost
-    total_fee: uint256 = num_can_mint * self.fee
 
     if drop.currency_addr == empty(address):
-        assert msg.value >= total_cost + total_fee, "not enough eth sent"
+        assert msg.value >= total_cost, "not enough eth sent"
         self._send_eth(drop.payout_receiver, total_cost)
-        refund: uint256 = msg.value - (total_cost + total_fee)
+        refund: uint256 = msg.value - total_cost
         self._send_eth(msg.sender, refund)
 
     else:
-        assert msg.value == total_fee, "incorrect fee sent"
         self._transfer_erc20(drop.currency_addr, drop.payout_receiver, total_cost)
+        if msg.value > 0:
+            self._send_eth(msg.sender, msg.value)
     
-    self._send_eth(self.fee_receiver, total_fee)
 
     token_id_counter: uint256 = drop.initial_supply - drop.supply - num_can_mint
-    for i in range(0, max_value(uint256)):
-        if i == num_can_mint:
+    for i in range(0, 255):
+        if i  == num_can_mint:
             break
         IERC721TL(nft_addr).externalMint(
             receiver,
@@ -494,10 +443,13 @@ def _settle_up(
 def _send_eth(recipient: address, eth_amount: uint256):
     """
     @notice function to send eth, forwarding all gas
+    @dev returns if eth_amount is zero
     @dev reverts on failure
     @param recipient The address to receive ETH
     @param eth_amount The amount of ETH (in wei) to send
     """
+    if eth_amount == 0:
+        return
     raw_call(
         recipient,
         b"",
@@ -511,12 +463,18 @@ def _send_eth(recipient: address, eth_amount: uint256):
 def _transfer_erc20(erc20_addr: address, recipient: address, num_tokens: uint256):
     """
     @notice function to transfer ERC-20 tokens to a recipient, verifying that it was successful
+    @dev returns if num_tokens is zero
     @dev reverts if contract does not have enough balance approved by the msg.sender
     @dev reverts on failure
+    @dev checks that the balance transferred is accurate
+    @dev if the msg.sender is the same as the recipient, then there is no need to transfer the tokens.
+         This avoids reverting the transaction if the creator buys one and is also the payout receiver for the drop
     @param erc20_addr The address for erc20 token contract
     @param recipient The recipient for the erc20 tokens
     @param num_tokens The number of tokens to transfer
     """
+    if num_tokens == 0 or msg.sender == recipient:
+        return
     token: IERC20 = IERC20(erc20_addr)
     assert token.allowance(msg.sender, self) >= num_tokens, "not enough allowance given to contract"
     balance_before: uint256 = token.balanceOf(recipient)
@@ -524,9 +482,9 @@ def _transfer_erc20(erc20_addr: address, recipient: address, num_tokens: uint256
     balance_after: uint256 = token.balanceOf(recipient)
     assert balance_after - balance_before == num_tokens, "insufficient ERC20 token transfer"
 
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 #                         External Read Functions
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @view
 @external
@@ -560,9 +518,19 @@ def get_drop_phase(nft_addr: address) -> DropPhase:
     """
     return self._get_drop_phase(nft_addr)
 
-#//////////////////////////////////////////////////////////////////////////
+@view
+@external
+def get_drop_round(nft_addr: address) -> uint256:
+    """
+    @notice function to get the current round for a drop
+    @param nft_addr The nft contract address
+    @return uint256 The drop round number
+    """
+    return self._drop_round[nft_addr]
+
+###########################################################################
 #                        Internal View/Pure Functions
-#//////////////////////////////////////////////////////////////////////////
+###########################################################################
 
 @view
 @internal

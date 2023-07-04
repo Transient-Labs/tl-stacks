@@ -53,21 +53,11 @@ interface ITLStacks1155 is ITLStacks1155Events {
         uint256 _allowlist_allocation
     ) external payable;
 
-    function get_drop(address _nft_addr, uint256 _token_id)
-        external
-        view
-        returns (Drop memory);
+    function get_drop(address _nft_addr, uint256 _token_id) external view returns (Drop memory);
 
-    function get_num_minted(
-        address _nft_addr,
-        uint256 _token_id,
-        address _user
-    ) external view returns (uint256);
+    function get_num_minted(address _nft_addr, uint256 _token_id, address _user) external view returns (uint256);
 
-    function get_drop_phase(address _nft_addr, uint256 _token_id)
-        external
-        view
-        returns (uint256);
+    function get_drop_phase(address _nft_addr, uint256 _token_id) external view returns (uint256);
 
     function is_paused() external view returns (bool);
 

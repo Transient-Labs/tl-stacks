@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.19;
 
 import {Test} from "forge-std/Test.sol";
@@ -11,891 +11,1193 @@ import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
 import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
 import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
+import {NotSpecifiedRole} from "tl-sol-tools/upgradeable/access/OwnableAccessControlUpgradeable.sol";
 
-contract Receiver {
-    fallback() external {
-        revert();
-    }
-
-    receive() external payable {}
-}
+import {Receiver} from "./utils/Receiver.sol";
+import {MockERC20} from "./utils/MockERC20.sol";
 
 contract TLStacks721Test is Test, ITLStacks721Events {
+    bytes32 constant MINTER_ROLE = keccak256("APPROVED_MINT_CONTRACT");
+    bytes32 constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+
     VyperDeployer vyperDeployer = new VyperDeployer();
 
-    ITLStacks721 mintingContract;
+    ITLStacks721 stacks;
     ERC721TL nft;
+    MockERC20 coin;
 
-    address mintingOwner = address(0xdead);
+    bytes32[] emptyProof = new bytes32[](0);
 
-    address alice = address(0xbeef);
-    address bob = address(0x1337);
-    address charles = address(0xcafe);
-    address david = address(0xcdb);
+    address nftOwner = address(0xABC);
+    address receiver;
+
+    address ben = address(0x0BEEF);
+    address chris = address(0xC0FFEE);
+    address david = address(0x1D1B);
+    address bsy = address(0xCDB);
 
     function setUp() public {
-        mintingContract = ITLStacks721(
-            vyperDeployer.deployContract(
-                "TLStacks721",
-                abi.encode(mintingOwner)
-            )
-        );
+        stacks = ITLStacks721(vyperDeployer.deployContract("TLStacks721", abi.encode(address(this))));
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
-        mintAddrs[0] = address(mintingContract);
+        mintAddrs[0] = address(stacks);
 
-        address[] memory addrs = new address[](1);
-        addrs[0] = alice;
-
-        nft = new ERC721TL(false);
-        nft.initialize(
-            "Karl",
+        ERC721TL implementation = new ERC721TL(true);
+        TLCreator proxy = new TLCreator(
+            address(implementation),
+            "Test ERC721",
             "LFG",
-            alice,
+            nftOwner,
             1_000,
-            alice,
+            nftOwner,
             empty,
             false,
             address(0)
         );
-
-        vm.startPrank(alice);
+        nft = ERC721TL(address(proxy));
+        vm.prank(nftOwner);
         nft.setApprovedMintContracts(mintAddrs, true);
-        vm.stopPrank();
 
-        vm.deal(alice, 100 ether);
-        vm.deal(bob, 100 ether);
-        vm.deal(charles, 100 ether);
+        coin = new MockERC20(address(this));
+        coin.transfer(ben, 100 ether);
+        coin.transfer(chris, 100 ether);
+        coin.transfer(david, 100 ether);
+        coin.transfer(bsy, 100 ether);
+
+        receiver = address(new Receiver());
+
+        vm.deal(ben, 100 ether);
+        vm.deal(chris, 100 ether);
         vm.deal(david, 100 ether);
+        vm.deal(bsy, 100 ether);
     }
 
-    function setup_open_edition_mint(
-        uint256 _startTime,
-        uint256 _presaleDuration,
-        bool _warpToPublicSale,
-        bytes32 _presaleRoot,
-        uint256 _publicDuration
-    ) internal returns (Drop memory) {
-        vm.prank(alice);
-        mintingContract.configure_drop(
+    /// @dev test constructor setup
+    function test_setUp() public {
+        assert(stacks.owner() == address(this));
+        assertFalse(stacks.paused());
+        assertTrue(nft.hasRole(MINTER_ROLE, address(stacks)));
+    }
+
+    /// @dev test owner only access for owner functions
+    /// @dev reverts if not the owner
+    function test_owner_only_access(address sender) public {
+        vm.assume(sender != address(this));
+        vm.startPrank(sender);
+        vm.expectRevert("caller not owner");
+        stacks.set_paused(true);
+        vm.expectRevert("caller not owner");
+        stacks.set_paused(false);
+        vm.expectRevert("caller not owner");
+        stacks.transfer_ownership(sender);
+        vm.stopPrank();
+    }
+
+    /// @dev check ownership transfer
+    /// @dev should emit an event log for ownership transferred
+    /// @dev new owner is reflected in state
+    /// @dev reverts when old owner tries to do something
+    function test_transfer_ownership(address newOwner) public {
+        vm.assume(newOwner != address(this));
+        vm.expectEmit(true, true, false, false);
+        emit OwnershipTransferred(address(this), newOwner);
+        stacks.transfer_ownership(newOwner);
+        assert(stacks.owner() == newOwner);
+        vm.expectRevert("caller not owner");
+        stacks.set_paused(true);
+    }
+
+    /// @dev verifies that drop admins or contract owner can access drop write functions
+    /// @dev reverts when `notDropAdmin` calls the functions
+    function test_drop_admin_access(address dropAdmin, address notDropAdmin) public {
+        vm.assume(dropAdmin != nftOwner);
+        vm.assume(notDropAdmin != nftOwner);
+        vm.assume(dropAdmin != notDropAdmin);
+
+        // test contract owner
+        vm.startPrank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            "testBaseUri/",
-            type(uint256).max,
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
             0,
-            5,
-            alice,
-            _startTime,
-            _presaleDuration,
-            .01 ether,
-            _presaleRoot,
-            _publicDuration,
-            .02 ether
-        );
-
-        if (_warpToPublicSale) {
-            vm.warp(_startTime + _presaleDuration);
-        }
-
-        return mintingContract.get_drop(address(nft));
-    }
-
-    function setup_open_edition_mint_with_receiver(
-        uint256 _startTime,
-        uint256 _presaleDuration,
-        bool _warpToPublicSale,
-        bytes32 _presaleRoot,
-        uint256 _publicDuration,
-        address _receiver
-    ) internal returns (Drop memory) {
-        vm.prank(alice);
-        mintingContract.configure_drop(
-            address(nft),
-            "testBaseUri/",
-            type(uint256).max,
             0,
-            5,
-            _receiver,
-            _startTime,
-            _presaleDuration,
-            .01 ether,
-            _presaleRoot,
-            _publicDuration,
-            .02 ether
-        );
-
-        if (_warpToPublicSale) {
-            vm.warp(_startTime + _presaleDuration);
-        }
-
-        return mintingContract.get_drop(address(nft));
-    }
-
-    function setup_limited_edition_mint(
-        uint256 _startTime,
-        uint256 _presaleDuration,
-        bool _warpToPublicSale,
-        bytes32 _presaleRoot,
-        uint256 _publicDuration,
-        uint256 _supply
-    ) internal returns (Drop memory) {
-        vm.prank(alice);
-        mintingContract.configure_drop(
-            address(nft),
-            "testBaseUri/",
-            _supply,
-            0,
-            5,
-            alice,
-            _startTime,
-            _presaleDuration,
-            .01 ether,
-            _presaleRoot,
-            _publicDuration,
-            .02 ether
-        );
-
-        if (_warpToPublicSale) {
-            vm.warp(_startTime + _presaleDuration);
-        }
-
-        return mintingContract.get_drop(address(nft));
-    }
-
-    function setup_velocity_mint(
-        uint256 _startTime,
-        uint256 _presaleDuration,
-        bool _warpToPublicSale,
-        bytes32 _presaleRoot,
-        uint256 _publicDuration,
-        int256 _decay_rate
-    ) internal returns (Drop memory) {
-        vm.prank(alice);
-        mintingContract.configure_drop(
-            address(nft),
-            "testBaseUri/",
-            type(uint256).max,
-            _decay_rate,
-            5,
-            alice,
-            _startTime,
-            _presaleDuration,
-            .01 ether,
-            _presaleRoot,
-            _publicDuration,
-            .02 ether
-        );
-
-        if (_warpToPublicSale) {
-            vm.warp(_startTime + _presaleDuration);
-        }
-
-        return mintingContract.get_drop(address(nft));
-    }
-
-    function test_init() public view {
-        // Arrange
-        bytes32 mintingContractRole = keccak256("APPROVED_MINT_CONTRACT");
-
-        // Act
-        address owner = mintingContract.owner();
-        bool hasRole = nft.hasRole(
-            mintingContractRole,
-            address(mintingContract)
-        );
-
-        // Assert
-        assert(owner == mintingOwner);
-        assert(hasRole);
-    }
-
-    function test_open_edition_mint_to() public {
-        bytes32[] memory emptyProof;
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
-
-        Drop memory drop = setup_open_edition_mint(
-            block.timestamp + 300,
-            0,
-            false,
             bytes32(0),
-            1 days
+            3600,
+            10
         );
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.DURATION, bytes32(uint256(7200)));
+        stacks.close_drop(address(nft));
+        address[] memory admins = new address[](1);
+        admins[0] = dropAdmin;
+        nft.setRole(ADMIN_ROLE, admins, true);
+        vm.stopPrank();
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
+        // test contract admin
+        vm.startPrank(dropAdmin);
+        stacks.configure_drop(
             address(nft),
+            "https://art.transientlabs.xyz",
+            100,
             1,
-            bob,
-            emptyProof,
-            0
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            10
         );
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.DURATION, bytes32(uint256(7200)));
+        stacks.close_drop(address(nft));
+        nft.renounceRole(ADMIN_ROLE);
         vm.stopPrank();
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectRevert("not enough funds sent");
-        mintingContract.mint(address(nft), 1, bob, emptyProof, 0);
-        vm.stopPrank();
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
+        // test not admin or contract owner
+        vm.startPrank(notDropAdmin);
+        vm.expectRevert("not authorized");
+        stacks.configure_drop(
             address(nft),
+            "https://art.transientlabs.xyz",
+            100,
             1,
-            bob,
-            emptyProof,
-            0
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            10
         );
+        vm.expectRevert("not authorized");
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.DURATION, bytes32(uint256(7200)));
+        vm.expectRevert("not authorized");
+        stacks.close_drop(address(nft));
         vm.stopPrank();
-
-        assert(bob.balance == 100 ether - 0.02 ether);
-        assert(alice.balance == 100 ether + 0.02 ether);
-        assert(nft.balanceOf(bob) == 1);
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
-            address(nft),
-            3,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(bob.balance == 100 ether - 0.08 ether);
-        assert(alice.balance == 100 ether + 0.08 ether);
-        assert(nft.balanceOf(bob) == 4);
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.04 ether}(
-            address(nft),
-            2,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(bob.balance == 100 ether - 0.1 ether);
-        assert(alice.balance == 100 ether + 0.1 ether);
-        assert(nft.balanceOf(bob) == 5);
-
-        vm.startPrank(bob);
-        vm.expectRevert("already hit mint allowance");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        vm.warp(
-            drop.start_time + drop.presale_duration + drop.public_duration + 1
-        );
-
-        vm.startPrank(bob);
-        vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(mintingContract.get_drop_phase(address(nft)) == DropPhase.ENDED);
     }
 
-    function test_open_edition_no_presale() public {
-        bytes32[] memory emptyProof;
+    /// @dev checks that pausing blocks all necessary functions
+    /// @dev pauses regardless of function caller
+    function test_paused(address caller) public {
+        stacks.set_paused(true);
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
+        vm.startPrank(caller);
+        vm.expectRevert("contract is paused");
+        stacks.configure_drop(address(1), "baseuri", 100, 1, address(0), address(1), 100, 0, 0, bytes32(0), 100, 0);
+        vm.expectRevert("contract is paused");
+        stacks.close_drop(address(1));
+        vm.expectRevert("contract is paused");
+        stacks.update_drop_param(address(1), DropPhase.PUBLIC_SALE, DropParam.DURATION, bytes32(uint256(100)));
+        vm.expectRevert("contract is paused");
+        bytes32[] memory proof = new bytes32[](0);
+        stacks.mint(address(1), 1, address(2), proof, 1);
 
-        Drop memory drop = setup_open_edition_mint(
-            block.timestamp + 300,
-            0,
-            false,
-            bytes32(0),
-            1 days
-        );
-
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, charles, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            charles,
-            emptyProof,
-            0
-        );
         vm.stopPrank();
 
-        assert(bob.balance == 100 ether - 0.02 ether);
-        assert(alice.balance == 100 ether + 0.02 ether);
-        assert(nft.balanceOf(bob) == 0);
-        assert(nft.balanceOf(charles) == 1);
+        stacks.set_paused(false);
     }
 
-    function test_limited_edition_no_presale_mint_out() public {
-        bytes32[] memory emptyProof;
+    /// @dev tests `configure_drop` with eth
+    /// @dev checks reverting cases as well
+    /// @dev checks emitted event
+    function test_configure_drop_eth(
+        string memory baseUri,
+        uint256 supply,
+        uint256 allowance,
+        address payoutReceiver,
+        uint256 startTime,
+        uint256 presaleDuration,
+        uint256 presaleCost,
+        bytes32 presaleMerkleRoot,
+        uint256 publicDuration,
+        uint256 publicCost
+    ) public {
+        vm.startPrank(nftOwner);
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
+        bool doesNotRevert = false;
+
+        if (startTime == 0) {
+            vm.expectRevert("start time cannot be zero");
+        } else {
+            doesNotRevert = true;
+            vm.expectEmit(true, true, true, false);
+            emit DropConfigured(nftOwner, address(nft), block.number);
+        }
+
+        stacks.configure_drop(
+            address(nft),
+            baseUri,
+            supply,
+            allowance,
+            address(0),
+            payoutReceiver,
+            startTime,
+            presaleDuration,
+            presaleCost,
+            presaleMerkleRoot,
+            publicDuration,
+            publicCost
         );
 
-        Drop memory drop = setup_limited_edition_mint(
-            block.timestamp + 300,
+        if (doesNotRevert) {
+            Drop memory drop = stacks.get_drop(address(nft));
+            assertEq(drop.base_uri, baseUri);
+            assertEq(drop.initial_supply, supply);
+            assertEq(drop.supply, supply);
+            assertEq(drop.allowance, allowance);
+            assertEq(drop.currency_addr, address(0));
+            assertEq(drop.payout_receiver, payoutReceiver);
+            assertEq(drop.start_time, startTime);
+            assertEq(drop.presale_duration, presaleDuration);
+            assertEq(drop.presale_cost, presaleCost);
+            assertEq(drop.presale_merkle_root, presaleMerkleRoot);
+            assertEq(drop.public_duration, publicDuration);
+            assertEq(drop.public_cost, publicCost);
+        }
+
+        vm.stopPrank();
+    }
+
+    /// @dev tests `configure_drop` with erc20
+    /// @dev checks reverting cases as well
+    /// @dev checks emitted event
+    function test_configure_drop_erc20(
+        string memory baseUri,
+        uint256 supply,
+        uint256 allowance,
+        address payoutReceiver,
+        uint256 startTime,
+        uint256 presaleDuration,
+        uint256 presaleCost,
+        bytes32 presaleMerkleRoot,
+        uint256 publicDuration,
+        uint256 publicCost
+    ) public {
+        vm.startPrank(nftOwner);
+
+        bool doesNotRevert = false;
+
+        if (startTime == 0) {
+            vm.expectRevert("start time cannot be zero");
+        } else {
+            doesNotRevert = true;
+            vm.expectEmit(true, true, true, false);
+            emit DropConfigured(nftOwner, address(nft), block.number);
+        }
+
+        stacks.configure_drop(
+            address(nft),
+            baseUri,
+            supply,
+            allowance,
+            address(coin),
+            payoutReceiver,
+            startTime,
+            presaleDuration,
+            presaleCost,
+            presaleMerkleRoot,
+            publicDuration,
+            publicCost
+        );
+
+        if (doesNotRevert) {
+            Drop memory drop = stacks.get_drop(address(nft));
+            assertEq(drop.base_uri, baseUri);
+            assertEq(drop.initial_supply, supply);
+            assertEq(drop.supply, supply);
+            assertEq(drop.allowance, allowance);
+            assertEq(drop.currency_addr, address(coin));
+            assertEq(drop.payout_receiver, payoutReceiver);
+            assertEq(drop.start_time, startTime);
+            assertEq(drop.presale_duration, presaleDuration);
+            assertEq(drop.presale_cost, presaleCost);
+            assertEq(drop.presale_merkle_root, presaleMerkleRoot);
+            assertEq(drop.public_duration, publicDuration);
+            assertEq(drop.public_cost, publicCost);
+        }
+
+        vm.stopPrank();
+    }
+
+    /// @dev tests `close_drop`
+    /// @dev verifies proper event is emitted
+    /// @dev verifies reset Drop
+    /// @dev verifies drop round increased
+    function test_close_drop() public {
+        vm.startPrank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
             0,
-            false,
+            0,
             bytes32(0),
-            1 days,
-            9
+            3600,
+            0
         );
+        uint256 prevRound = stacks.get_drop_round(address(nft));
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
+        vm.expectEmit(true, true, false, false);
+        emit DropClosed(nftOwner, address(nft));
+        stacks.close_drop(address(nft));
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        uint256 currRound = stacks.get_drop_round(address(nft));
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
+        assertEq(currRound, prevRound + 1);
 
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 5, .02 ether, false);
-        mintingContract.mint{value: 0.1 ether}(
+        vm.stopPrank();
+    }
+
+    /// @dev tests `update_drop_param`
+    /// @dev verifies event emittance
+    /// @dev verifies reverting cases
+    function test_update_drop_param(bytes32 paramValue) public {
+        vm.startPrank(nftOwner);
+
+        stacks.configure_drop(
             address(nft),
-            5,
-            bob,
-            emptyProof,
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0
+        );
+
+        // merkle root
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PRESALE, DropParam.MERKLE_ROOT, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PRESALE, DropParam.MERKLE_ROOT, paramValue);
+        // presale cost
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PRESALE, DropParam.COST, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PRESALE, DropParam.COST, paramValue);
+        // presale duration
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PRESALE, DropParam.DURATION, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PRESALE, DropParam.DURATION, paramValue);
+        // public allowance
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PUBLIC_SALE, DropParam.ALLOWANCE, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.ALLOWANCE, paramValue);
+        // public cost
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PUBLIC_SALE, DropParam.COST, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.COST, paramValue);
+        // public duration
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.PUBLIC_SALE, DropParam.DURATION, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.DURATION, paramValue);
+        // start time
+        vm.expectEmit(true, true, false, true);
+        emit DropUpdated(nftOwner, address(nft), DropPhase.BEFORE_SALE, DropParam.START_TIME, paramValue);
+        stacks.update_drop_param(address(nft), DropPhase.BEFORE_SALE, DropParam.START_TIME, paramValue);
+
+        // expect revert
+        vm.expectRevert("unknown param update");
+        stacks.update_drop_param(address(nft), DropPhase.PRESALE, DropParam.START_TIME, paramValue);
+        vm.expectRevert("unknown param update");
+        stacks.update_drop_param(address(nft), DropPhase.PUBLIC_SALE, DropParam.MERKLE_ROOT, paramValue);
+        vm.expectRevert("unknown param update");
+        stacks.update_drop_param(address(nft), DropPhase.BEFORE_SALE, DropParam.COST, paramValue);
+        vm.expectRevert("unknown param update");
+        stacks.update_drop_param(address(nft), DropPhase.NOT_CONFIGURED, DropParam.COST, paramValue);
+
+        // check updated params
+        Drop memory drop = stacks.get_drop(address(nft));
+        assertEq(drop.allowance, uint256(paramValue));
+        assertEq(drop.start_time, uint256(paramValue));
+        assertEq(drop.presale_duration, uint256(paramValue));
+        assertEq(drop.presale_cost, uint256(paramValue));
+        assertEq(drop.presale_merkle_root, paramValue);
+        assertEq(drop.public_duration, uint256(paramValue));
+        assertEq(drop.public_cost, uint256(paramValue));
+
+        vm.stopPrank();
+    }
+
+    /// @dev test mint zero tokens
+    function test_mint_zero_tokens() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0
+        );
+
+        vm.expectRevert("cannot mint zero tokens");
+        stacks.mint(address(nft), 0, address(this), emptyProof, 0);
+    }
+
+    /// @dev test mint not approved mint contract
+    function test_mint_not_approved_mint_contract() public {
+        vm.startPrank(nftOwner);
+        address[] memory addys = new address[](1);
+        addys[0] = address(stacks);
+        nft.setRole(MINTER_ROLE, addys, false);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
             0
         );
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft));
+        vm.expectRevert(abi.encodeWithSelector(NotSpecifiedRole.selector, MINTER_ROLE));
+        stacks.mint(address(nft), 1, address(this), emptyProof, 0);
 
-        assert(bob.balance == 100 ether - 0.1 ether);
-        assert(alice.balance == 100 ether + 0.1 ether);
-        assert(nft.balanceOf(bob) == 5);
-        assert(drop.supply == 4);
+        vm.prank(nftOwner);
+        nft.setRole(MINTER_ROLE, addys, true);
+    }
 
-        vm.startPrank(charles);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 4, .02 ether, false);
-        mintingContract.mint{value: 0.1 ether}(
-            address(nft),
-            5,
-            charles,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(charles.balance == 100 ether - 0.08 ether);
-        assert(nft.balanceOf(charles) == 4);
-        assert(drop.supply == 0);
-
-        vm.startPrank(bob);
+    /// @dev test supply == 0
+    function test_mint_zero_supply() public {
         vm.expectRevert("no supply left");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(mintingContract.get_drop_phase(address(nft)) == DropPhase.ENDED);
+        stacks.mint(address(nft), 1, address(this), emptyProof, 0);
     }
 
-    function test_limited_edition_no_presale_time_expired() public {
-        bytes32[] memory emptyProof;
+    /// @dev test not on the allowlist
+    function test_not_on_allowlist(address minter) public {
+        vm.assume(minter != ben && minter != chris && minter != david && minter != bsy);
+        Merkle m = new Merkle();
+        bytes32[] memory data = new bytes32[](4);
+        data[0] = keccak256(abi.encode(ben, uint256(1)));
+        data[1] = keccak256(abi.encode(chris, uint256(3)));
+        data[2] = keccak256(abi.encode(david, uint256(4)));
+        data[3] = keccak256(abi.encode(bsy, uint256(5)));
+        bytes32 root = m.getRoot(data);
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
-
-        Drop memory drop = setup_limited_edition_mint(
-            block.timestamp + 300,
-            0,
-            false,
-            bytes32(0),
-            1 days,
-            9
-        );
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
-
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
+        vm.prank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            3,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(bob.balance == 100 ether - 0.06 ether);
-        assert(alice.balance == 100 ether + 0.06 ether);
-        assert(nft.balanceOf(bob) == 3);
-        assert(drop.supply == 6);
-
-        vm.startPrank(charles);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
-            address(nft),
-            3,
-            charles,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(charles.balance == 100 ether - 0.06 ether);
-        assert(nft.balanceOf(charles) == 3);
-        assert(drop.supply == 3);
-
-        vm.warp(
-            drop.start_time + drop.presale_duration + drop.public_duration + 1
-        );
-
-        vm.startPrank(bob);
-        vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
             1,
-            bob,
-            emptyProof,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            3600,
+            0,
+            root,
+            3600,
             0
         );
-        vm.stopPrank();
 
-        assert(mintingContract.get_drop_phase(address(nft)) == DropPhase.ENDED);
+        vm.prank(minter);
+        vm.expectRevert("not part of allowlist");
+        stacks.mint(address(nft), 1, minter, emptyProof, 1);
     }
 
-    function test_velocity_mint() public {
-        bytes32[] memory emptyProof;
-
-        uint256 startTime = block.timestamp;
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
-
-        Drop memory drop = setup_velocity_mint(
-            block.timestamp + 300,
+    /// @dev not enough eth sent
+    function test_not_enough_eth_sent() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(0),
+            nftOwner,
+            block.timestamp,
             0,
-            false,
+            0,
             bytes32(0),
-            30 minutes,
-            -5 minutes
+            3600,
+            1 ether
         );
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
+        vm.prank(ben);
+        vm.expectRevert("not enough eth sent");
+        stacks.mint{value: 0.1 ether}(address(nft), 1, ben, emptyProof, 0);
+    }
 
-        vm.startPrank(bob);
-        vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
+    /// @dev test not enough erc20 allowance given
+    function test_not_enough_allowance_given() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
             address(nft),
+            "https://art.transientlabs.xyz",
+            100,
             1,
-            bob,
-            emptyProof,
-            0
+            address(coin),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            1 ether
         );
+
+        vm.startPrank(ben);
+        coin.approve(address(stacks), 0.1 ether);
+        vm.expectRevert("not enough allowance given to contract");
+        stacks.mint(address(nft), 1, ben, emptyProof, 0);
         vm.stopPrank();
+    }
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        assert(drop.public_duration == 30 minutes);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
+    /// @dev mint more than allowance and get limited to allowance
+    function test_mint_allowance() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
+            "https://art.transientlabs.xyz",
+            100,
+            4,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
         );
+
+        vm.startPrank(ben);
+        uint256 prevBalance = ben.balance;
+        stacks.mint{value: 0.005 ether}(address(nft), 5, ben, emptyProof, 0);
+        assert(prevBalance - ben.balance == 0.004 ether);
+        assert(nft.balanceOf(ben) == 4);
+        vm.expectRevert("already hit mint allowance");
+        stacks.mint(address(nft), 1, ben, emptyProof, 0);
         vm.stopPrank();
+    }
 
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(bob.balance == 100 ether - 0.02 ether);
-        assert(alice.balance == 100 ether + 0.02 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(drop.public_duration == 25 minutes);
-
-        vm.startPrank(charles);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
+    /// @dev mint more than supply left and get limited to supply left
+    function test_mint_more_than_supply() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            3,
-            charles,
-            emptyProof,
-            0
+            "https://art.transientlabs.xyz",
+            4,
+            5,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
         );
+
+        vm.startPrank(ben);
+        uint256 prevBalance = ben.balance;
+        stacks.mint{value: 0.005 ether}(address(nft), 5, ben, emptyProof, 0);
+        assert(prevBalance - ben.balance == 0.004 ether);
+        assert(nft.balanceOf(ben) == 4);
+        vm.expectRevert("no supply left");
+        stacks.mint(address(nft), 1, ben, emptyProof, 0);
         vm.stopPrank();
+    }
 
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(charles.balance == 100 ether - 0.06 ether);
-        assert(alice.balance == 100 ether + 0.08 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(nft.balanceOf(charles) == 3);
-        assert(drop.public_duration == 10 minutes);
-
-        vm.startPrank(david);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(david, david, address(nft), 2, .02 ether, false);
-        mintingContract.mint{value: 0.04 ether}(
+    /// @dev test send more eth than needed and get refunded extra eth
+    function test_mint_too_much_eth() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            2,
-            david,
-            emptyProof,
-            0
+            "https://art.transientlabs.xyz",
+            100,
+            5,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
         );
+
+        vm.startPrank(ben);
+        uint256 prevBalance = ben.balance;
+        stacks.mint{value: 0.005 ether}(address(nft), 1, ben, emptyProof, 0);
+        assert(prevBalance - ben.balance == 0.001 ether);
+        assert(nft.balanceOf(ben) == 1);
+
+        vm.stopPrank();
+    }
+
+    /// @dev test eth sent with erc20 and get refunded
+    function test_mint_erc20_with_eth() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            5,
+            address(coin),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
+        );
+
+        vm.startPrank(ben);
+        coin.approve(address(stacks), 0.001 ether);
+        uint256 prevBalance = ben.balance;
+        uint256 prevCoin = coin.balanceOf(ben);
+        stacks.mint{value: 0.001 ether}(address(nft), 1, ben, emptyProof, 0);
+        assert(prevBalance - ben.balance == 0);
+        assert(nft.balanceOf(ben) == 1);
+        assert(prevCoin - coin.balanceOf(ben) == 0.001 ether);
+        vm.stopPrank();
+    }
+
+    /// @dev test mint for someone else and yourself
+    function test_mint_for_someone_else() public {
+        // eth
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            5,
+            address(0),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
+        );
+
+        vm.startPrank(ben);
+        uint256 prevETHBalance = ben.balance;
+        stacks.mint{value: 0.001 ether}(address(nft), 1, chris, emptyProof, 0);
+        stacks.mint{value: 0.001 ether}(address(nft), 1, david, emptyProof, 0);
+        stacks.mint{value: 0.001 ether}(address(nft), 1, ben, emptyProof, 0);
         vm.stopPrank();
 
-        drop = mintingContract.get_drop(address(nft));
+        assert(nft.balanceOf(chris) == 1);
+        assert(nft.balanceOf(david) == 1);
+        assert(nft.balanceOf(ben) == 1);
+        assert(prevETHBalance - ben.balance == 0.003 ether);
+        assert(stacks.get_num_minted(address(nft), chris) == 1);
+        assert(stacks.get_num_minted(address(nft), david) == 1);
+        assert(stacks.get_num_minted(address(nft), ben) == 1);
 
-        assert(david.balance == 100 ether - 0.04 ether);
-        assert(alice.balance == 100 ether + 0.12 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(nft.balanceOf(charles) == 3);
+        vm.prank(nftOwner);
+        stacks.close_drop(address(nft));
+
+        // erc20
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            5,
+            address(coin),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0.001 ether
+        );
+
+        vm.startPrank(ben);
+        uint256 prevERC20Balance = coin.balanceOf(ben);
+        coin.approve(address(stacks), 100 ether);
+        stacks.mint(address(nft), 1, chris, emptyProof, 0);
+        stacks.mint(address(nft), 1, david, emptyProof, 0);
+        stacks.mint(address(nft), 1, ben, emptyProof, 0);
+        vm.stopPrank();
+
+        assert(nft.balanceOf(chris) == 2);
         assert(nft.balanceOf(david) == 2);
-        assert(drop.public_duration == 0);
-
-        vm.startPrank(bob);
-        vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(mintingContract.get_drop_phase(address(nft)) == DropPhase.ENDED);
-
-        uint256 endTime = block.timestamp;
-
-        assert(endTime - startTime < 30 minutes);
+        assert(nft.balanceOf(ben) == 2);
+        assert(prevERC20Balance - coin.balanceOf(ben) == 0.003 ether);
+        assert(stacks.get_num_minted(address(nft), chris) == 1);
+        assert(stacks.get_num_minted(address(nft), david) == 1);
+        assert(stacks.get_num_minted(address(nft), ben) == 1);
     }
 
-    function test_open_edition_presale() public {
-        bytes32[] memory emptyProof;
+    /// @dev test eth mint
+    function test_eth_mint(
+        uint256 startDelay,
+        uint256 presaleDuration,
+        uint256 presaleCost,
+        uint256 publicDuration,
+        uint256 publicCost,
+        address minter
+    ) public {
+        vm.assume(minter != ben && minter != chris && minter != david && minter != bsy && minter != address(0));
+        vm.assume(presaleDuration > 0 || publicDuration > 0);
+        if (presaleCost > 10 ether) {
+            presaleCost = presaleCost % 10 ether;
+        }
+
+        if (publicCost > 10 ether) {
+            publicCost = publicCost % 10 ether;
+        }
+
+        if (startDelay > 3650 days) {
+            startDelay = startDelay % 3650 days;
+        }
+
+        if (presaleDuration > 3650 days) {
+            presaleDuration = presaleDuration % 3650 days;
+        }
+
+        if (publicDuration > 3650 days) {
+            publicDuration = publicDuration % 3650 days;
+        }
 
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(alice, uint256(1)));
-        data[1] = keccak256(abi.encode(bob, uint256(3)));
-        data[2] = keccak256(abi.encode(charles, uint256(4)));
-        data[3] = keccak256(abi.encode(david, uint256(5)));
-        bytes32 root = m.getRoot(data);
+        data[0] = keccak256(abi.encode(ben, uint256(1)));
+        data[1] = keccak256(abi.encode(chris, uint256(3)));
+        data[2] = keccak256(abi.encode(david, uint256(4)));
+        data[3] = keccak256(abi.encode(bsy, uint256(5)));
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
+        vm.startPrank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://arweave.net",
+            100,
+            4,
+            address(0),
+            receiver,
+            block.timestamp + startDelay,
+            presaleDuration,
+            presaleCost,
+            m.getRoot(data),
+            publicDuration,
+            publicCost
         );
+        vm.stopPrank();
 
-        Drop memory drop = setup_open_edition_mint(
-            block.timestamp + 300,
-            500,
-            false,
-            root,
-            1 days
-        );
+        Drop memory drop = stacks.get_drop(address(nft));
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
+        vm.deal(minter, 100 ether);
 
-        vm.startPrank(bob);
+        uint256 payoutBalance = receiver.balance;
+        uint256 recipientBalance = ben.balance;
+        bytes32[] memory recipientProof = m.getProof(data, 0);
+
+        // test before sale
+        if (startDelay > 0) {
+            vm.expectRevert("you shall not mint");
+            stacks.mint(address(nft), 1, address(this), emptyProof, 0);
+            vm.warp(drop.start_time);
+        }
+
+        // test presale
+        if (presaleDuration > 0) {
+            vm.startPrank(ben);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(ben, ben, address(nft), address(0), 1, presaleCost, true);
+            stacks.mint{value: presaleCost}(address(nft), 1, ben, recipientProof, 1);
+            assert(nft.balanceOf(ben) == 1);
+            assert(recipientBalance - ben.balance == presaleCost);
+            assert(receiver.balance - payoutBalance == presaleCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint{value: presaleCost}(address(nft), 1, ben, recipientProof, 1);
+            vm.stopPrank();
+
+            vm.startPrank(chris);
+            recipientBalance = chris.balance;
+            payoutBalance = receiver.balance;
+            recipientProof = m.getProof(data, 1);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(chris, chris, address(nft), address(0), 2, presaleCost, true);
+            stacks.mint{value: 2 * presaleCost}(address(nft), 2, chris, recipientProof, 3);
+            assert(nft.balanceOf(chris) == 2);
+            assert(recipientBalance - chris.balance == 2 * presaleCost);
+            assert(receiver.balance - payoutBalance == 2 * presaleCost);
+            recipientBalance = chris.balance;
+            payoutBalance = receiver.balance;
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(chris, chris, address(nft), address(0), 1, presaleCost, true);
+            stacks.mint{value: presaleCost}(address(nft), 1, chris, recipientProof, 3);
+            assert(nft.balanceOf(chris) == 3);
+            assert(recipientBalance - chris.balance == presaleCost);
+            assert(receiver.balance - payoutBalance == presaleCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint{value: presaleCost}(address(nft), 1, chris, recipientProof, 3);
+            vm.stopPrank();
+
+            vm.startPrank(david);
+            recipientBalance = david.balance;
+            payoutBalance = receiver.balance;
+            recipientProof = m.getProof(data, 2);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(david, david, address(nft), address(0), 4, presaleCost, true);
+            stacks.mint{value: 4 * presaleCost}(address(nft), 4, david, recipientProof, 4);
+            assert(nft.balanceOf(david) == 4);
+            assert(recipientBalance - david.balance == 4 * presaleCost);
+            assert(receiver.balance - payoutBalance == 4 * presaleCost);
+            vm.stopPrank();
+
+            vm.startPrank(bsy);
+            recipientBalance = bsy.balance;
+            payoutBalance = receiver.balance;
+            recipientProof = m.getProof(data, 3);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(bsy, bsy, address(nft), address(0), 5, presaleCost, true);
+            stacks.mint{value: 5 * presaleCost}(address(nft), 5, bsy, recipientProof, 5);
+            assert(nft.balanceOf(bsy) == 5);
+            assert(recipientBalance - bsy.balance == 5 * presaleCost);
+            assert(receiver.balance - payoutBalance == 5 * presaleCost);
+            vm.stopPrank();
+
+            vm.startPrank(minter);
+            vm.expectRevert("not part of allowlist");
+            stacks.mint{value: 5 * presaleCost}(address(nft), 5, minter, recipientProof, 5);
+            vm.stopPrank();
+
+            vm.warp(drop.start_time + drop.presale_duration);
+        }
+
+        // test public
+        if (publicDuration > 0) {
+
+            // if presale happened, check minting for those on presale
+            if (presaleDuration > 0)  {
+                vm.startPrank(ben);
+                recipientBalance = ben.balance;
+                payoutBalance = receiver.balance;
+                recipientProof = m.getProof(data, 0);
+                vm.expectEmit(true, true, true, true);
+                emit Purchase(ben, ben, address(nft), address(0), 3, publicCost, false);
+                stacks.mint{value: 3*publicCost}(address(nft), 3, ben, recipientProof, 1);
+                assert(nft.balanceOf(ben) == 4);
+                assert(recipientBalance - ben.balance == 3*publicCost);
+                assert(receiver.balance - payoutBalance == 3*publicCost);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint{value: publicCost}(address(nft), 1, ben, recipientProof, 1);
+                vm.stopPrank();
+
+                vm.startPrank(chris);
+                recipientBalance = chris.balance;
+                payoutBalance = receiver.balance;
+                recipientProof = m.getProof(data, 1);
+                vm.expectEmit(true, true, true, true);
+                emit Purchase(chris, chris, address(nft), address(0), 1, publicCost, false);
+                stacks.mint{value: publicCost}(address(nft), 1, chris, recipientProof, 1);
+                assert(nft.balanceOf(chris) == 4);
+                assert(recipientBalance - chris.balance == publicCost);
+                assert(receiver.balance - payoutBalance == publicCost);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint{value: publicCost}(address(nft), 1, chris, recipientProof, 3);
+                vm.stopPrank();
+
+                vm.startPrank(david);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint{value: publicCost}(address(nft), 1, david, emptyProof, 4);
+                vm.stopPrank();
+
+                vm.startPrank(bsy);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint{value: publicCost}(address(nft), 1, bsy, emptyProof, 5);
+                vm.stopPrank();
+            }
+
+            vm.startPrank(minter);
+            recipientBalance = minter.balance;
+            payoutBalance = receiver.balance;
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(minter, minter, address(nft), address(0), 3, publicCost, false);
+            stacks.mint{value: 3 * publicCost}(address(nft), 3, minter, emptyProof, 0);
+            assert(nft.balanceOf(minter) == 3);
+            assert(recipientBalance - minter.balance == 3 * publicCost);
+            assert(receiver.balance - payoutBalance == 3 * publicCost);
+            recipientBalance = minter.balance;
+            payoutBalance = receiver.balance;
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(minter, minter, address(nft), address(0), 1, publicCost, false);
+            stacks.mint{value: publicCost}(address(nft), 1, minter, emptyProof, 0);
+            assert(nft.balanceOf(minter) == 4);
+            assert(recipientBalance - minter.balance == publicCost);
+            assert(receiver.balance - payoutBalance == publicCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint{value: publicCost}(address(nft), 1, minter, emptyProof, 0);
+            vm.stopPrank();
+
+            vm.warp(drop.start_time + drop.presale_duration + drop.public_duration);
+        }
+
         vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
+        stacks.mint(address(nft), 1, address(this), emptyProof, 0);
 
-        vm.warp(drop.start_time + 1);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) == DropPhase.PRESALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .01 ether, true);
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            m.getProof(data, 1),
-            3
-        );
-        vm.stopPrank();
-
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectRevert("not enough funds sent");
-        mintingContract.mint(address(nft), 1, bob, emptyProof, 0);
-        vm.stopPrank();
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        assert(bob.balance == 100 ether - 0.03 ether);
-        assert(alice.balance == 100 ether + 0.03 ether);
-        assert(nft.balanceOf(bob) == 2);
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
-            address(nft),
-            3,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
+        drop = stacks.get_drop(address(nft));
+        
+        if (presaleDuration > 0 && publicDuration > 0) {
+            assert(drop.supply == 100 - 21);
+        } else if (presaleDuration > 0) {
+            assert(drop.supply == 100 - 13);
+        } else {
+            assert(drop.supply == 100 - 4);
+        }
     }
 
-    function test_open_edition_with_contract_payout() public {
-        bytes32[] memory emptyProof;
+    /// @dev test erc20 mint
+    function test_erc20_mint(
+        uint256 startDelay,
+        uint256 presaleDuration,
+        uint256 presaleCost,
+        uint256 publicDuration,
+        uint256 publicCost,
+        address minter
+    ) public {
+        vm.assume(minter != ben && minter != chris && minter != david && minter != bsy && minter != address(0));
+        vm.assume(presaleDuration > 0 || publicDuration > 0);
+        if (presaleCost > 10 ether) {
+            presaleCost = presaleCost % 10 ether;
+        }
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
+        if (publicCost > 10 ether) {
+            publicCost = publicCost % 10 ether;
+        }
 
-        address receiver = address(new Receiver());
+        if (startDelay > 3650 days) {
+            startDelay = startDelay % 3650 days;
+        }
 
-        Drop memory drop = setup_open_edition_mint_with_receiver(
-            block.timestamp + 300,
-            0,
-            false,
-            bytes32(0),
-            1 days,
-            receiver
-        );
+        if (presaleDuration > 3650 days) {
+            presaleDuration = presaleDuration % 3650 days;
+        }
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
+        if (publicDuration > 3650 days) {
+            publicDuration = publicDuration % 3650 days;
+        }
 
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
+        Merkle m = new Merkle();
+        bytes32[] memory data = new bytes32[](4);
+        data[0] = keccak256(abi.encode(ben, uint256(1)));
+        data[1] = keccak256(abi.encode(chris, uint256(3)));
+        data[2] = keccak256(abi.encode(david, uint256(4)));
+        data[3] = keccak256(abi.encode(bsy, uint256(5)));
+
+        vm.startPrank(nftOwner);
+        stacks.configure_drop(
             address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
+            "https://arweave.net",
+            100,
+            4,
+            address(coin),
+            receiver,
+            block.timestamp + startDelay,
+            presaleDuration,
+            presaleCost,
+            m.getRoot(data),
+            publicDuration,
+            publicCost
         );
         vm.stopPrank();
 
-        assert(bob.balance == 100 ether - 0.02 ether);
-        assert(receiver.balance == 0.02 ether);
-        assert(nft.balanceOf(bob) == 1);
+        Drop memory drop = stacks.get_drop(address(nft));
 
-    }
+        coin.transfer(minter, 100 ether);
+        vm.prank(ben);
+        coin.approve(address(stacks), 100 ether);
+        vm.prank(chris);
+        coin.approve(address(stacks), 100 ether);
+        vm.prank(david);
+        coin.approve(address(stacks), 100 ether);
+        vm.prank(bsy);
+        coin.approve(address(stacks), 100 ether);
+        vm.prank(minter);
+        coin.approve(address(stacks), 100 ether);
 
-    function test_marathon_mint() public {
-        bytes32[] memory emptyProof;
+        uint256 payoutBalance = coin.balanceOf(receiver);
+        uint256 recipientBalance = coin.balanceOf(ben);
+        bytes32[] memory recipientProof = m.getProof(data, 0);
 
-        uint256 startTime = block.timestamp;
+        // test before sale
+        if (startDelay > 0) {
+            vm.expectRevert("you shall not mint");
+            stacks.mint(address(nft), 1, address(this), emptyProof, 0);
+            vm.warp(drop.start_time);
+        }
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.NOT_CONFIGURED
-        );
+        // test presale
+        if (presaleDuration > 0) {
+            vm.startPrank(ben);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(ben, ben, address(nft), address(coin), 1, presaleCost, true);
+            stacks.mint(address(nft), 1, ben, recipientProof, 1);
+            assert(nft.balanceOf(ben) == 1);
+            assert(recipientBalance - coin.balanceOf(ben) == presaleCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == presaleCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint(address(nft), 1, ben, recipientProof, 1);
+            vm.stopPrank();
 
-        Drop memory drop = setup_velocity_mint(
-            block.timestamp + 300,
-            0,
-            false,
-            bytes32(0),
-            30 minutes,
-            5 minutes
-        );
+            vm.startPrank(chris);
+            recipientBalance = coin.balanceOf(chris);
+            payoutBalance = coin.balanceOf(receiver);
+            recipientProof = m.getProof(data, 1);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(chris, chris, address(nft), address(coin), 2, presaleCost, true);
+            stacks.mint(address(nft), 2, chris, recipientProof, 3);
+            assert(nft.balanceOf(chris) == 2);
+            assert(recipientBalance - coin.balanceOf(chris) == 2 * presaleCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == 2 * presaleCost);
+            recipientBalance = coin.balanceOf(chris);
+            payoutBalance = coin.balanceOf(receiver);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(chris, chris, address(nft), address(coin), 1, presaleCost, true);
+            stacks.mint(address(nft), 1, chris, recipientProof, 3);
+            assert(nft.balanceOf(chris) == 3);
+            assert(recipientBalance - coin.balanceOf(chris) == presaleCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == presaleCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint(address(nft), 1, chris, recipientProof, 3);
+            vm.stopPrank();
 
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.BEFORE_SALE
-        );
+            vm.startPrank(david);
+            recipientBalance = coin.balanceOf(david);
+            payoutBalance = coin.balanceOf(receiver);
+            recipientProof = m.getProof(data, 2);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(david, david, address(nft), address(coin), 4, presaleCost, true);
+            stacks.mint(address(nft), 4, david, recipientProof, 4);
+            assert(nft.balanceOf(david) == 4);
+            assert(recipientBalance - coin.balanceOf(david) == 4 * presaleCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == 4 * presaleCost);
+            vm.stopPrank();
 
-        vm.startPrank(bob);
+            vm.startPrank(bsy);
+            recipientBalance = coin.balanceOf(bsy);
+            payoutBalance = coin.balanceOf(receiver);
+            recipientProof = m.getProof(data, 3);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(bsy, bsy, address(nft), address(coin), 5, presaleCost, true);
+            stacks.mint(address(nft), 5, bsy, recipientProof, 5);
+            assert(nft.balanceOf(bsy) == 5);
+            assert(recipientBalance - coin.balanceOf(bsy) == 5 * presaleCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == 5 * presaleCost);
+            vm.stopPrank();
+
+            vm.startPrank(minter);
+            vm.expectRevert("not part of allowlist");
+            stacks.mint(address(nft), 5, minter, recipientProof, 5);
+            vm.stopPrank();
+
+            vm.warp(drop.start_time + drop.presale_duration);
+        }
+
+        // test public
+        if (publicDuration > 0) {
+
+            // if presale happened, check minting for those on presale
+            if (presaleDuration > 0)  {
+                vm.startPrank(ben);
+                recipientBalance = coin.balanceOf(ben);
+                payoutBalance = coin.balanceOf(receiver);
+                recipientProof = m.getProof(data, 0);
+                vm.expectEmit(true, true, true, true);
+                emit Purchase(ben, ben, address(nft), address(coin), 3, publicCost, false);
+                stacks.mint(address(nft), 3, ben, recipientProof, 1);
+                assert(nft.balanceOf(ben) == 4);
+                assert(recipientBalance - coin.balanceOf(ben) == 3*publicCost);
+                assert(coin.balanceOf(receiver) - payoutBalance == 3*publicCost);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint(address(nft), 1, ben, recipientProof, 1);
+                vm.stopPrank();
+
+                vm.startPrank(chris);
+                recipientBalance = coin.balanceOf(chris);
+                payoutBalance = coin.balanceOf(receiver);
+                recipientProof = m.getProof(data, 1);
+                vm.expectEmit(true, true, true, true);
+                emit Purchase(chris, chris, address(nft), address(coin), 1, publicCost, false);
+                stacks.mint(address(nft), 1, chris, recipientProof, 1);
+                assert(nft.balanceOf(chris) == 4);
+                assert(recipientBalance - coin.balanceOf(chris) == publicCost);
+                assert(coin.balanceOf(receiver) - payoutBalance == publicCost);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint(address(nft), 1, chris, recipientProof, 3);
+                vm.stopPrank();
+
+                vm.startPrank(david);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint(address(nft), 1, david, emptyProof, 4);
+                vm.stopPrank();
+
+                vm.startPrank(bsy);
+                vm.expectRevert("already hit mint allowance");
+                stacks.mint(address(nft), 1, bsy, emptyProof, 5);
+                vm.stopPrank();
+            }
+
+            vm.startPrank(minter);
+            recipientBalance = coin.balanceOf(minter);
+            payoutBalance = coin.balanceOf(receiver);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(minter, minter, address(nft), address(coin), 3, publicCost, false);
+            stacks.mint(address(nft), 3, minter, emptyProof, 0);
+            assert(nft.balanceOf(minter) == 3);
+            assert(recipientBalance - coin.balanceOf(minter) == 3 * publicCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == 3 * publicCost);
+            recipientBalance = coin.balanceOf(minter);
+            payoutBalance = coin.balanceOf(receiver);
+            vm.expectEmit(true, true, true, true);
+            emit Purchase(minter, minter, address(nft), address(coin), 1, publicCost, false);
+            stacks.mint(address(nft), 1, minter, emptyProof, 0);
+            assert(nft.balanceOf(minter) == 4);
+            assert(recipientBalance - coin.balanceOf(minter) == publicCost);
+            assert(coin.balanceOf(receiver) - payoutBalance == publicCost);
+            vm.expectRevert("already hit mint allowance");
+            stacks.mint(address(nft), 1, minter, emptyProof, 0);
+            vm.stopPrank();
+
+            vm.warp(drop.start_time + drop.presale_duration + drop.public_duration);
+        }
+
         vm.expectRevert("you shall not mint");
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
+        stacks.mint(address(nft), 1, address(this), emptyProof, 0);
 
-        vm.warp(drop.start_time + drop.presale_duration + 1);
-
-        assert(drop.public_duration == 30 minutes);
-
-        assert(
-            mintingContract.get_drop_phase(address(nft)) ==
-                DropPhase.PUBLIC_SALE
-        );
-
-        vm.startPrank(bob);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(bob, bob, address(nft), 1, .02 ether, false);
-        mintingContract.mint{value: 0.02 ether}(
-            address(nft),
-            1,
-            bob,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(bob.balance == 100 ether - 0.02 ether);
-        assert(alice.balance == 100 ether + 0.02 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(drop.public_duration == 35 minutes);
-
-        vm.startPrank(charles);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(charles, charles, address(nft), 3, .02 ether, false);
-        mintingContract.mint{value: 0.06 ether}(
-            address(nft),
-            3,
-            charles,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(charles.balance == 100 ether - 0.06 ether);
-        assert(alice.balance == 100 ether + 0.08 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(nft.balanceOf(charles) == 3);
-        assert(drop.public_duration == 50 minutes);
-
-        vm.startPrank(david);
-        vm.expectEmit(true, true, false, true);
-        emit Purchase(david, david, address(nft), 2, .02 ether, false);
-        mintingContract.mint{value: 0.04 ether}(
-            address(nft),
-            2,
-            david,
-            emptyProof,
-            0
-        );
-        vm.stopPrank();
-
-        drop = mintingContract.get_drop(address(nft));
-
-        assert(david.balance == 100 ether - 0.04 ether);
-        assert(alice.balance == 100 ether + 0.12 ether);
-        assert(nft.balanceOf(bob) == 1);
-        assert(nft.balanceOf(charles) == 3);
-        assert(nft.balanceOf(david) == 2);
-        assert(drop.public_duration == 60 minutes);
-
-        uint256 endTime = drop.start_time + drop.presale_duration + drop.public_duration;
-
-        assert(endTime - startTime > 30 minutes);
+        drop = stacks.get_drop(address(nft));
+        
+        if (presaleDuration > 0 && publicDuration > 0) {
+            assert(drop.supply == 100 - 21);
+        } else if (presaleDuration > 0) {
+            assert(drop.supply == 100 - 13);
+        } else {
+            assert(drop.supply == 100 - 4);
+        }
     }
+
 }

@@ -14,7 +14,5 @@ library DropParam {
     uint256 constant ALLOWANCE = 2;
     uint256 constant COST = 4;
     uint256 constant DURATION = 8;
-    uint256 constant PAYOUT_ADDRESS = 16;
-    uint256 constant CURRENCY_ADDRESS = 32;
-    uint256 constant START_TIME = 64;
+    uint256 constant START_TIME = 16;
 }

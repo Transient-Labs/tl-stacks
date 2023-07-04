@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity >=0.8.13;
+pragma solidity 0.8.19;
 
 ///@notice This cheat codes interface is named _CheatCodes so you can use the CheatCodes interface in other testing files without errors
 interface _CheatCodes {
@@ -20,9 +20,11 @@ contract VyperDeployer {
 
     function deployContract(string memory fileName) public returns (address) {
         ///@notice create a list of strings with the commands necessary to compile Vyper contracts
-        string[] memory cmds = new string[](2);
+        string[] memory cmds = new string[](4);
         cmds[0] = "vyper";
         cmds[1] = string.concat("src/", fileName, ".vy");
+        cmds[2] = "--evm-version";
+        cmds[3] = "paris";
 
         ///@notice compile the Vyper contract and return the bytecode
         bytes memory bytecode = cheatCodes.ffi(cmds);
@@ -52,9 +54,11 @@ contract VyperDeployer {
         returns (address)
     {
         ///@notice create a list of strings with the commands necessary to compile Vyper contracts
-        string[] memory cmds = new string[](2);
+        string[] memory cmds = new string[](4);
         cmds[0] = "vyper";
-        cmds[1] = string.concat("vyper_contracts/", fileName, ".vy");
+        cmds[1] = string.concat("src/", fileName, ".vy");
+        cmds[2] = "--evm-version";
+        cmds[3] = "paris";
 
         ///@notice compile the Vyper contract and return the bytecode
         bytes memory _bytecode = cheatCodes.ffi(cmds);
