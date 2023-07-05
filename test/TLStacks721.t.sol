@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 import {Merkle} from "murky/Merkle.sol";
 
-import {ITLStacks721, Drop} from "tl-stacks/ITLStacks721.sol";
+import {ITLStacks721, Drop} from "tl-stacks/utils/ITLStacks721.sol";
 import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
 import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
@@ -24,6 +24,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
     ITLStacks721 stacks;
     ERC721TL nft;
+    ERC721TL nftTwo;
     MockERC20 coin;
 
     bytes32[] emptyProof = new bytes32[](0);
@@ -35,6 +36,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
     address chris = address(0xC0FFEE);
     address david = address(0x1D1B);
     address bsy = address(0xCDB);
+    address minter = address(0x12345);
 
     function setUp() public {
         stacks = ITLStacks721(vyperDeployer.deployContract("TLStacks721", abi.encode(address(this))));
@@ -64,6 +66,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         coin.transfer(chris, 100 ether);
         coin.transfer(david, 100 ether);
         coin.transfer(bsy, 100 ether);
+        coin.transfer(minter, 100 ether);
 
         receiver = address(new Receiver());
 
@@ -71,6 +74,22 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         vm.deal(chris, 100 ether);
         vm.deal(david, 100 ether);
         vm.deal(bsy, 100 ether);
+        vm.deal(minter, 100 ether);
+
+        TLCreator proxyTwo = new TLCreator(
+            address(implementation),
+            "Test ERC721 2",
+            "LFG2",
+            nftOwner,
+            1_000,
+            nftOwner,
+            empty,
+            false,
+            address(0)
+        );
+        nftTwo = ERC721TL(address(proxyTwo));
+        vm.prank(nftOwner);
+        nftTwo.setApprovedMintContracts(mintAddrs, true);
     }
 
     /// @dev test constructor setup
@@ -490,8 +509,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
     }
 
     /// @dev test not on the allowlist
-    function test_not_on_allowlist(address minter) public {
-        vm.assume(minter != ben && minter != chris && minter != david && minter != bsy);
+    function test_not_on_allowlist() public {
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
         data[0] = keccak256(abi.encode(ben, uint256(1)));
@@ -758,8 +776,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         uint256 presaleDuration,
         uint256 presaleCost,
         uint256 publicDuration,
-        uint256 publicCost,
-        address minter
+        uint256 publicCost
     ) public {
         vm.assume(minter != ben && minter != chris && minter != david && minter != bsy && minter != address(0));
         vm.assume(presaleDuration > 0 || publicDuration > 0);
@@ -808,8 +825,6 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         vm.stopPrank();
 
         Drop memory drop = stacks.get_drop(address(nft));
-
-        vm.deal(minter, 100 ether);
 
         uint256 payoutBalance = receiver.balance;
         uint256 recipientBalance = ben.balance;
@@ -977,8 +992,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         uint256 presaleDuration,
         uint256 presaleCost,
         uint256 publicDuration,
-        uint256 publicCost,
-        address minter
+        uint256 publicCost
     ) public {
         vm.assume(minter != ben && minter != chris && minter != david && minter != bsy && minter != address(0));
         vm.assume(presaleDuration > 0 || publicDuration > 0);
@@ -1028,7 +1042,6 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         Drop memory drop = stacks.get_drop(address(nft));
 
-        coin.transfer(minter, 100 ether);
         vm.prank(ben);
         coin.approve(address(stacks), 100 ether);
         vm.prank(chris);
@@ -1200,4 +1213,55 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         }
     }
 
+    /// @dev test two mints going on at the same time on separate contracts
+    function test_two_mints_going_on_simultaneously() public {
+        vm.startPrank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://arweave.net/1",
+            100,
+            10,
+            address(0),
+            receiver,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0
+        );
+        
+        stacks.configure_drop(
+            address(nftTwo),
+            "https://arweave.net/2",
+            100,
+            10,
+            address(0),
+            receiver,
+            block.timestamp + 3600,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            0
+        );
+        vm.stopPrank();
+
+        assert(stacks.get_drop_phase(address(nft)) == DropPhase.PUBLIC_SALE);
+        assert(stacks.get_drop_phase(address(nftTwo)) == DropPhase.BEFORE_SALE);
+
+        stacks.mint(address(nft), 1, address(this), emptyProof, 0);
+        assert(stacks.get_num_minted(address(nft), address(this)) == 1);
+        assert(stacks.get_num_minted(address(nftTwo), address(this)) == 0);
+
+        vm.warp(block.timestamp + 3600);
+
+        assert(stacks.get_drop_phase(address(nft)) == DropPhase.ENDED);
+        assert(stacks.get_drop_phase(address(nftTwo)) == DropPhase.PUBLIC_SALE);
+
+        stacks.mint(address(nftTwo), 5, address(this), emptyProof, 0);
+
+        assert(stacks.get_num_minted(address(nft), address(this)) == 1);
+        assert(stacks.get_num_minted(address(nftTwo), address(this)) == 5);
+    }
 }

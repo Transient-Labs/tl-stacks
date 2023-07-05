@@ -3,7 +3,7 @@ pragma solidity 0.8.19;
 
 import {Script} from "forge-std/Script.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
-import {ITLStacks1155} from "tl-stacks/ITLStacks1155.sol";
+import {ITLStacks1155} from "tl-stacks/utils/ITLStacks1155.sol";
 
 interface IOwnable {
     function owner() external view returns (address);
