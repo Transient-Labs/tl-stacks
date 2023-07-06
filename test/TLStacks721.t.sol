@@ -5,8 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {VyperDeployer} from "utils/VyperDeployer.sol";
 import {Merkle} from "murky/Merkle.sol";
 
-import {ITLStacks721, Drop} from "tl-stacks/utils/ITLStacks721.sol";
-import {ITLStacks721Events} from "tl-stacks/utils/ITLStacks721Events.sol";
+import {ITLStacks721Events, ITLStacks721, Drop} from "tl-stacks/utils/ITLStacks721.sol";
 import {DropPhase, DropParam} from "tl-stacks/utils/DropUtils.sol";
 
 import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
@@ -558,7 +557,7 @@ contract TLStacks721Test is Test, ITLStacks721Events {
         );
 
         vm.prank(ben);
-        vm.expectRevert("not enough eth sent");
+        vm.expectRevert("insufficient funds");
         stacks.mint{value: 0.1 ether}(address(nft), 1, ben, emptyProof, 0);
     }
 
@@ -582,7 +581,32 @@ contract TLStacks721Test is Test, ITLStacks721Events {
 
         vm.startPrank(ben);
         coin.approve(address(stacks), 0.1 ether);
-        vm.expectRevert("not enough allowance given to contract");
+        vm.expectRevert("insufficient funds");
+        stacks.mint(address(nft), 1, ben, emptyProof, 0);
+        vm.stopPrank();
+    }
+
+    /// @dev test not enough erc20 balance
+    function test_not_enough_balance() public {
+        vm.prank(nftOwner);
+        stacks.configure_drop(
+            address(nft),
+            "https://art.transientlabs.xyz",
+            100,
+            1,
+            address(coin),
+            nftOwner,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            3600,
+            101 ether
+        );
+
+        vm.startPrank(ben);
+        coin.approve(address(stacks), 1000 ether);
+        vm.expectRevert("insufficient funds");
         stacks.mint(address(nft), 1, ben, emptyProof, 0);
         vm.stopPrank();
     }

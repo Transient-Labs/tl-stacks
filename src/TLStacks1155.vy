@@ -439,13 +439,17 @@ def _settle_up(
     total_cost: uint256 = num_can_mint * cost
 
     if currency_addr == empty(address):
-        assert msg.value >= total_cost, "not enough eth sent"
+        assert msg.value >= total_cost, "insufficient funds"
         self._send_eth(payout_receiver, total_cost)
         refund: uint256 = msg.value - total_cost
         self._send_eth(msg.sender, refund)
 
     else:
-        self._transfer_erc20(currency_addr, payout_receiver, total_cost)
+        token: IERC20 = IERC20(currency_addr)
+        assert token.allowance(msg.sender, self) >= total_cost and token.balanceOf(msg.sender) >= total_cost, "insufficient funds"
+
+        self._transfer_erc20(currency_addr, msg.sender, payout_receiver, total_cost)
+
         if msg.value > 0:
             self._send_eth(msg.sender, msg.value)
     
@@ -477,27 +481,20 @@ def _send_eth(recipient: address, eth_amount: uint256):
 
 @internal
 @payable
-def _transfer_erc20(erc20_addr: address, recipient: address, num_tokens: uint256):
+def _transfer_erc20(erc20_addr: address, from_: address, to: address, num_tokens: uint256):
     """
     @notice function to transfer ERC-20 tokens to a recipient, verifying that it was successful
     @dev returns if num_tokens is zero
-    @dev reverts if contract does not have enough balance approved by the msg.sender
     @dev reverts on failure
-    @dev checks that the balance transferred is accurate
-    @dev if the msg.sender is the same as the recipient, then there is no need to transfer the tokens.
-         This avoids reverting the transaction if the creator buys one and is also the payout receiver for the drop
+    @dev if the `from_` is the same as `to`, then there is no need to transfer the tokens.
     @param erc20_addr The address for erc20 token contract
-    @param recipient The recipient for the erc20 tokens
+    @param from_ The address from which the erc20 tokens will be taken
+    @param to The recipient for the erc20 tokens
     @param num_tokens The number of tokens to transfer
     """
-    if num_tokens == 0 or msg.sender == recipient:
+    if num_tokens == 0 or from_ == to:
         return
-    token: IERC20 = IERC20(erc20_addr)
-    assert token.allowance(msg.sender, self) >= num_tokens, "not enough allowance given to contract"
-    balance_before: uint256 = token.balanceOf(recipient)
-    assert token.transferFrom(msg.sender, recipient, num_tokens, default_return_value=True), "ERC20 token transfer not successful"
-    balance_after: uint256 = token.balanceOf(recipient)
-    assert balance_after - balance_before == num_tokens, "insufficient ERC20 token transfer"
+    assert IERC20(erc20_addr).transferFrom(from_, to, num_tokens, default_return_value=True), "ERC20 token transfer not successful"
 
 ###########################################################################
 #                         External Read Functions
