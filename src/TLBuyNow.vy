@@ -23,16 +23,6 @@ interface IERC20:
     def allowance(owner: address, spender: address) -> uint256: view
     def transferFrom(from_: address, to: address, amount: uint256) -> bool: payable
 
-interface RoyaltyEngine:
-    def getRoyalty(nft_addr: address, token_id: uint256, value_: uint256) -> (DynArray[address, 100], DynArray[uint256, 100]): nonpayable
-
-
-###########################################################################
-#                              Constants
-###########################################################################
-
-BASIS: public(constant(uint256)) = 10_000
-
 ###########################################################################
 #                                Structs
 ###########################################################################
@@ -230,7 +220,7 @@ def cancel_sale(nft_addr: address, token_id: uint256):
     log SaleCanceled(msg.sender, nft_addr, token_id)
 
 ###########################################################################
-#                                Buy Now
+#                             Buy Now Functions
 ###########################################################################
 
 @external
@@ -254,7 +244,7 @@ def buy(nft_addr: address, token_id: uint256):
     sale: Sale = self._sales[nft_addr][token_id]
     assert sale.seller != empty(address), "sale not active"
 
-    royalty_info: (DynArray[address, 100], DynArray[uint256, 100]) = RoyaltyEngine(self.royalty_engine).getRoyalty(nft_addr, token_id, BASIS)
+    royalty_info: (DynArray[address, 100], DynArray[uint256, 100]) = self._get_royalty_info(nft_addr, token_id, sale.price)
     assert len(royalty_info[0]) == len(royalty_info[1]), "invalid royalty info"
 
     self._sales[nft_addr][token_id] = empty(Sale)
@@ -265,6 +255,28 @@ def buy(nft_addr: address, token_id: uint256):
 
     log SaleFulfilled(msg.sender, nft_addr, token_id, sale)
 
+@internal
+def _get_royalty_info(nft_addr: address, token_id: uint256, amount: uint256) -> (DynArray[address, 100], DynArray[uint256, 100]):
+    """
+    @notice Function to get royalty info
+    @dev If the lookup reverts, as is possible in the Royalty Registry, return back empty arrays
+    @param nft_addr The nft contract address
+    @param token_id The nft token id
+    @return DynArray[address, 100] The list of addresses to send some payment to
+    @return DynArray[uint256, 100] The amount of currency to transfer to each address in the first index of the output tuple
+    """
+    success: bool = False
+    data: Bytes[6528] = b""
+    success, data = raw_call(
+        self.royalty_engine,
+        _abi_encode(nft_addr, token_id, amount, method_id("getRoyaltyInfo(address,uint256,uint256)")),
+        max_outsize=6528,
+        revert_on_failure=False
+    )
+    if not success:
+        return (empty(DynArray[address, 100]), empty(DynArray[uint256, 100]))
+
+    return _abi_decode(data, (DynArray[address, 100], DynArray[uint256, 100]))
 
 @internal
 @payable
@@ -284,9 +296,9 @@ def _transfer_funds(currency_addr: address, price: uint256, from_: address, to: 
 
         remaining_sale: uint256 = price
         for i in range(0, 100):
-            if i >= len(royalty_receivers):
+            if i == len(royalty_receivers):
                 break
-            fee: uint256 = price / BASIS * royalty_fees[i]
+            fee: uint256 = royalty_fees[i]
             self._send_eth(royalty_receivers[i], fee)
             remaining_sale -= fee
 
@@ -301,9 +313,9 @@ def _transfer_funds(currency_addr: address, price: uint256, from_: address, to: 
         
         remaining_sale: uint256 = price
         for i in range(0, 100):
-            if i >= len(royalty_receivers):
+            if i == len(royalty_receivers):
                 break
-            fee: uint256 = price / BASIS * royalty_fees[i]
+            fee: uint256 = royalty_fees[i]
             self._transfer_erc20(currency_addr, from_, royalty_receivers[i], fee)
             remaining_sale -= fee
 
