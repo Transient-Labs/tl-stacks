@@ -1,8 +1,8 @@
 # @version 0.3.9
 
 """
-@title TLVelocityMint721
-@notice Velocity mint contract for ERC721TL contracts
+@title TLStacksVelocity1155
+@notice Velocity mint contract for ERC1155TL contracts
 @author transientlabs.xyz
 @license MIT
 @custom:version 2.0.0
@@ -12,8 +12,8 @@
 #                              Interfaces
 ###########################################################################
 
-interface IERC721TL:
-    def externalMint(recipient: address, uri: String[400]): nonpayable
+interface IERC1155TL:
+    def externalMint(tokenId: uint256, addresses: DynArray[address, 100], amounts: DynArray[uint256, 100]): nonpayable
 
 interface IOwnableAccessControl:
     def owner() -> address: view
@@ -53,7 +53,6 @@ enum DropParam:
 ###########################################################################
 
 struct Drop:
-    base_uri: String[300]
     initial_supply: uint256
     supply: uint256
     allowance: uint256
@@ -80,11 +79,13 @@ event DropConfigured:
     configurer: indexed(address)
     nft_addr: indexed(address)
     block_number: indexed(uint256)
+    token_id: uint256
 
 event Purchase:
     buyer: indexed(address)
     receiver: indexed(address)
     nft_addr: indexed(address)
+    token_id: uint256
     currency_addr: address
     amount: uint256
     price: uint256
@@ -92,10 +93,12 @@ event Purchase:
 event DropClosed:
     closer: indexed(address)
     nft_addr: indexed(address)
+    token_id: indexed(uint256)
 
 event DropUpdated:
     updater: indexed(address)
     nft_addr: indexed(address)
+    token_id: indexed(uint256)
     phase_param: DropPhase
     param_updated: DropParam
     value: bytes32
@@ -106,9 +109,9 @@ event DropUpdated:
 
 owner: public(address)
 paused: public(bool)
-_drops: HashMap[address, Drop]                                              # nft_addr -> Drop
-_num_minted: HashMap[address, HashMap[uint256, HashMap[address, uint256]]]  # nft_addr -> round -> receiver -> num_minted
-_drop_round: HashMap[address, uint256]                                      # nft_addr -> round
+_drops: HashMap[address, HashMap[uint256, Drop]]                                              # nft_addr -> token_id -> Drop
+_num_minted: HashMap[address, HashMap[uint256, HashMap[uint256, HashMap[address, uint256]]]]  # nft_addr -> token_id -> round -> receiver -> num_minted
+_drop_round: HashMap[address, HashMap[uint256, uint256]]                                      # nft_addr -> token_id -> round
 
 ###########################################################################
 #                             Constructor
@@ -122,6 +125,25 @@ def __init__(init_owner: address):
 ###########################################################################
 #                         Owner Write Functions
 ###########################################################################
+
+#                           `-.
+#               -._ `. `-.`-. `-.
+#              _._ `-._`.   .--.  `.
+#           .-'   '-.  `-|\/    \|   `-.
+#         .'         '-._\   (o)O) `-.
+#        /         /         _.--.\ '. `-. `-.
+#       /|    (    |  /  -. ( -._( -._ '. '.
+#      /  \    \-.__\ \_.-'`.`.__'.   `-, '. .'
+#      |  /\    |  / \ \     `--')/  .-'.'.'
+#  .._/  /  /  /  / / \ \          .' . .' .'
+# /  ___/  |  /   \ \  \ \__       '.'. . .
+# \  \___  \ (     \ \  `._ `.     .' . ' .'
+#  \ `-._\ (  `-.__ | \    )//   .'  .' .-'
+#   \_-._\  \  `-._\)//    ""_.-' .-' .' .'
+#     `-'    \ -._\ ""_..--''  .-' .'
+#             \/    .' .-'.-'  .-' .-'
+#                 .-'.' .'  .' .-'
+# PRECIOUSSSS!!
 
 @external
 def set_paused(paused: bool):
@@ -158,10 +180,46 @@ def _transfer_ownership(new_owner: address):
 #                        Drop Configuration Functions
 ###########################################################################
 
+#     _             _,-----------._        ___
+#    (_,.-      _,-'_,-----------._`-._    _)_)
+#       |     ,'_,-'  ___________  `-._`.
+#      `'   ,','  _,-'___________`-._  `.`.
+#         ,','  ,'_,-'     .     `-._`.  `.`.
+#        /,'  ,','        >|<        `.`.  `.\
+#       //  ,','      ><  ,^.  ><      `.`.  \\
+#      //  /,'      ><   / | \   ><      `.\  \\
+#     //  //      ><    \/\^/\/    ><      \\  \\
+#    ;;  ;;              `---'              ::  ::
+#    ||  ||              (____              ||  ||
+#   _||__||_            ,'----.            _||__||_
+#  (o.____.o)____        `---'        ____(o.____.o)
+#    |    | /,--.)                   (,--.\ |    |
+#    |    |((  -`___               ___`   ))|    |
+#    |    | \\,'',  `.           .'  .``.// |    |
+#    |    |  // (___,'.         .'.___) \\  |    |
+#   /|    | ;;))  ____) .     . (____  ((\\ |    |\
+#   \|.__ | ||/ .'.--.\/       `/,--.`. \;: | __,|;
+#    |`-,`;.| :/ /,'  `)-'   `-('  `.\ \: |.;',-'|
+#    |   `..  ' / \__.'         `.__/ \ `  ,.'   |
+#    |    |,\  /,                     ,\  /,|    |
+#    |    ||: : )          .          ( : :||    |
+#   /|    |:; |/  .      ./|\,      ,  \| :;|    |\
+#   \|.__ |/  :  ,/-    <--:-->    ,\.  ;  \| __,|;
+#    |`-.``:   `'/-.     '\|/`     ,-\`;   ;'',-'|
+#    |   `..   ,' `'       '       `  `.   ,.'   |
+#    |    ||  :                         :  ||    |
+#    |    ||  |                         |  ||    |
+#    |    ||  |                         |  ||    |
+#    |    |'  |            _            |  `|    |
+#    |    |   |          '|))           |   |    |
+#     ;____:   `._        `'           _,'   ;____:
+#   {______}     \___________________/     {______}
+#   |______|_______________________________|______|
+
 @external 
 def configure_drop(
     nft_addr: address,
-    base_uri: String[300],
+    token_id: uint256,
     supply: uint256,
     allowance: uint256,
     currency_addr: address,
@@ -179,7 +237,7 @@ def configure_drop(
     @dev a drop cannot already by configured
     @dev a non-zero decay rate cannot utilize an allowlist
     @param nft_addr The nft contract to set the drop for
-    @param base_uri The base uri for minting tokens, does NOT include a trailing "/"
+    @param token_id The nft token id
     @param supply The supply for the drop
     @param allowance The number of nfts mintable during public sale
     @param currency_addr The currency address for ERC-20 tokens, or the zero address for ETH
@@ -191,11 +249,12 @@ def configure_drop(
     """
     assert not self.paused, "contract is paused"
     assert start_time != 0, "start time cannot be zero"
+    assert decay_rate != 0, "decay rate cannot be zero"
+    assert duration != 0, "duration cannot be zero"
     assert self._is_drop_admin(nft_addr, msg.sender), "not authorized"
-    assert self._get_drop_phase(nft_addr) == DropPhase.NOT_CONFIGURED, "there is an existing drop"
+    assert self._get_drop_phase(nft_addr, token_id) == DropPhase.NOT_CONFIGURED, "there is an existing drop"
 
     drop: Drop = Drop({
-        base_uri: base_uri,
         initial_supply: supply,
         supply: supply,
         allowance: allowance,
@@ -207,29 +266,31 @@ def configure_drop(
         decay_rate: decay_rate
     })
 
-    self._drops[nft_addr] = drop
+    self._drops[nft_addr][token_id] = drop
 
-    log DropConfigured(msg.sender, nft_addr, block.number)
+    log DropConfigured(msg.sender, nft_addr, block.number, token_id)
 
 @external
-def close_drop(nft_addr: address):
+def close_drop(nft_addr: address, token_id: uint256):
     """
     @notice function to close a drop
     @dev contract cannot be paused
     @dev msg.sender must be nft contract owner or admin
     @param nft_addr The nft contract to close the drop for
+    @param token_id The token id on the contract
     """
     assert not self.paused, "contract is paused"
     assert self._is_drop_admin(nft_addr, msg.sender), "not authorized"
     
-    self._drops[nft_addr] = empty(Drop)
-    self._drop_round[nft_addr] += 1
+    self._drops[nft_addr][token_id] = empty(Drop)
+    self._drop_round[nft_addr][token_id] += 1
 
-    log DropClosed(msg.sender, nft_addr)
+    log DropClosed(msg.sender, nft_addr, token_id)
 
 @external
 def update_drop_param(
-    nft_addr: address, 
+    nft_addr: address,
+    token_id: uint256,
     phase: DropPhase, 
     param: DropParam, 
     param_value: bytes32
@@ -239,6 +300,7 @@ def update_drop_param(
     @dev contract cannot be paused
     @dev msg.sender must be nft contract owner or admin
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @param phase The phase to update the param in
     @param param The param to update
     @param param_value The value to update the param to
@@ -248,37 +310,69 @@ def update_drop_param(
 
     if phase == DropPhase.PUBLIC_SALE:
         if param == DropParam.ALLOWANCE:
-            self._drops[nft_addr].allowance = convert(param_value, uint256)
+            self._drops[nft_addr][token_id].allowance = convert(param_value, uint256)
         elif param == DropParam.COST:
-            self._drops[nft_addr].cost = convert(param_value, uint256)
+            self._drops[nft_addr][token_id].cost = convert(param_value, uint256)
         elif param == DropParam.DURATION:
-            self._drops[nft_addr].duration = convert(param_value, uint256)
+            self._drops[nft_addr][token_id].duration = convert(param_value, uint256)
         else:
             raise "unknown param update"
     elif phase == DropPhase.BEFORE_SALE:
         if param == DropParam.START_TIME:
-            self._drops[nft_addr].start_time = convert(param_value, uint256)
+            self._drops[nft_addr][token_id].start_time = convert(param_value, uint256)
         else:
             raise "unknown param update"
     else:
         raise "unknown param update"
 
-    log DropUpdated(msg.sender, nft_addr, phase, param, param_value)
+    log DropUpdated(msg.sender, nft_addr, token_id, phase, param, param_value)
 
 
 ###########################################################################
 #                            Mint Functions
 ###########################################################################
 
+#                        \ : /
+#                     '-: __ :-'
+#                     -:  )(_ :--
+#                     -' |r-_i'-
+#             ,sSSSSs,   (2-,7
+#             sS';:'`Ss   )-j
+#            ;K e (e s7  /  (
+#             S, ''  SJ (  ;/
+#             sL_~~_;(S_)  _7
+# |,          'J)_.-' />'-' `Z
+# j J         /-;-A'-'|'--'-j\
+#  L L        )  |/   :    /  \
+#   \ \       | | |    '._.'|  L
+#    \ \      | | |       | \  J
+#     \ \    _/ | |       |  ',|
+#      \ L.,' | | |       |   |/
+#     _;-r-<_.| \=\    __.;  _/
+#       {_}"  L-'  '--'   / /|
+#             |   ,      |  \|
+#             |   |      |   ")
+#             L   ;|     |   /|
+#            /|    ;     |  / |
+#           | |    ;     |  ) |
+#          |  |    ;|    | /  |
+#          | ;|    ||    | |  |
+#          L-'|____||    )/   |
+#              % %/ '-,- /    /
+#      snd     |% |   \%/_    |
+#           ___%  (   )% |'-; |
+#         C;.---..'   >%,(   "'
+#                    /%% /
+#                   Cccc'
+
 @external
 @payable
 @nonreentrant("mint different")
 def mint(
     nft_addr: address,
+    token_id: uint256,
     num_to_mint: uint256,
-    receiver: address,
-    proof: DynArray[bytes32, 3000],
-    allowlist_allocation: uint256
+    receiver: address
 ):
     """
     @notice function to mint from a drop
@@ -287,20 +381,19 @@ def mint(
     @dev supply must be left
     @dev must be able to pay mint cost and protocol fee, regardless of currency
     @param nft_addr The nft contract drop to mint from
+    @param token_id The nft token id
     @param num_to_mint The number to mint
-    @param receiver The receiver of the token(s)
-    @param proof The merkle proof for the receiver
     @param allowlist_allocation The number of mints in the allowlist allowed
     """
     assert not self.paused, "contract is paused"
     assert num_to_mint > 0, "cannot mint zero tokens"
-    drop: Drop = self._drops[nft_addr]
-    assert drop.supply != 0, "no supply left"
-    drop_phase: DropPhase = self._get_drop_phase(nft_addr)
+    drop: Drop = self._drops[nft_addr][token_id]
+    drop_phase: DropPhase = self._get_drop_phase(nft_addr, token_id)
 
     if drop_phase == DropPhase.PUBLIC_SALE:
         num_can_mint: uint256 = self._determine_mint_num(
             nft_addr,
+            token_id,
             receiver,
             num_to_mint,
             drop.allowance
@@ -309,28 +402,64 @@ def mint(
         adjust: uint256 = num_can_mint * convert(abs(drop.decay_rate), uint256)
         if drop.decay_rate < 0:
             if adjust > drop.duration:
-                self._drops[nft_addr].duration = 0
+                self._drops[nft_addr][token_id].duration = 0
             else:
-                self._drops[nft_addr].duration -= adjust
+                self._drops[nft_addr][token_id].duration -= adjust
         elif drop.decay_rate > 0:
-            self._drops[nft_addr].duration += adjust
+            self._drops[nft_addr][token_id].duration += adjust
 
         self._settle_up(
             nft_addr,
+            token_id,
             receiver,
             num_can_mint,
-            drop.cost
+            drop.cost,
+            drop.payout_receiver,
+            drop.currency_addr
         )
 
-        log Purchase(msg.sender, receiver, nft_addr, drop.currency_addr, num_to_mint, drop.cost)
+        log Purchase(msg.sender, receiver, nft_addr, token_id, drop.currency_addr, num_to_mint, drop.cost)
 
     else:
+        #                                   ....
+        #                                 .'' .'''
+        # .                             .'   :
+        # \\                          .:    :
+        #  \\                        _:    :       ..----.._
+        #   \\                    .:::.....:::.. .'         ''.
+        #    \\                 .'  #-. .-######'     #        '.
+        #     \\                 '.##'/ ' ################       :
+        #      \\                  #####################         :
+        #       \\               ..##.-.#### .''''###'.._        :
+        #        \\             :--:########:            '.    .' :
+        #         \\..__...--.. :--:#######.'   '.         '.     :
+        #         :     :  : : '':'-:'':'::        .         '.  .'
+        #         '---'''..: :    ':    '..'''.      '.        :'
+        #            \\  :: : :     '      ''''''.     '.      .:
+        #             \\ ::  : :     '            '.      '      :
+        #              \\::   : :           ....' ..:       '     '.
+        #               \\::  : :    .....####\\ .~~.:.             :
+        #                \\':.:.:.:'#########.===. ~ |.'-.   . '''.. :
+        #                 \\    .'  ########## \ \ _.' '. '-.       '''.
+        #                 :\\  :     ########   \ \      '.  '-.        :
+        #                :  \\'    '   #### :    \ \      :.    '-.      :
+        #               :  .'\\   :'  :     :     \ \       :      '-.    :
+        #              : .'  .\\  '  :      :     :\ \       :        '.   :
+        #              ::   :  \\'  :.      :     : \ \      :          '. :
+        #              ::. :    \\  : :      :    ;  \ \     :           '.:
+        #               : ':    '\\ :  :     :     :  \:\     :        ..'
+        #                  :    ' \\ :        :     ;  \|      :   .'''
+        #                  '.   '  \\:                         :.''
+        #                   .:..... \\:       :            ..''
+        #                  '._____|'.\\......'''''''.:..'''
+        #                             \\
         raise "you shall not mint"
 
 @internal
 @payable
 def _determine_mint_num(
     nft_addr: address,
+    token_id: uint256,
     receiver: address,
     num_to_mint: uint256,
     allowance: uint256,
@@ -339,14 +468,15 @@ def _determine_mint_num(
     @notice function to determine how many tokens the receiver can mint
     @dev reverts if mint allowance is hit
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @param receiver The address receiving the nfts
     @param num_to_mint The number requested to mint
     @param allowance The number of tokens receiver is allowed to mint
     @return uint256 The number of tokens allowed to mint
     """
-    drop: Drop = self._drops[nft_addr]
-    drop_round: uint256 = self._drop_round[nft_addr]
-    curr_minted: uint256 = self._num_minted[nft_addr][drop_round][receiver]
+    drop: Drop = self._drops[nft_addr][token_id]
+    drop_round: uint256 = self._drop_round[nft_addr][token_id]
+    curr_minted: uint256 = self._num_minted[nft_addr][token_id][drop_round][receiver]
     assert curr_minted < allowance, "already hit mint allowance"
 
     num_can_mint: uint256 = num_to_mint
@@ -357,8 +487,8 @@ def _determine_mint_num(
     if num_can_mint > drop.supply:
         num_can_mint = drop.supply
 
-    self._drops[nft_addr].supply -= num_can_mint
-    self._num_minted[nft_addr][drop_round][receiver] += num_can_mint
+    self._drops[nft_addr][token_id].supply -= num_can_mint
+    self._num_minted[nft_addr][token_id][drop_round][receiver] += num_can_mint
 
     return num_can_mint
 
@@ -366,47 +496,47 @@ def _determine_mint_num(
 @payable
 def _settle_up(
     nft_addr: address,
+    token_id: uint256,
     receiver: address,
     num_can_mint: uint256,
-    cost: uint256
+    cost: uint256,
+    payout_receiver: address,
+    currency_addr: address
 ):
     """
     @notice function to settle up the payment
     @dev ensures token cost is paid in full
     @dev does not store any funds in the contract and passes payment through to the proper receivers
     @param nft_addr The nft contract to specify drop
+    @param token_id The nft token id
     @param receiver The receiver of the token(s)
     @param num_can_mint The number that can be minted
     @param cost The cost per token in wei, or base unit of the ERC-20 token
+    @param payout_receiver The address that receives the payout
+    @param currency_addr The currency address
     """
-    drop: Drop = self._drops[nft_addr]
     total_cost: uint256 = num_can_mint * cost
 
-    if drop.currency_addr == empty(address):
+    if currency_addr == empty(address):
         assert msg.value >= total_cost, "insufficient funds"
-        self._send_eth(drop.payout_receiver, total_cost)
+        self._send_eth(payout_receiver, total_cost)
         refund: uint256 = msg.value - total_cost
         self._send_eth(msg.sender, refund)
 
     else:
-        token: IERC20 = IERC20(drop.currency_addr)
+        token: IERC20 = IERC20(currency_addr)
         assert token.allowance(msg.sender, self) >= total_cost and token.balanceOf(msg.sender) >= total_cost, "insufficient funds"
 
-        self._transfer_erc20(drop.currency_addr, msg.sender, drop.payout_receiver, total_cost)
-        
+        self._transfer_erc20(currency_addr, msg.sender, payout_receiver, total_cost)
+
         if msg.value > 0:
             self._send_eth(msg.sender, msg.value)
     
 
-    token_id_counter: uint256 = drop.initial_supply - drop.supply - num_can_mint
-    for i in range(0, 255):
-        if i  == num_can_mint:
-            break
-        IERC721TL(nft_addr).externalMint(
-            receiver,
-            concat(drop.base_uri, "/", uint2str(token_id_counter))
-        )
-        token_id_counter += 1
+    addrs: DynArray[address, 1] = [receiver]
+    amts: DynArray[uint256, 1] = [num_can_mint]
+
+    IERC1155TL(nft_addr).externalMint(token_id, addrs, amts)
 
 @internal
 @payable
@@ -449,47 +579,79 @@ def _transfer_erc20(erc20_addr: address, from_: address, to: address, num_tokens
 #                         External Read Functions
 ###########################################################################
 
+#                     . .:.:.:.:. .:\     /:. .:.:.:.:. ,
+#                .-._  `..:.:. . .:.:`- -':.:. . .:.:.,'  _.-.
+#               .:.:.`-._`-._..-''_...---..._``-.._.-'_.-'.:.:.
+#            .:.:. . .:_.`' _..-''._________,``-.._ `.._:. . .:.:.
+#         .:.:. . . ,-'_.-''      ||_-(O)-_||      ``-._`-. . . .:.:.
+#        .:. . . .,'_.'           '---------'           `._`.. . . .:.
+#      :.:. . . ,','               _________               `.`. . . .:.:
+#     `.:.:. .,','            _.-''_________``-._            `._.     _.'
+#   -._  `._./ /            ,'_.-'' ,       ``-._`.          ,' '`:..'  _.-
+#  .:.:`-.._' /           ,','                   `.`.       /'  '  \\.-':.:.
+#  :.:. . ./ /          ,','               ,       `.`.    / '  '  '\\. .:.:
+# :.:. . ./ /          / /    ,                      \ \  :  '  '  ' \\. .:.:
+# .:. . ./ /          / /            ,          ,     \ \ :  '  '  ' '::. .:.
+# :. . .: :    o     / /                               \ ;'  '  '  ' ':: . .:
+# .:. . | |   /_\   : :     ,                      ,    : '  '  '  ' ' :: .:.
+# :. . .| |  ((<))  | |,          ,       ,             |\'__',-._.' ' ||. .:
+# .:.:. | |   `-'   | |---....____                      | ,---\/--/  ' ||:.:.
+# ------| |         : :    ,.     ```--..._   ,         |''  '  '  ' ' ||----
+# _...--. |  ,       \ \             ,.    `-._     ,  /: '  '  '  ' ' ;;..._
+# :.:. .| | -O-       \ \    ,.                `._    / /:'  '  '  ' ':: .:.:
+# .:. . | |_(`__       \ \                        `. / / :'  '  '  ' ';;. .:.
+# :. . .<' (_)  `>      `.`.          ,.    ,.     ,','   \  '  '  ' ;;. . .:
+# .:. . |):-.--'(         `.`-._  ,.           _,-','      \ '  '  '//| . .:.
+# :. . .;)()(__)(___________`-._`-.._______..-'_.-'_________\'  '  //_:. . .:
+# .:.:,' \/\/--\/--------------------------------------------`._',;'`. `.:.:.
+# :.,' ,' ,'  ,'  /   /   /   ,-------------------.   \   \   \  `. `.`. `..:
+# ,' ,'  '   /   /   /   /   //                   \\   \   \   \   \  ` `...;
+
 @view
 @external
-def get_drop(nft_addr: address) -> Drop:
+def get_drop(nft_addr: address, token_id: uint256) -> Drop:
     """
     @notice function to get drop details
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @return Drop The current drop parameters
     """
-    return self._drops[nft_addr]
+    return self._drops[nft_addr][token_id]
 
 @view
 @external
-def get_num_minted(nft_addr: address, user: address) -> uint256:
+def get_num_minted(nft_addr: address, token_id: uint256, user: address) -> uint256:
     """
     @notice function to get number of nfts minted for a drop by and address
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @param user The user address to get number minted for
     @return uint256 The number of nfts minted by user for the drop
     """
-    round_id: uint256 = self._drop_round[nft_addr]
-    return self._num_minted[nft_addr][round_id][user]
+    round_id: uint256 = self._drop_round[nft_addr][token_id]
+    return self._num_minted[nft_addr][token_id][round_id][user]
 
 @view
 @external
-def get_drop_phase(nft_addr: address) -> DropPhase:
+def get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
     """
     @notice function to get current drop phase for the drop
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @return DropPhase The enum value showing current drop phase
     """
-    return self._get_drop_phase(nft_addr)
+    return self._get_drop_phase(nft_addr, token_id)
 
 @view
 @external
-def get_drop_round(nft_addr: address) -> uint256:
+def get_drop_round(nft_addr: address, token_id: uint256) -> uint256:
     """
     @notice function to get the current round for a drop
     @param nft_addr The nft contract address
+    @param token_id The nft token id
     @return uint256 The drop round number
     """
-    return self._drop_round[nft_addr]
+    return self._drop_round[nft_addr][token_id]
 
 ###########################################################################
 #                        Internal View/Pure Functions
@@ -509,13 +671,14 @@ def _is_drop_admin(nft_addr: address, operator: address) -> bool:
 
 @view
 @internal
-def _get_drop_phase(nft_addr: address) -> DropPhase:
+def _get_drop_phase(nft_addr: address, token_id: uint256) -> DropPhase:
     """
     @notice function to get the drop phase
     @param nft_addr The nft contract address for the drop
+    @param token_id The nft token id
     @return DropPhase The drop phase for the drops
     """
-    drop: Drop = self._drops[nft_addr]
+    drop: Drop = self._drops[nft_addr][token_id]
 
     if drop.start_time == 0:
         return DropPhase.NOT_CONFIGURED
