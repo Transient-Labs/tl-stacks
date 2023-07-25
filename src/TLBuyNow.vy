@@ -32,6 +32,7 @@ struct Sale:
     payout_receiver: address
     currency_addr: address
     price: uint256
+    merkle_root: bytes32
 
 ###########################################################################
 #                                Events
@@ -55,7 +56,7 @@ event SaleConfigured:
     token_id: indexed(uint256)
     sale: Sale
 
-event SalePriceUpdated:
+event SaleUpdated:
     sender: indexed(address)
     nft_addr: indexed(address)
     token_id: indexed(uint256)
@@ -70,6 +71,7 @@ event SaleFulfilled:
     buyer: indexed(address)
     nft_addr: indexed(address)
     token_id: indexed(uint256)
+    recipient: address
     sale: Sale
 
 ###########################################################################
@@ -205,7 +207,7 @@ def _update_royalty_engine(engine_addr: address):
 #   |______|_______________________________|______|
 
 @external
-def configure_sale(nft_addr: address, token_id: uint256, payout_receiver: address, currency_addr: address, price: uint256):
+def configure_sale(nft_addr: address, token_id: uint256, payout_receiver: address, currency_addr: address, price: uint256, merkle_root: bytes32):
     """
     @notice Function to configure a sale
     @dev Not allowed if the contract is paused
@@ -216,6 +218,7 @@ def configure_sale(nft_addr: address, token_id: uint256, payout_receiver: addres
     @param payout_receiver The address to which funds are sent from the sale, after creator royalties taken into account
     @param currency_addr The currency to use. Use the null address to specify ETH. Otherwise will assume it is an ERC-20 token
     @param price The price of the token
+    @param merkle_root The merkle root for making the sale private. An empty merkle root means it's open to the public
     """
     assert not self.paused, "contract is paused"
 
@@ -227,7 +230,8 @@ def configure_sale(nft_addr: address, token_id: uint256, payout_receiver: addres
         seller: msg.sender,
         payout_receiver: payout_receiver,
         currency_addr: currency_addr,
-        price: price
+        price: price,
+        merkle_root: merkle_root
     })
 
     self._sales[nft_addr][token_id] = sale
@@ -256,7 +260,27 @@ def update_sale_price(nft_addr: address, token_id: uint256, currency_addr: addre
 
     self._sales[nft_addr][token_id] = sale
 
-    log SalePriceUpdated(msg.sender, nft_addr, token_id, sale)
+    log SaleUpdated(msg.sender, nft_addr, token_id, sale)
+
+@external
+def update_merkle_root(nft_addr: address, token_id: uint256, merkle_root: bytes32):
+    """
+    @notice Function to update the sale price of the drop
+    @dev Not allowed if the contract is paused
+    @dev Requires that msg.sender is the nft seller
+    @dev Requires the sale to be set
+    @param nft_addr The nft contract address
+    @param token_id The nft token id
+    @param merkle_root The new merkle root for the sale
+    """
+    assert not self.paused, "contract is paused"
+
+    sale: Sale = self._sales[nft_addr][token_id]
+    assert msg.sender == sale.seller, "caller is not the token owner"
+
+    self._sales[nft_addr][token_id].merkle_root = merkle_root
+
+    log SaleUpdated(msg.sender, nft_addr, token_id, sale)
     
 @external
 def cancel_sale(nft_addr: address, token_id: uint256):
@@ -268,7 +292,7 @@ def cancel_sale(nft_addr: address, token_id: uint256):
     @param token_id The nft token id
     """
     sale: Sale = self._sales[nft_addr][token_id]
-    assert msg.sender == sale.seller, "caller is not the token owner"
+    assert msg.sender == sale.seller, "caller is not the token seller"
 
     self._sales[nft_addr][token_id] = empty(Sale)
 
@@ -314,7 +338,7 @@ def cancel_sale(nft_addr: address, token_id: uint256):
 @external
 @payable
 @nonreentrant("buy different")
-def buy(nft_addr: address, token_id: uint256):
+def buy(nft_addr: address, token_id: uint256, recipient: address, proof: DynArray[bytes32, max_value(uint16)]):
     """
     @notice Function to buy a token for the listed price
     @dev Not allowed if the contract is paused
@@ -326,11 +350,17 @@ def buy(nft_addr: address, token_id: uint256):
          Reverts if either case is not met, as needed.
     @param nft_addr The nft contract address
     @param token_id The nft token id
+    @param recipient The receiver of the nft
+    @param proof The merkle proof if a private sale is configured
     """
     assert not self.paused, "contract is paused"
 
     sale: Sale = self._sales[nft_addr][token_id]
     assert sale.seller != empty(address), "sale not active"
+
+    if sale.merkle_root != empty(bytes32):
+        leaf: bytes32 = keccak256(convert(recipient, bytes32))
+        assert self._verify_proof(proof, sale.merkle_root, leaf), "recipient not part of the private sale"
 
     royalty_info: (DynArray[address, 100], DynArray[uint256, 100]) = self._get_royalty_info(nft_addr, token_id, sale.price)
     assert len(royalty_info[0]) == len(royalty_info[1]), "invalid royalty info"
@@ -339,9 +369,9 @@ def buy(nft_addr: address, token_id: uint256):
     
     self._transfer_funds(sale.currency_addr, sale.price, msg.sender, sale.payout_receiver, royalty_info[0], royalty_info[1])
 
-    IERC721(nft_addr).transferFrom(sale.seller, msg.sender, token_id)
+    IERC721(nft_addr).transferFrom(sale.seller, recipient, token_id)
 
-    log SaleFulfilled(msg.sender, nft_addr, token_id, sale)
+    log SaleFulfilled(msg.sender, nft_addr, token_id, recipient, sale)
 
 @internal
 def _get_royalty_info(nft_addr: address, token_id: uint256, amount: uint256) -> (DynArray[address, 100], DynArray[uint256, 100]):
@@ -490,3 +520,46 @@ def get_sale(nft_addr: address, token_id: uint256) -> Sale:
     @param token_id The nft token id
     """
     return self._sales[nft_addr][token_id]
+
+###########################################################################
+#                        Internal View/Pure Functions
+###########################################################################
+
+#                    ,.
+#                  ,'  `.
+#                ,' _<>_ `.
+#              ,'.-'____`-.`.
+#            ,'_.-''    ``-._`.
+#          ,','      /\      `.`.
+#        ,' /.._  O /  \ O  _.,\ `.
+#      ,'/ /  \ ``-;.--.:-'' /  \ \`.
+#    ,' : :    \  /\`.,'/\  /    : : `.
+#   < <>| |   O >(< (  ) >)< O   | |<> >
+#    `. : :    /  \/,'`.\/  \    ; ; ,'
+#      `.\ \  /_..-:`--';-.._\  / /,'
+#        `. \`'   O \  / O   `'/ ,'
+#          `.`._     \/     _,','
+#            `..``-.____.-'',,'
+#              `.`-.____.-','
+#                `.  <>  ,'
+#                  `.  ,' 
+#                    `'
+
+@pure
+@internal
+def _verify_proof(proof: DynArray[bytes32, max_value(uint16)], root: bytes32, leaf: bytes32) -> bool:
+    """
+    @notice function to verify a merkle proof
+    @dev each pair of leaves and each pair of hashes in the tree are assumed to be sorted.
+    @param proof The bytes32 array of sibling hashes that lead from the `leaf` to the `root`
+    @param root The merkle root to check against
+    @param leaf The leaf to check
+    @return bool The verification if the proof is valid for the leaf or not 
+    """
+    computed_hash: bytes32 = leaf
+    for p in proof:
+        if convert(computed_hash, uint256) < convert(p, uint256):
+            computed_hash = keccak256(concat(computed_hash, p))  
+        else: 
+            computed_hash = keccak256(concat(p, computed_hash))
+    return computed_hash == root

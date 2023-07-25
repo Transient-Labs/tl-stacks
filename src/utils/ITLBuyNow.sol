@@ -42,4 +42,8 @@ interface ITLBuyNow is ITLBuyNowEvents {
     function buy(address nft_addr, uint256 token_id) external payable;
 
     function get_sale(address nft_addr, uint256 token_id) external view returns (Sale memory);
+
+    function owner() external view returns (address);
+
+    function paused() external view returns (bool);
 }

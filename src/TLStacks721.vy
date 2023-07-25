@@ -383,7 +383,7 @@ def mint(
     nft_addr: address,
     num_to_mint: uint256,
     receiver: address,
-    proof: DynArray[bytes32, 3000],
+    proof: DynArray[bytes32, max_value(uint16)],
     allowlist_allocation: uint256
 ):
     """
@@ -677,6 +677,26 @@ def get_drop_round(nft_addr: address) -> uint256:
 #                        Internal View/Pure Functions
 ###########################################################################
 
+#                    ,.
+#                  ,'  `.
+#                ,' _<>_ `.
+#              ,'.-'____`-.`.
+#            ,'_.-''    ``-._`.
+#          ,','      /\      `.`.
+#        ,' /.._  O /  \ O  _.,\ `.
+#      ,'/ /  \ ``-;.--.:-'' /  \ \`.
+#    ,' : :    \  /\`.,'/\  /    : : `.
+#   < <>| |   O >(< (  ) >)< O   | |<> >
+#    `. : :    /  \/,'`.\/  \    ; ; ,'
+#      `.\ \  /_..-:`--';-.._\  / /,'
+#        `. \`'   O \  / O   `'/ ,'
+#          `.`._     \/     _,','
+#            `..``-.____.-'',,'
+#              `.`-.____.-','
+#                `.  <>  ,'
+#                  `.  ,' 
+#                    `'
+
 @view
 @internal
 def _is_drop_admin(nft_addr: address, operator: address) -> bool:
@@ -722,7 +742,8 @@ def _get_drop_phase(nft_addr: address) -> DropPhase:
 def _verify_proof(proof: DynArray[bytes32, max_value(uint16)], root: bytes32, leaf: bytes32) -> bool:
     """
     @notice function to verify a merkle proof
-    @param proof The merkle proof
+    @dev each pair of leaves and each pair of hashes in the tree are assumed to be sorted.
+    @param proof The bytes32 array of sibling hashes that lead from the `leaf` to the `root`
     @param root The merkle root to check against
     @param leaf The leaf to check
     @return bool The verification if the proof is valid for the leaf or not 
