@@ -12,6 +12,7 @@ import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
 import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
 
 import {Receiver, RevertingReceiver} from "./utils/Receiver.sol";
+import {RevertingSenderBN, ReenteringSenderBN} from "./utils/Senders.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 
 contract TLBuyNowTest is Test, ITLBuyNowEvents {
@@ -355,26 +356,363 @@ contract TLBuyNowTest is Test, ITLBuyNowEvents {
     }
 
     /// @dev test sale with not enough erc20 allowance
+    function test_buy_not_enough_erc20_allowance() public {
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(coin), 1 ether, bytes32(0));
+
+        vm.startPrank(bsy);
+
+        vm.expectRevert("insufficient funds");
+        bn.buy(address(nft), 1, bsy, emptyProof);
+
+        coin.approve(address(bn), 0.9999 ether);
+        vm.expectRevert("insufficient funds");
+        bn.buy(address(nft), 1, bsy, emptyProof);
+
+        vm.stopPrank();
+    }
 
     /// @dev test sale with not enough erc20 balance
+    function test_buy_not_enough_erc20_balance() public {
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(coin), 1001 ether, bytes32(0));
+
+        vm.startPrank(bsy);
+
+        coin.approve(address(bn), 10_000 ether);
+        vm.expectRevert("insufficient funds");
+        bn.buy(address(nft), 1, bsy, emptyProof);
+
+        vm.stopPrank();
+    }
+
+    /// @dev buy token off yourself
+    function test_buy_token_recipient_same_as_seller() public {
+        vm.startPrank(ben);
+        // eth
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, bytes32(0));
+        vm.expectRevert("cannot buy token for current seller");
+        bn.buy(address(nft), 1, ben, emptyProof);
+        bn.cancel_sale(address(nft), 1);
+
+        // erc-20
+        bn.configure_sale(address(nft), 1, ben, address(coin), 1 ether, bytes32(0));
+        vm.expectRevert("cannot buy token for current seller");
+        bn.buy(address(nft), 1, ben, emptyProof);
+
+        vm.stopPrank();
+    }
+
+    /// @dev buy token off yourself for someone else
+    function test_buy_token_msg_sender_is_seller() public {
+        vm.startPrank(ben);
+        // eth
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, bytes32(0));
+        uint256 prevBalance = ben.balance;
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(ben, address(nft), 1, chris, Sale(ben, ben, address(0), 1 ether, bytes32(0)));
+        bn.buy{value: 1 ether}(address(nft), 1, chris, emptyProof);
+        assert(ben.balance - prevBalance == 0 ether);
+        assert(nft.ownerOf(1) == chris);
+
+        vm.stopPrank();
+
+        vm.prank(chris);
+        nft.transferFrom(chris, ben, 1);
+
+        vm.startPrank(ben);
+
+        // erc-20
+        bn.configure_sale(address(nft), 1, ben, address(coin), 1 ether, bytes32(0));
+        coin.approve(address(bn), 1 ether);
+        prevBalance = coin.balanceOf(ben);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(ben, address(nft), 1, chris, Sale(ben, ben, address(coin), 1 ether, bytes32(0)));
+        bn.buy(address(nft), 1, chris, emptyProof);
+        assert(coin.balanceOf(ben) - prevBalance == 0 ether);
+        assert(nft.ownerOf(1) == chris);
+
+        vm.stopPrank();
+    }
 
     /// @dev test sale for 0 eth
+    function test_buy_zero_eth() public {
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), 0 ether, bytes32(0));
+
+        vm.startPrank(bsy);
+        uint256 prevBalance = bsy.balance;
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 1, bsy, Sale(ben, ben, address(0), 0 ether, bytes32(0)));
+        bn.buy(address(nft), 1, bsy, emptyProof);
+        assert(bsy.balance == prevBalance);
+        assert(nft.ownerOf(1) == bsy);
+
+        vm.stopPrank();
+    }
+
+    /// @dev test sale for 0 erc20
+    function test_buy_zero_erc20() public {
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(coin), 0 ether, bytes32(0));
+
+        vm.startPrank(bsy);
+        uint256 prevBalance = coin.balanceOf(bsy);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 1, bsy, Sale(ben, ben, address(coin), 0 ether, bytes32(0)));
+        bn.buy(address(nft), 1, bsy, emptyProof);
+        assert(coin.balanceOf(bsy) == prevBalance);
+        assert(nft.ownerOf(1) == bsy);
+
+        vm.stopPrank();
+    }
 
     /// @dev test sale with refund
+    function test_buy_with_refund_eth(uint256 salePrice, uint256 extraAmount) public {
+        if (salePrice > 90 ether) {
+            salePrice = salePrice % 90 ether;
+        }
+
+        if (extraAmount > 10 ether) {
+            extraAmount = extraAmount % 10 ether;
+        }
+
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), salePrice, bytes32(0));
+
+        uint256 prevBsyBalance = bsy.balance;
+        uint256 prevBenBalance = ben.balance;
+
+        vm.startPrank(bsy);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 1, bsy, Sale(ben, ben, address(0), salePrice, bytes32(0)));
+        bn.buy{value: salePrice + extraAmount}(address(nft), 1, bsy, emptyProof);
+        vm.stopPrank();
+
+        assert(nft.ownerOf(1) == bsy);
+        assert(prevBsyBalance - bsy.balance == salePrice);
+        assert(ben.balance - prevBenBalance == salePrice);
+    }
 
     /// @dev test erc20 sale with refund
+    function test_buy_with_refund_erc20(uint256 salePrice, uint256 extraAmount) public {
+        if (salePrice > 100 ether) {
+            salePrice = salePrice % 100 ether;
+        }
+
+        if (extraAmount > 100 ether) {
+            extraAmount = extraAmount % 100 ether;
+        }
+
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(coin), salePrice, bytes32(0));
+
+        uint256 prevBsyBalance = coin.balanceOf(bsy);
+        uint256 prevBenBalance = coin.balanceOf(ben);
+
+        vm.startPrank(bsy);
+        coin.approve(address(bn), 100 ether);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 1, bsy, Sale(ben, ben, address(coin), salePrice, bytes32(0)));
+        bn.buy{value: extraAmount}(address(nft), 1, bsy, emptyProof);
+        vm.stopPrank();
+
+        assert(nft.ownerOf(1) == bsy);
+        assert(prevBsyBalance - coin.balanceOf(bsy) == salePrice);
+        assert(coin.balanceOf(ben) - prevBenBalance == salePrice);
+    }
 
     /// @dev test refund with reverting sender
+    function test_buy_reverting_sender_refund() public {
+        RevertingSenderBN rvSender = new RevertingSenderBN(address(bn));
+
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, bytes32(0));
+
+        // revert on refund
+        vm.expectRevert("nah bro");
+        vm.prank(bsy);
+        rvSender.buy{value: 1.1 ether}(address(nft), 1);
+
+        // no refund so call should pass
+        uint256 prevBsyBalance = bsy.balance;
+        uint256 prevBenBalance = ben.balance;
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(address(rvSender), address(nft), 1, bsy, Sale(ben, ben, address(0), 1 ether, bytes32(0)));
+        vm.prank(bsy);
+        rvSender.buy{value: 1 ether}(address(nft), 1);
+        assert(nft.ownerOf(1) == bsy);
+        assert(prevBsyBalance - bsy.balance == 1 ether);
+        assert(ben.balance - prevBenBalance == 1 ether);
+    }
 
     /// @dev test reentrancy
+    function test_buy_reentering_sender_refund() public {
+        ReenteringSenderBN reSender = new ReenteringSenderBN(address(bn));
+
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, bytes32(0));
+
+        // revert on refund
+        vm.expectRevert();
+        vm.prank(bsy);
+        reSender.buy{value: 1.1 ether}(address(nft), 1);
+
+        // no refund so call should pass
+        uint256 prevBsyBalance = bsy.balance;
+        uint256 prevBenBalance = ben.balance;
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(address(reSender), address(nft), 1, bsy, Sale(ben, ben, address(0), 1 ether, bytes32(0)));
+        vm.prank(bsy);
+        reSender.buy{value: 1 ether}(address(nft), 1);
+        assert(nft.ownerOf(1) == bsy);
+        assert(prevBsyBalance - bsy.balance == 1 ether);
+        assert(ben.balance - prevBenBalance == 1 ether);
+    }
 
     /// @dev test private sale with one address
+    function test_buy_private_sale_single_address() public {
+        bytes32 root = keccak256(abi.encode(bsy));
+
+        // eth
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, root);
+
+        vm.prank(bsy);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 1, bsy, Sale(ben, ben, address(0), 1 ether, root));
+        bn.buy{value: 1 ether}(address(nft), 1, bsy, emptyProof);
+
+        // erc20
+        vm.prank(chris);
+        bn.configure_sale(address(nft), 2, chris, address(coin), 10 ether, root);
+        vm.startPrank(bsy);
+        coin.approve(address(bn), 100 ether);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(bsy, address(nft), 2, bsy, Sale(chris, chris, address(coin), 10 ether, root));
+        bn.buy(address(nft), 2, bsy, emptyProof);
+        vm.stopPrank();
+    }
 
     /// @dev test public sale fuzz
+    function test_public_sale_fuzz(uint8 buyer, uint8 seller, uint256 price, bool useCoin) public {
+        if (buyer > 3) {
+            buyer = buyer % 4;
+        }
+
+        if (seller > 3) {
+            seller = seller % 4;
+        }
+
+        vm.assume(buyer != seller);
+
+        if (price > 100 ether) {
+            price = price % 100 ether;
+        }
+
+        address currencyAddr = address(0);
+        if (useCoin) {
+            currencyAddr = address(coin);
+        }
+
+        address sellerAddy = ben;
+        uint256 tokenId = 1;
+        if (seller == 1) {
+            sellerAddy = chris;
+            tokenId = 2;
+        } else if (seller == 2) {
+            sellerAddy = david;
+            tokenId = 3;
+        } else if (seller == 3) {
+            sellerAddy = bsy;
+            tokenId = 4;
+        }
+
+        vm.prank(sellerAddy);
+        bn.configure_sale(address(nft), tokenId, receiver, currencyAddr, price, bytes32(0));
+
+        address buyerAddy = ben;
+        if (buyer == 1) {
+            buyerAddy = chris;
+        } else if (buyer == 2) {
+            buyerAddy = david;
+        } else if (buyer == 3) {
+            buyerAddy = bsy;
+        }
+
+        uint256 preSellerBalance = useCoin ? coin.balanceOf(receiver) : receiver.balance;
+        uint256 preBuyerBalance = useCoin ? coin.balanceOf(buyerAddy) : buyerAddy.balance;
+
+        vm.startPrank(buyerAddy);
+        coin.approve(address(bn), price);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(buyerAddy, address(nft), tokenId, buyerAddy, Sale(sellerAddy, receiver, currencyAddr, price, bytes32(0)));
+        bn.buy{value: price}(address(nft), tokenId, buyerAddy, emptyProof);
+        vm.stopPrank();
+
+        uint256 postSellerBalance = useCoin ? coin.balanceOf(receiver) : receiver.balance;
+        uint256 postBuyerBalance = useCoin ? coin.balanceOf(buyerAddy) : buyerAddy.balance;
+
+        assert(nft.ownerOf(tokenId) == buyerAddy);
+        assert(postSellerBalance - preSellerBalance == price);
+        assert(preBuyerBalance - postBuyerBalance == price);
+
+        Sale memory sale = bn.get_sale(address(nft), tokenId);
+        assert(sale.seller == address(0));
+        assert(sale.payout_receiver == address(0));
+        assert(sale.currency_addr == address(0));
+        assert(sale.price == 0);
+        assert(sale.merkle_root == bytes32(0));
+    }
 
     /// @dev test private sale fuzz
+    function test_private_sale_fuzz(uint256 price, bool useCoin) public {
+        if (price > 100 ether) {
+            price = price % 100 ether;
+        }
+
+        Merkle m = new Merkle();
+        bytes32[] memory data = new bytes32[](4);
+        data[0] = keccak256(abi.encode(ben));
+        data[1] = keccak256(abi.encode(chris));
+        data[2] = keccak256(abi.encode(david));
+        data[3] = keccak256(abi.encode(bsy));
+        bytes32 root = m.getRoot(data);
+
+        address currencyAddr = address(0);
+        if (useCoin) {
+            currencyAddr = address(coin);
+        }
+
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, receiver, currencyAddr, price, root);
+
+        uint256 preSellerBalance = useCoin ? coin.balanceOf(receiver) : receiver.balance;
+        uint256 preBuyerBalance = useCoin ? coin.balanceOf(chris) : chris.balance;
+
+        vm.startPrank(chris);
+        coin.approve(address(bn), price);
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(chris, address(nft), 1, chris, Sale(ben, receiver, currencyAddr, price, root));
+        bn.buy{value: price}(address(nft), 1, chris, m.getProof(data, 1));
+        vm.stopPrank();
+
+        uint256 postSellerBalance = useCoin ? coin.balanceOf(receiver) : receiver.balance;
+        uint256 postBuyerBalance = useCoin ? coin.balanceOf(chris) : chris.balance;
+
+        assert(nft.ownerOf(1) == chris);
+        assert(postSellerBalance - preSellerBalance == price);
+        assert(preBuyerBalance - postBuyerBalance == price);
+
+        Sale memory sale = bn.get_sale(address(nft), 1);
+        assert(sale.seller == address(0));
+        assert(sale.payout_receiver == address(0));
+        assert(sale.currency_addr == address(0));
+        assert(sale.price == 0);
+        assert(sale.merkle_root == bytes32(0));
+    }
 
     /// @dev fork test with royalty registry on mainnet
 
-    /// @dev fork test with royalyt registry reverting on mainnet
+    /// @dev fork test with royalty registry reverting on mainnet
 }

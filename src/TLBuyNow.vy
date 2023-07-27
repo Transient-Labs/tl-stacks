@@ -332,7 +332,7 @@ def cancel_sale(nft_addr: address, token_id: uint256):
 #          | ;|    ||    | |  |
 #          L-'|____||    )/   |
 #              % %/ '-,- /    /
-#      snd     |% |   \%/_    |
+#              |% |   \%/_    |
 #           ___%  (   )% |'-; |
 #         C;.---..'   >%,(   "'
 #                    /%% /
@@ -360,6 +360,7 @@ def buy(nft_addr: address, token_id: uint256, recipient: address, proof: DynArra
 
     sale: Sale = self._sales[nft_addr][token_id]
     assert sale.seller != empty(address), "sale not active"
+    assert recipient != sale.seller, "cannot buy token for current seller"
 
     if sale.merkle_root != empty(bytes32):
         leaf: bytes32 = keccak256(convert(recipient, bytes32))
@@ -397,10 +398,10 @@ def buy(nft_addr: address, token_id: uint256, recipient: address, proof: DynArra
         #                             \\
         assert self._verify_proof(proof, sale.merkle_root, leaf), "you shall not mint"
 
+    self._sales[nft_addr][token_id] = empty(Sale)
+
     royalty_info: (DynArray[address, 100], DynArray[uint256, 100]) = self._get_royalty_info(nft_addr, token_id, sale.price)
     assert len(royalty_info[0]) == len(royalty_info[1]), "invalid royalty info"
-
-    self._sales[nft_addr][token_id] = empty(Sale)
     
     self._transfer_funds(sale.currency_addr, sale.price, msg.sender, sale.payout_receiver, royalty_info[0], royalty_info[1])
 
@@ -413,23 +414,29 @@ def _get_royalty_info(nft_addr: address, token_id: uint256, amount: uint256) -> 
     """
     @notice Function to get royalty info
     @dev If the lookup reverts, as is possible in the Royalty Registry, return back empty arrays
+    @dev checks if the royalty engine is a contract and if not, the raw_call technically doesn't revert,
+         so need to verify if the address is a contract. This shouldn't be an issue as the `royalty_engine`
+         is set by the contract owner.
     @param nft_addr The nft contract address
     @param token_id The nft token id
     @return DynArray[address, 100] The list of addresses to send some payment to
     @return DynArray[uint256, 100] The amount of currency to transfer to each address in the first index of the output tuple
     """
-    success: bool = False
-    data: Bytes[6528] = b""
-    success, data = raw_call(
-        self.royalty_engine,
-        _abi_encode(nft_addr, token_id, amount, method_id=method_id("getRoyalty(address,uint256,uint256)")),
-        max_outsize=6528,
-        revert_on_failure=False
-    )
-    if not success:
-        return (empty(DynArray[address, 100]), empty(DynArray[uint256, 100]))
+    if self.royalty_engine.is_contract:
+        success: bool = False
+        data: Bytes[6528] = b""
+        success, data = raw_call(
+            self.royalty_engine,
+            _abi_encode(nft_addr, token_id, amount, method_id=method_id("getRoyalty(address,uint256,uint256)")),
+            max_outsize=6528,
+            revert_on_failure=False
+        )
+        if not success:
+            return (empty(DynArray[address, 100]), empty(DynArray[uint256, 100]))
 
-    return _abi_decode(data, (DynArray[address, 100], DynArray[uint256, 100]))
+        return _abi_decode(data, (DynArray[address, 100], DynArray[uint256, 100]))
+    else:
+        return (empty(DynArray[address, 100]), empty(DynArray[uint256, 100]))
 
 @internal
 @payable
@@ -468,9 +475,8 @@ def _transfer_funds(currency_addr: address, price: uint256, from_: address, to: 
         for i in range(0, 100):
             if i == len(royalty_receivers):
                 break
-            fee: uint256 = royalty_fees[i]
-            self._transfer_erc20(currency_addr, from_, royalty_receivers[i], fee)
-            remaining_sale -= fee
+            self._transfer_erc20(currency_addr, from_, royalty_receivers[i], royalty_fees[i])
+            remaining_sale -= royalty_fees[i]
 
         self._transfer_erc20(currency_addr, from_, to, remaining_sale)
 
