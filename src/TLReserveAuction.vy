@@ -200,6 +200,7 @@ def configure_auction(
     _duration: uint256,
     _start_time: uint256
 ):
+    self.mod_if_not_paused()
     self.mod_auction_exists(_nft_addr, _token_id, False)
     self.mod_only_token_owner(_nft_addr, _token_id)
     self.mod_is_auction_approved_for_all(_nft_addr, msg.sender)
