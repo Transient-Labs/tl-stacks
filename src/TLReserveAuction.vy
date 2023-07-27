@@ -181,7 +181,7 @@ def transfer_ownership(_new_owner: address):
     log OwnershipTransferred(old_owner, _new_owner)
 
 ###########################################################################
-#                            Write Functions
+#                      Token Owner/Seller Functions
 ###########################################################################
 
 # Configures an auction for a given nft
