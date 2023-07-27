@@ -6,6 +6,7 @@ struct Sale {
     address payout_receiver;
     address currency_addr;
     uint256 price;
+    bytes32 merkle_root;
 }
 
 interface ITLBuyNowEvents {
@@ -17,11 +18,11 @@ interface ITLBuyNowEvents {
 
     event SaleConfigured(address indexed sender, address indexed nft_addr, uint256 indexed token_id, Sale sale);
 
-    event SalePriceUpdated(address indexed sender, address indexed nft_addr, uint256 indexed token_id, Sale sale);
+    event SaleUpdated(address indexed sender, address indexed nft_addr, uint256 indexed token_id, Sale sale);
 
     event SaleCanceled(address indexed sender, address indexed nft_addr, uint256 indexed token_id);
 
-    event SaleFulfilled(address indexed buyer, address indexed nft_addr, uint256 indexed token_id, Sale sale);
+    event SaleFulfilled(address indexed buyer, address indexed nft_addr, uint256 indexed token_id, address recipient, Sale sale);
 
 }
 
@@ -33,17 +34,21 @@ interface ITLBuyNow is ITLBuyNowEvents {
 
     function update_royalty_engine(address engine_addr) external;
 
-    function configure_sale(address nft_addr, uint256 token_id, address payout_receiver, address currency_addr, uint256 price) external;
+    function configure_sale(address nft_addr, uint256 token_id, address payout_receiver, address currency_addr, uint256 price, bytes32 merkle_root) external;
 
     function update_sale_price(address nft_addr, uint256 token_id, address currency_addr, uint256 price) external;
 
+    function update_merkle_root(address nft_addr, uint256 token_id, bytes32 merkle_root) external;
+
     function cancel_sale(address nft_addr, uint256 token_id) external;
 
-    function buy(address nft_addr, uint256 token_id) external payable;
+    function buy(address nft_addr, uint256 token_id, address recipient, bytes32[] memory proof) external payable;
 
     function get_sale(address nft_addr, uint256 token_id) external view returns (Sale memory);
 
     function owner() external view returns (address);
+
+    function royalty_engine() external view returns (address);
 
     function paused() external view returns (bool);
 }

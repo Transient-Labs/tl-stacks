@@ -8,3 +8,9 @@ contract Receiver {
         emit EthReceived(msg.value);
     }
 }
+
+contract RevertingReceiver {
+    receive() external payable {
+        revert("hehe sucks to suck");
+    }
+}

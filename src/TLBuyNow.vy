@@ -2,7 +2,8 @@
 
 """
 @title TLBuyNow
-@notice Buy now sales contract for minted ERC-721 tokens
+@notice Buy now (fixed price) sales contract for minted ERC-721 tokens
+@dev Allows for public and private sales at a fixed price
 @author transientlabs.xyz
 @license MIT
 @custom:version 2.0.0
@@ -253,7 +254,7 @@ def update_sale_price(nft_addr: address, token_id: uint256, currency_addr: addre
     assert not self.paused, "contract is paused"
 
     sale: Sale = self._sales[nft_addr][token_id]
-    assert msg.sender == sale.seller, "caller is not the token owner"
+    assert msg.sender == sale.seller, "caller is not the token seller"
 
     sale.currency_addr = currency_addr
     sale.price = price
@@ -276,9 +277,11 @@ def update_merkle_root(nft_addr: address, token_id: uint256, merkle_root: bytes3
     assert not self.paused, "contract is paused"
 
     sale: Sale = self._sales[nft_addr][token_id]
-    assert msg.sender == sale.seller, "caller is not the token owner"
+    assert msg.sender == sale.seller, "caller is not the token seller"
 
-    self._sales[nft_addr][token_id].merkle_root = merkle_root
+    sale.merkle_root = merkle_root
+
+    self._sales[nft_addr][token_id] = sale
 
     log SaleUpdated(msg.sender, nft_addr, token_id, sale)
     
@@ -360,7 +363,39 @@ def buy(nft_addr: address, token_id: uint256, recipient: address, proof: DynArra
 
     if sale.merkle_root != empty(bytes32):
         leaf: bytes32 = keccak256(convert(recipient, bytes32))
-        assert self._verify_proof(proof, sale.merkle_root, leaf), "recipient not part of the private sale"
+        #                                   ....
+        #                                 .'' .'''
+        # .                             .'   :
+        # \\                          .:    :
+        #  \\                        _:    :       ..----.._
+        #   \\                    .:::.....:::.. .'         ''.
+        #    \\                 .'  #-. .-######'     #        '.
+        #     \\                 '.##'/ ' ################       :
+        #      \\                  #####################         :
+        #       \\               ..##.-.#### .''''###'.._        :
+        #        \\             :--:########:            '.    .' :
+        #         \\..__...--.. :--:#######.'   '.         '.     :
+        #         :     :  : : '':'-:'':'::        .         '.  .'
+        #         '---'''..: :    ':    '..'''.      '.        :'
+        #            \\  :: : :     '      ''''''.     '.      .:
+        #             \\ ::  : :     '            '.      '      :
+        #              \\::   : :           ....' ..:       '     '.
+        #               \\::  : :    .....####\\ .~~.:.             :
+        #                \\':.:.:.:'#########.===. ~ |.'-.   . '''.. :
+        #                 \\    .'  ########## \ \ _.' '. '-.       '''.
+        #                 :\\  :     ########   \ \      '.  '-.        :
+        #                :  \\'    '   #### :    \ \      :.    '-.      :
+        #               :  .'\\   :'  :     :     \ \       :      '-.    :
+        #              : .'  .\\  '  :      :     :\ \       :        '.   :
+        #              ::   :  \\'  :.      :     : \ \      :          '. :
+        #              ::. :    \\  : :      :    ;  \ \     :           '.:
+        #               : ':    '\\ :  :     :     :  \:\     :        ..'
+        #                  :    ' \\ :        :     ;  \|      :   .'''
+        #                  '.   '  \\:                         :.''
+        #                   .:..... \\:       :            ..''
+        #                  '._____|'.\\......'''''''.:..'''
+        #                             \\
+        assert self._verify_proof(proof, sale.merkle_root, leaf), "you shall not mint"
 
     royalty_info: (DynArray[address, 100], DynArray[uint256, 100]) = self._get_royalty_info(nft_addr, token_id, sale.price)
     assert len(royalty_info[0]) == len(royalty_info[1]), "invalid royalty info"
@@ -387,7 +422,7 @@ def _get_royalty_info(nft_addr: address, token_id: uint256, amount: uint256) -> 
     data: Bytes[6528] = b""
     success, data = raw_call(
         self.royalty_engine,
-        _abi_encode(nft_addr, token_id, amount, method_id("getRoyaltyInfo(address,uint256,uint256)")),
+        _abi_encode(nft_addr, token_id, amount, method_id=method_id("getRoyalty(address,uint256,uint256)")),
         max_outsize=6528,
         revert_on_failure=False
     )
