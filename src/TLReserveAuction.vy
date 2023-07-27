@@ -117,35 +117,35 @@ paused: public(bool)
 # View used as a modifier to check if the contract is paused
 @internal
 @view
-def _if_not_paused():
+def mod_if_not_paused():
     if self.paused:
         raise "contract is paused"
 
 # View used as a modifier to check if msg.sender is contract owner
 @internal
 @view
-def _only_owner():
+def mod_only_owner():
     if msg.sender != self.owner:
         raise "only owner"
 
 # View used as modifier to check if an auction is in the derired state.
 @internal
 @view
-def _auction_exists(_nft_addr: address, _token_id: uint256, _should_exist: bool):
+def mod_auction_exists(_nft_addr: address, _token_id: uint256, _should_exist: bool):
     if (self._auctions[_nft_addr][_token_id].seller != empty(address)) != _should_exist:
         raise "auction is in undesired state"
 
 # View used as modifier to check if sender is the token owner.
 @internal
 @view
-def _only_token_owner(_nft_addr: address, _token_id: uint256):
+def mod_only_token_owner(_nft_addr: address, _token_id: uint256):
     if IERC721(_nft_addr).ownerOf(_token_id) != msg.sender:
         raise "only token owner"
 
 # View used as modifier to check if address has approved this contract for all.
 @internal
 @view
-def _is_auction_approved_for_all(_nft_addr: address, _owner: address):
+def mod_is_auction_approved_for_all(_nft_addr: address, _owner: address):
     if not IERC721(_nft_addr).isApprovedForAll(_owner, self):
         raise "auction not approved for all"
 
@@ -167,7 +167,7 @@ def __init__(_owner: address):
 # Only callable by the contract owner
 @external
 def set_contract_paused(_paused: bool):
-    self._only_owner()
+    self.mod_only_owner()
     self.paused = _paused
     log Paused(msg.sender, _paused)
 
@@ -175,7 +175,7 @@ def set_contract_paused(_paused: bool):
 # Only callable by the contract owner
 @external
 def transfer_ownership(_new_owner: address):
-    self._only_owner()
+    self.mod_only_owner()
     old_owner: address = self.owner
     self.owner = _new_owner
     log OwnershipTransferred(old_owner, _new_owner)
@@ -200,9 +200,9 @@ def configure_auction(
     _duration: uint256,
     _start_time: uint256
 ):
-    self._auction_exists(_nft_addr, _token_id, False)
-    self._only_token_owner(_nft_addr, _token_id)
-    self._is_auction_approved_for_all(_nft_addr, msg.sender)
+    self.mod_auction_exists(_nft_addr, _token_id, False)
+    self.mod_only_token_owner(_nft_addr, _token_id)
+    self.mod_is_auction_approved_for_all(_nft_addr, msg.sender)
 
     self._auctions[_nft_addr][_token_id] = Auction({
         seller: msg.sender,
