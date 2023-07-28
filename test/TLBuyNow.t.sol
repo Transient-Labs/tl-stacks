@@ -37,7 +37,6 @@ contract TLBuyNowTest is Test, ITLBuyNowEvents {
 
     function setUp() public {
         bn = ITLBuyNow(vyperDeployer.deployContract("TLBuyNow", abi.encode(address(this), royaltyEngine)));
-
         ERC721TL implementation = new ERC721TL(true);
         TLCreator proxy = new TLCreator(
             address(implementation),
@@ -176,6 +175,7 @@ contract TLBuyNowTest is Test, ITLBuyNowEvents {
             seller != chris &&
             seller != david &&
             seller != bsy &&
+            seller != address(bn) &&
             seller != address(0)
         );
 
@@ -342,6 +342,20 @@ contract TLBuyNowTest is Test, ITLBuyNowEvents {
         assert(ben.balance - prevBalance == 1 ether);
 
         vm.clearMockedCalls();
+    }
+
+    /// @dev test sale with royalty lookup that is an EOA
+    function test_buy_eoa_royalty() public {
+        bn.update_royalty_engine(address(0));
+        
+        vm.prank(ben);
+        bn.configure_sale(address(nft), 1, ben, address(0), 1 ether, bytes32(0));
+
+        uint256 prevBalance = ben.balance;
+        vm.expectEmit(true, true, true, true);
+        emit SaleFulfilled(address(this), address(nft), 1, address(this), Sale(ben, ben, address(0), 1 ether, bytes32(0)));
+        bn.buy{value: 1 ether}(address(nft), 1, address(this), emptyProof);
+        assert(ben.balance - prevBalance == 1 ether);
     }
 
     /// @dev test sale with reverting eth receiver
@@ -711,8 +725,4 @@ contract TLBuyNowTest is Test, ITLBuyNowEvents {
         assert(sale.price == 0);
         assert(sale.merkle_root == bytes32(0));
     }
-
-    /// @dev fork test with royalty registry on mainnet
-
-    /// @dev fork test with royalty registry reverting on mainnet
 }
