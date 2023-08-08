@@ -652,7 +652,7 @@ def bid(nft_addr: address, token_id: uint256, bidder: address, amount: uint256, 
     self._not_auction_seller(auction)
 
     # check if allowed to bid
-    if block.timestamp < auction.bid_open_time or block.timestamp > auction.start_time + auction.duration:
+    if block.timestamp < auction.bid_open_time:
         raise "bidding not allowed"
 
     # check if private sale
@@ -694,8 +694,12 @@ def bid(nft_addr: address, token_id: uint256, bidder: address, amount: uint256, 
         IERC721(nft_addr).transferFrom(auction.seller, self, token_id)
 
     else:
+        # check if auction is ended
+        if  or block.timestamp > auction.start_time + auction.duration:
+            raise "auction ended"
+
         # check bid amount is greater than or equal to 
-        if amount < auction.highest_bid / BASIS * (BASIS + auction.min_bid_increase):
+        if amount < auction.highest_bid * (BASIS + auction.min_bid_increase) / BASIS:
             raise "bid too low"
 
         # check for sufficient funds
@@ -747,7 +751,8 @@ def settle_auction(nft_addr: address, token_id: uint256):
     """
     # check pre-conditions
     auction: Auction = self._auctions[nft_addr][token_id]
-    self._auction_exists(auction)
+    if auction.start_time == 0:
+        raise "auction not started"
     if block.timestamp < auction.start_time + auction.duration:
         raise "auction still ongoing"
 
