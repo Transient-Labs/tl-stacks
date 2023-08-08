@@ -406,9 +406,13 @@ def _transfer_erc20_from_address(erc20_addr: address, from_: address, to: addres
     """
     if num_tokens == 0:
         return
-
+    erc20: IERC20 = IERC20(erc20_addr)
+    prev_balance: uint256 = erc20.balanceOf(to)
     if not IERC20(erc20_addr).transferFrom(from_, to, num_tokens, default_return_value=True):
         raise "ERC20 token transfer from address not successful"
+
+    if erc20.balanceOf(to) - prev_balance != num_tokens:
+        raise "ERC20 token transfer did not transfer the expected amount"
 
 @internal
 @payable
@@ -695,7 +699,7 @@ def bid(nft_addr: address, token_id: uint256, bidder: address, amount: uint256, 
 
     else:
         # check if auction is ended
-        if  or block.timestamp > auction.start_time + auction.duration:
+        if block.timestamp > auction.start_time + auction.duration:
             raise "auction ended"
 
         # check bid amount is greater than or equal to 
