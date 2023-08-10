@@ -28,7 +28,7 @@ interface IERC20:
 #                              Constants
 ###########################################################################
 
-VERSION: public(constant(String[5])) = "1.0.0"
+VERSION: public(constant(String[5])) = "2.0.0"
 EXTENSION_TIME: public(constant(uint256)) = 900 # 15 minutes
 BASIS: public(constant(uint256)) = 10_000
 
@@ -285,6 +285,16 @@ def _is_auction_house_approved_for_all(nft_contract: IERC721):
         raise "auction not approved for the token"
 
 @internal
+@pure
+def _payout_receiver_is_valid(payout_receiver: address):
+    """
+    @notice Internal function to verify that the payout receiver is not the zero address
+    @dev Reverts if the payout_receiver is the zero address
+    """
+    if payout_receiver == empty(address):
+        raise "invalid payout reciever"
+
+@internal
 @payable
 def _has_sufficient_funds(currency_addr: address, amount: uint256, from_: address):
     """
@@ -437,8 +447,8 @@ def _transfer_erc20_from_contract(erc20_addr: address, to: address, num_tokens: 
 @pure
 def _verify_proof(proof: DynArray[bytes32, max_value(uint16)], root: bytes32, leaf: bytes32):
     """
-    @notice function to verify a merkle proof
-    @dev each pair of leaves and each pair of hashes in the tree are assumed to be sorted.
+    @notice Function to verify a merkle proof
+    @dev Each pair of leaves and each pair of hashes in the tree are assumed to be sorted.
     @param proof The bytes32 array of sibling hashes that lead from the `leaf` to the `root`
     @param root The merkle root to check against
     @param leaf The leaf to check
@@ -452,6 +462,31 @@ def _verify_proof(proof: DynArray[bytes32, max_value(uint16)], root: bytes32, le
             computed_hash = keccak256(concat(p, computed_hash))
     if computed_hash != root:
         raise "invalid merkle proof"
+
+@internal
+@payable
+def _payout_royalties(currency_addr: address, init_sale: uint256, royalty_recipients: DynArray[address, max_value(uint8)], royalty_fees: DynArray[uint256, max_value(uint8)]) -> uint256:
+    """
+    @notice Function to payout royalties and return the remaining sale value
+    @dev Assumes that fees have been checked to be less than the init_sale prior to paying out
+    @dev Assumes that the recipients and fees have been compared for length as well
+    @param currency_addr The currency address with the zero address meaning ETH
+    @param init_sale The initial sale price to reduce from when calculating the remaining sale output
+    @param royalty_recipients A dynamic array of royalty recipients
+    @param royalty_fees A dynamic array of royalty fees, in same index order as the recipients
+    @return uint256 The remaining sale amount to distribute
+    """
+    remaining_sale: uint256 = init_sale
+    for i in range(0, 255):
+        if i == len(royalty_recipients):
+            break
+        if currency_addr == empty(address):
+            self._send_eth(royalty_recipients[i], royalty_fees[i])
+        else:
+            self._transfer_erc20_from_contract(currency_addr, royalty_recipients[1], royalty_fees[i])
+        remaining_sale -= royalty_fees[i]
+
+    return remaining_sale
 
 ###########################################################################
 #                         Owner Write Functions
@@ -520,10 +555,11 @@ def configure_auction(
     @param merkle_root The merkle root for making the sale private. An empty merkle root means it's open to the public
     """
     self._if_not_paused()
-    self._auction_does_not_exist(self._auctions[nft_addr][token_id])
+    # self._auction_does_not_exist(self._auctions[nft_addr][token_id]) - NOTE can be removed as a started auction escrows the token so token ownership check would fail
     nft_contract: IERC721 = IERC721(nft_addr)
     self._only_token_owner(nft_contract, token_id)
     self._is_auction_house_approved_for_all(nft_contract)
+    self._payout_receiver_is_valid(payout_receiver)
 
     auction: Auction = Auction({
         seller: msg.sender,
@@ -668,31 +704,12 @@ def bid(nft_addr: address, token_id: uint256, bidder: address, amount: uint256, 
         # check bid amount
         if amount < auction.reserve_price:
             raise "bid does not meet reserve price"
-        
-        # check for sufficient funds
-        self._has_sufficient_funds(auction.currency_addr, amount, msg.sender)
 
         # clear sale
         self._sales[nft_addr][token_id] = empty(Sale)
 
-        # start sale
+        # start auction
         auction.start_time = block.timestamp
-
-        # set highest bidder & bid
-        auction.highest_bidder = bidder
-        auction.highest_bid = amount
-
-        # transfer funds
-        if auction.currency_addr == empty(address):
-            # eth is already in the contract, just need to refund potentially
-            refund: uint256 = msg.value - amount
-            if refund > 0:
-                self._send_eth(msg.sender, refund)
-        else:
-            # need to transfer erc20 and refund eth potentially
-            self._transfer_erc20_from_address(auction.currency_addr, msg.sender, self, amount)
-            if msg.value > 0:
-                self._send_eth(msg.sender, msg.value)
 
         # escrow NFT
         IERC721(nft_addr).transferFrom(auction.seller, self, token_id)
@@ -702,39 +719,39 @@ def bid(nft_addr: address, token_id: uint256, bidder: address, amount: uint256, 
         if block.timestamp > auction.start_time + auction.duration:
             raise "auction ended"
 
-        # check bid amount is greater than or equal to 
-        if amount < auction.highest_bid * (BASIS + auction.min_bid_increase) / BASIS:
+        # check bid amount is greater than or equal to next minimum bid
+        if amount < auction.highest_bid + (auction.highest_bid * auction.min_bid_increase) / BASIS:
             raise "bid too low"
 
-        # check for sufficient funds
-        self._has_sufficient_funds(auction.currency_addr, amount, msg.sender)
-
-        # if bid is within the extension time, extend the auction
-        time_remaining: uint256 = auction.start_time + auction.duration - block.timestamp 
-        if time_remaining < EXTENSION_TIME:
-            auction.duration += EXTENSION_TIME - time_remaining
-        
-        # set highest bidder & bid
-        prev_highest_bidder: address = auction.highest_bidder
-        prev_highest_bid: uint256 = auction.highest_bid
-        auction.highest_bidder = bidder
-        auction.highest_bid = amount
-
-        # transfer funds
+        # refund previous bidder
         if auction.currency_addr == empty(address):
-            # refund previous highest bidder
-            self._send_eth(prev_highest_bidder, prev_highest_bid)
-            # new eth bid is already in the contract, just need to refund sender potentially
-            refund: uint256 = msg.value - amount
-            if refund > 0:
-                self._send_eth(msg.sender, refund)
+            self._send_eth(auction.highest_bidder, auction.highest_bid)
         else:
-            # refund previous highest bidder
-            self._transfer_erc20_from_contract(auction.currency_addr, prev_highest_bidder, prev_highest_bid)
-            # need to transfer erc20 and refund eth potentially
-            self._transfer_erc20_from_address(auction.currency_addr, msg.sender, self, amount)
-            if msg.value > 0:
-                self._send_eth(msg.sender, msg.value)
+            self._transfer_erc20_from_contract(auction.currency_addr, auction.highest_bidder, auction.highest_bid)
+
+    # check for sufficient funds from msg sender
+    self._has_sufficient_funds(auction.currency_addr, amount, msg.sender)
+
+    # set highest bidder & bid
+    auction.highest_bidder = bidder
+    auction.highest_bid = amount
+
+    # if bid is within the extension time, extend the auction
+    time_remaining: uint256 = auction.start_time + auction.duration - block.timestamp 
+    if time_remaining < EXTENSION_TIME:
+        auction.duration += EXTENSION_TIME - time_remaining
+
+    # transfer funds from msg sender
+    if auction.currency_addr == empty(address):
+        # eth is already in the contract due to msg value, just need to refund potentially
+        refund: uint256 = msg.value - amount
+        if refund > 0:
+            self._send_eth(msg.sender, refund)
+    else:
+        # need to transfer erc20 and refund eth potentially
+        self._transfer_erc20_from_address(auction.currency_addr, msg.sender, self, amount)
+        if msg.value > 0:
+            self._send_eth(msg.sender, msg.value)
 
     # save auction
     self._auctions[nft_addr][token_id] = auction
@@ -769,15 +786,7 @@ def settle_auction(nft_addr: address, token_id: uint256):
     royalty_recipients, royalty_fees = self._get_royalty_info(nft_addr, token_id, auction.highest_bid)
     
     # pay royalties
-    remaining_sale: uint256 = auction.highest_bid
-    for i in range(0, 255):
-        if i == len(royalty_recipients):
-            break
-        if auction.currency_addr == empty(address):
-            self._send_eth(royalty_recipients[i], royalty_fees[i])
-        else:
-            self._transfer_erc20_from_contract(auction.currency_addr, royalty_recipients[1], royalty_fees[i])
-        remaining_sale -= royalty_fees[i]
+    remaining_sale: uint256 = self._payout_royalties(auction.currency_addr, auction.highest_bid, royalty_recipients, royalty_fees)
     
     # pay payout recipient
     if auction.currency_addr == empty(address):
@@ -812,6 +821,7 @@ def configure_sale(nft_addr: address, token_id: uint256, payout_receiver: addres
     nft_contract: IERC721 = IERC721(nft_addr)
     self._only_token_owner(nft_contract, token_id)
     self._is_auction_house_approved_for_all(nft_contract)
+    self._payout_receiver_is_valid(payout_receiver)
 
     sale: Sale = Sale({
         seller: msg.sender,
@@ -915,6 +925,9 @@ def buy_now(nft_addr: address, token_id: uint256, recipient: address, proof: Dyn
         leaf: bytes32 = keccak256(convert(recipient, bytes32))
         self._verify_proof(proof, sale.merkle_root, leaf)
 
+    # check for sufficient funds from msg sender
+    self._has_sufficient_funds(sale.currency_addr, amount, msg.sender)
+
     # clear storage
     self._sales[nft_addr][token_id] = empty(Sale)
     self._auctions[nft_addr][token_id] = empty(Auction)
@@ -925,15 +938,7 @@ def buy_now(nft_addr: address, token_id: uint256, recipient: address, proof: Dyn
     royalty_recipients, royalty_fees = self._get_royalty_info(nft_addr, token_id, sale.price)
     
     # pay royalties
-    remaining_sale: uint256 = sale.price
-    for i in range(0, 255):
-        if i == len(royalty_recipients):
-            break
-        if sale.currency_addr == empty(address):
-            self._send_eth(royalty_recipients[i], royalty_fees[i])
-        else:
-            self._transfer_erc20_from_address(sale.currency_addr, msg.sender, royalty_recipients[1], royalty_fees[i])
-        remaining_sale -= royalty_fees[i]
+    remaining_sale: uint256 = self._payout_royalties(sale.currency_addr, sale.price, royalty_recipients, royalty_fees)
     
     # pay payout reciever & refund eth if needed
     if sale.currency_addr == empty(address):
