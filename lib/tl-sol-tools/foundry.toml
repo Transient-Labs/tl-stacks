@@ -1,0 +1,12 @@
+[profile.default]
+src = 'src'
+test = 'test'
+out = 'out'
+libs = ['lib']
+auto_detect_solc = true
+optimizer = true
+optimizer_runs = 20000
+verbosity = 3
+wrap_comments = true
+gas_reports = ["OwnableAccessControl", "EIP2981TL", "OwnableAccessControlUpgradeable", "EIP2981TLUpgradeable", "TransferHelper", "RoyaltyPayoutHelper", "RoyaltyPayoutHelperUpgradeable"]
+fs_permissions = [{ access = "read", path = "./"}]
