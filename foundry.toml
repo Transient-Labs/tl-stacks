@@ -6,10 +6,13 @@ evm_version = 'paris'
 auto_detect_solc = true
 optimizer = true
 optimizer_runs = 20000
-verbosity = 3
+verbosity = 1
 wrap_comments = true
 gas_reports = ["TLAuctionHouse", "TLStacks721", "TLStacks1155"]
 fs_permissions = [{ access = "read", path = "./"}]
+
+[fuzz]
+runs = 1024
 
 [rpc_endpoints]
 goerli = "${GOERLI_RPC_URL}"

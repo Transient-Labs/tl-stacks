@@ -17,11 +17,11 @@ import {DropType} from "./CommonUtils.sol";
 /// @param publicCost The cost of each token during the public sale phase
 struct Drop {
     DropType dropType;
+    address payoutReceiver;
     uint256 initialSupply;
     uint256 supply;
     uint256 allowance;
     address currencyAddress;
-    address payoutReceiver;
     uint256 startTime;
     uint256 presaleDuration;
     uint256 presaleCost;
@@ -35,12 +35,11 @@ interface ITLStacks1155Events {
     event WethUpdated(address indexed prevWeth, address indexed newWeth);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
 
-    event DropConfigured(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Drop drop);
-    event DropUpdated(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Drop drop);
-    event DropClosed(address indexed sender, address indexed nftAddress, uint256 indexed tokenId);
+    event DropConfigured(address indexed nftAddress, uint256 indexed tokenId, Drop drop);
+    event DropUpdated(address indexed nftAddress, uint256 indexed tokenId, Drop drop);
+    event DropClosed(address indexed nftAddress, uint256 indexed tokenId);
 
     event Purchase(
-        address indexed sender,
         address indexed nftAddress,
         uint256 indexed tokenId,
         address nftReceiver,

@@ -101,10 +101,11 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
     function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
+        if (!_isApprovedMintContract(nftAddress)) revert NotApprovedMintContract();
         if (!_checkPayoutReceiver(drop.payoutReceiver)) revert InvalidPayoutReceiver();
         if (drop.initialSupply != drop.supply) revert InvalidDropSupply();
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
-        if (drop.dropType != DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
+        if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
         // check if drop is already configured
         Drop memory mDrop = _drops[nftAddress];
@@ -113,7 +114,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         // store drop
         _drops[nftAddress] = drop;
 
-        emit DropConfigured(msg.sender, nftAddress, drop);
+        emit DropConfigured(nftAddress, drop);
     }
 
     /// @notice Function to update the payout receiver of a drop
@@ -131,7 +132,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         drop.payoutReceiver = payoutReceiver;
         _drops[nftAddress].payoutReceiver = drop.payoutReceiver;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     /// @notice Function to update the drop public allowance
@@ -148,7 +149,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         drop.allowance = allowance;
         _drops[nftAddress].allowance = drop.allowance;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     /// @notice Function to update the drop prices and currency
@@ -174,7 +175,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         _drops[nftAddress].presaleCost = drop.presaleCost;
         _drops[nftAddress].publicCost = drop.publicCost;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     /// @notice Function to adjust drop durations
@@ -191,7 +192,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
         if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
-        if (presaleDuration != 0 && drop.dropType == DropType.VELOCITY) revert NotAllowedForVelocityDrops();
+        if (drop.dropType == DropType.VELOCITY && presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
         // update durations
         drop.startTime = startTime;
@@ -201,7 +202,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         _drops[nftAddress].presaleDuration = drop.presaleDuration;
         _drops[nftAddress].publicDuration = drop.publicDuration;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     /// @notice Function to alter a drop merkle root
@@ -218,7 +219,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         drop.presaleMerkleRoot = presaleMerkleRoot;
         _drops[nftAddress].presaleMerkleRoot = drop.presaleMerkleRoot;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     /// @notice Function to adjust the drop decay rate
@@ -236,7 +237,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         drop.decayRate = decayRate;
         _drops[nftAddress].decayRate = drop.decayRate;
 
-        emit DropUpdated(msg.sender, nftAddress, drop);
+        emit DropUpdated(nftAddress, drop);
     }
 
     function closeDrop(address nftAddress) external {
@@ -248,73 +249,14 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         // clear the number minted round
         _rounds[nftAddress]++;
 
-        emit DropClosed(msg.sender, nftAddress);
+        emit DropClosed(nftAddress);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
                                 Purchase Functions
     //////////////////////////////////////////////////////////////////////////*/
 
-    /// @notice Function to purchase a single token via a drop
-    /// @param nftAddress The nft contract address
-    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberToMint The number of tokens to mint
-    /// @param presaleNumberCanMint The number of tokens the recipient can mint during presale
-    /// @param proof The merkle proof for the presale page
-    function purchaseSingle(
-        address nftAddress,
-        address recipient,
-        uint256 numberToMint,
-        uint256 presaleNumberCanMint,
-        bytes32[] calldata proof
-    ) external payable whenNotPaused nonReentrant {
-        uint256 msgValueUsed = _purchase(nftAddress, recipient, numberToMint, presaleNumberCanMint, proof, msg.value);
-        // refund
-        uint256 refund = msg.value - msgValueUsed;
-        if (refund > 0) {
-            _safeTransferETH(msg.sender, refund, wethAddress);
-        }
-    }
-
-    /// @notice Function to purchase a batch of tokens on a single nft contract
-    /// @dev This is useful for puchasing tokens for a batch of different recipients
-    /// @param nftAddress The nft contract address
-    /// @param recipients The receiver of the nft (msg.sender is the payer but this allows delegation) for each token
-    /// @param numbersToMint The number of each token to mint
-    /// @param presaleNumbersCanMint The number of each token the recipient can mint during presale
-    /// @param proofs The merkle proof for the presale page per token
-    function purchaseBatch(
-        address nftAddress,
-        address[] calldata recipients,
-        uint256[] calldata numbersToMint,
-        uint256[] calldata presaleNumbersCanMint,
-        bytes32[][] calldata proofs
-    ) external payable whenNotPaused nonReentrant {
-        // check that all the arrays are the same length
-        uint256 length = recipients.length;
-        if (
-            length < 1 || numbersToMint.length != length || presaleNumbersCanMint.length != length
-                || proofs.length != length
-        ) {
-            revert InvalidBatchArguments();
-        }
-
-        // loop through and mint
-        uint256 msgValue = msg.value;
-        uint256 msgValueUsed = 0;
-        for (uint256 i = 0; i < length; i++) {
-            msgValueUsed =
-                _purchase(nftAddress, recipients[i], numbersToMint[i], presaleNumbersCanMint[i], proofs[i], msgValue);
-            msgValue -= msgValueUsed;
-        }
-
-        // refund any left over eth
-        if (msgValue > 0) {
-            _safeTransferETH(msg.sender, msgValue, wethAddress);
-        }
-    }
-
-    /// @notice Internal function to purchase a token
+    /// @notice Function to purchase tokens on a drop
     /// @dev Reverts on any of the following conditions
     ///     - Drop isn't active or configured
     ///     - numberToMint is 0
@@ -322,22 +264,19 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
     ///     - Insufficent protocol fee
     ///     - Insufficient funds
     ///     - Already minted the allowance for the recipient
-    ///     - Receiver is a contract that doesn't implement proper receiving functions
     /// @param nftAddress The nft contract address
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
     /// @param numberToMint The number of tokens to mint
     /// @param presaleNumberCanMint The number of tokens the recipient can mint during presale
     /// @param proof The merkle proof for the presale page
-    /// @param msgValue The current balance of eth remaining in the call for use in this function
-    /// @return msgValueUsed The amount of eth distributed in this function
-    function _purchase(
+    /// @return refundAmount The amount of eth refunded to the caller
+    function purchase(
         address nftAddress,
         address recipient,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
-        bytes32[] memory proof,
-        uint256 msgValue
-    ) internal returns (uint256 msgValueUsed) {
+        bytes32[] calldata proof
+    ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
         // cache drop
         Drop memory drop = _drops[nftAddress];
         DropPhase dropPhase = _getDropPhase(drop);
@@ -349,7 +288,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         // pre-conditions - revert for safety and expected behavior from users - UX for batch purchases needs to be smart in order to avoid reverting conditions
         if (numberToMint == 0) revert MintZeroTokens();
         if (dropPhase == DropPhase.PRESALE) {
-            bytes32 leaf = bytes32(abi.encode(recipient, presaleNumberCanMint));
+            bytes32 leaf = keccak256(abi.encode(recipient, presaleNumberCanMint));
             if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
             numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
         } else if (dropPhase == DropPhase.PUBLIC_SALE) {
@@ -360,47 +299,51 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         }
         if (numberCanMint == 0) revert AlreadyReachedMintAllowance();
 
+        // limit numberToMint to numberCanMint
+        if (numberToMint > numberCanMint) {
+            numberToMint = numberCanMint;
+        }
+
         // adjust drop state
-        _updateDropState(nftAddress, round, recipient, numberCanMint, drop);
+        _updateDropState(nftAddress, round, recipient, numberToMint, drop);
 
         // settle funds
-        msgValueUsed = _settleUp(numberCanMint, cost, msgValue, drop);
+        refundAmount = _settleUp(numberToMint, cost, drop);
 
         // mint
-        _mintToken(nftAddress, recipient, numberCanMint, drop);
+        _mintToken(nftAddress, recipient, numberToMint, drop);
 
         emit Purchase(
-            msg.sender,
             nftAddress,
             recipient,
             drop.currencyAddress,
-            numberCanMint,
+            numberToMint,
             cost,
             drop.decayRate,
             dropPhase == DropPhase.PRESALE
         );
 
-        return msgValueUsed;
+        return refundAmount;
     }
 
     /// @notice Function to update the state of the drop
     /// @param nftAddress The nft contract address
     /// @param round The drop round for number minted
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberCanMint The number of tokens to mint
+    /// @param numberToMint The number of tokens to mint
     /// @param drop The Drop cached in memory
     function _updateDropState(
         address nftAddress,
         uint256 round,
         address recipient,
-        uint256 numberCanMint,
+        uint256 numberToMint,
         Drop memory drop
     ) internal {
         // velocity mint
         if (drop.dropType == DropType.VELOCITY) {
             uint256 durationAdjust = drop.decayRate < 0
-                ? uint256(-1 * drop.decayRate) * numberCanMint
-                : uint256(drop.decayRate) * numberCanMint;
+                ? uint256(-1 * drop.decayRate) * numberToMint
+                : uint256(drop.decayRate) * numberToMint;
             if (drop.decayRate < 0) {
                 if (durationAdjust > drop.publicDuration) {
                     _drops[nftAddress].publicDuration = 0;
@@ -413,44 +356,46 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         }
 
         // regular state (applicable to all types of drops)
-        _drops[nftAddress].supply -= numberCanMint;
-        _numberMinted[nftAddress][round][recipient] += numberCanMint;
+        _drops[nftAddress].supply -= numberToMint;
+        _numberMinted[nftAddress][round][recipient] += numberToMint;
     }
 
     /// @notice Internal function to distribute funds for a _purchase
-    /// @param numberCanMint The number of tokens that can be minted
+    /// @param numberToMint The number of tokens that can be minted
     /// @param cost The cost per token
-    /// @param msgValue The starting msg value
     /// @param drop The drop
-    /// @return msgValueUsed The msg value used in the call
-    function _settleUp(uint256 numberCanMint, uint256 cost, uint256 msgValue, Drop memory drop)
+    /// @return refundAmount The amount of eth refunded to msg.sender
+    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop)
         internal
-        returns (uint256 msgValueUsed)
+        returns (uint256 refundAmount)
     {
-        uint256 totalProtocolFee = numberCanMint * protocolFee;
-        uint256 totalSale = numberCanMint * cost;
+        uint256 totalProtocolFee = numberToMint * protocolFee;
+        uint256 totalSale = numberToMint * cost;
         if (drop.currencyAddress == address(0)) {
             uint256 totalCost = totalSale + totalProtocolFee;
-            if (msgValue < totalCost) revert InsufficientFunds();
+            if (msg.value < totalCost) revert InsufficientFunds();
             _safeTransferETH(drop.payoutReceiver, totalSale, wethAddress);
-            msgValueUsed = totalCost;
+            refundAmount = msg.value - totalCost;
         } else {
-            if (msgValue < totalProtocolFee) revert InsufficientFunds();
+            if (msg.value < totalProtocolFee) revert InsufficientFunds();
             _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
-            msgValueUsed = totalProtocolFee;
+            refundAmount = msg.value - totalProtocolFee;
         }
         _safeTransferETH(protocolFeeReceiver, totalProtocolFee, wethAddress);
-        return msgValueUsed;
+        if (refundAmount > 0) {
+            _safeTransferETH(msg.sender, refundAmount, wethAddress);
+        }
+        return refundAmount;
     }
 
     /// @notice Internal function to mint the token
     /// @param nftAddress The nft contract address
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberCanMint The number of tokens to mint
+    /// @param numberToMint The number of tokens to mint
     /// @param drop The drop cached in memory (not read from storage again)
-    function _mintToken(address nftAddress, address recipient, uint256 numberCanMint, Drop memory drop) internal {
+    function _mintToken(address nftAddress, address recipient, uint256 numberToMint, Drop memory drop) internal {
         uint256 uriCounter = drop.initialSupply - drop.supply;
-        for (uint256 i = 0; i < numberCanMint; i++) {
+        for (uint256 i = 0; i < numberToMint; i++) {
             ERC721TL(nftAddress).externalMint(
                 recipient, string(abi.encodePacked(drop.baseUri, "/", (uriCounter + i).toString()))
             );

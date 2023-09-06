@@ -328,7 +328,7 @@ contract TLAuctionHouse is
         IERC721 nft = IERC721(nftAddress);
         Sale memory sale = _sales[nftAddress][tokenId];
         Auction memory auction = _auctions[nftAddress][tokenId];
-        
+
         if (sale.seller != address(0)) revert SaleAlreadyConfigured();
         if (auction.startTime != 0) revert AuctionStarted();
         if (!_checkTokenOwnership(nft, tokenId, msg.sender)) revert CallerNotTokenOwner();

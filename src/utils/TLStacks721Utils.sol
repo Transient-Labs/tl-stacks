@@ -37,12 +37,11 @@ interface ITLStacks721Events {
     event WethUpdated(address indexed prevWeth, address indexed newWeth);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
 
-    event DropConfigured(address indexed sender, address indexed nftAddress, Drop drop);
-    event DropUpdated(address indexed sender, address indexed nftAddress, Drop drop);
-    event DropClosed(address indexed sender, address indexed nftAddress);
+    event DropConfigured(address indexed nftAddress, Drop drop);
+    event DropUpdated(address indexed nftAddress, Drop drop);
+    event DropClosed(address indexed nftAddress);
 
     event Purchase(
-        address indexed sender,
         address indexed nftAddress,
         address nftReceiver,
         address currencyAddress,
