@@ -34,7 +34,7 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
 
     address public protocolFeeReceiver; // the payout receiver for the protocol fee
     uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer
-    address public wethAddress; // weth address
+    address public weth; // weth address
     mapping(address => mapping(uint256 => Drop)) internal _drops; // nft address -> token id -> Drop
     mapping(address => mapping(uint256 => mapping(uint256 => mapping(address => uint256)))) internal _numberMinted; // nft address -> token id -> round -> user -> number minted
     mapping(address => mapping(uint256 => uint256)) internal _rounds; // nft address -> token id -> round
@@ -396,16 +396,16 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
         if (drop.currencyAddress == address(0)) {
             uint256 totalCost = totalSale + totalProtocolFee;
             if (msg.value < totalCost) revert InsufficientFunds();
-            _safeTransferETH(drop.payoutReceiver, totalSale, wethAddress);
+            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
             refundAmount = msg.value - totalCost;
         } else {
             if (msg.value < totalProtocolFee) revert InsufficientFunds();
             _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
             refundAmount = msg.value - totalProtocolFee;
         }
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, wethAddress);
+        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
         if (refundAmount > 0) {
-            _safeTransferETH(msg.sender, refundAmount, wethAddress);
+            _safeTransferETH(msg.sender, refundAmount, weth);
         }
         return refundAmount;
     }
@@ -480,8 +480,8 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
     /// @notice Internal function to set the weth address
     /// @param newWethAddress The new weth address
     function _setWethAddress(address newWethAddress) internal {
-        address prevWethAddress = wethAddress;
-        wethAddress = newWethAddress;
+        address prevWethAddress = weth;
+        weth = newWethAddress;
 
         emit WethUpdated(prevWethAddress, newWethAddress);
     }

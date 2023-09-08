@@ -12,7 +12,7 @@ import {IRoyaltyEngineV1} from "royalty-registry-solidity/IRoyaltyEngineV1.sol";
 /// @title Royalty Payout Helper
 /// @notice Abstract contract to help payout royalties using the Royalty Registry
 /// @author transientlabs.xyz
-/// @custom:last-updated 2.3.0
+/// @custom:last-updated 2.4.0
 abstract contract RoyaltyPayoutHelperUpgradeable is Initializable, TransferHelper {
     /*//////////////////////////////////////////////////////////////////////////
                                   State Variables
@@ -80,6 +80,7 @@ abstract contract RoyaltyPayoutHelperUpgradeable is Initializable, TransferHelpe
         returns (uint256 remainingSale)
     {
         remainingSale = salePrice;
+        if (address(royaltyEngine).code.length == 0) return remainingSale;
         try royaltyEngine.getRoyalty(token, tokenId, salePrice) returns (
             address payable[] memory recipients, uint256[] memory amounts
         ) {

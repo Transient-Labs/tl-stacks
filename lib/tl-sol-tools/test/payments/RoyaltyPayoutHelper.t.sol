@@ -67,6 +67,11 @@ contract TestRoyaltyPayoutHelper is Test {
         assert(address(rph.royaltyEngine()) == newRoyaltyEngine);
     }
 
+    function testPayoutRoyaltiesEOA(uint256 salePrice) public {
+        uint256 remainingSale = rph.payoutRoyalties(address(1), 1, address(0), salePrice);
+        assert(remainingSale == salePrice);
+    }
+
     function testPayoutRoyaltiesRevertingQuery(uint256 salePrice) public {
         vm.mockCallRevert(
             royaltyEngine,

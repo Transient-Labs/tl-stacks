@@ -89,7 +89,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test constructor setup
     function test_setUp() public {
         assertEq(stacks.owner(), address(this));
-        assertEq(stacks.wethAddress(), wethAddress);
+        assertEq(stacks.weth(), wethAddress);
         assertEq(stacks.protocolFeeReceiver(), tl);
         assertEq(stacks.protocolFee(), fee);
         assertFalse(stacks.paused());
@@ -122,9 +122,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.expectEmit(true, true, false, false);
         emit WethUpdated(wethAddress, address(0));
         stacks.setWethAddress(address(0));
+        assertEq(stacks.weth(), address(0));
         vm.expectEmit(true, true, false, false);
         emit ProtocolFeeUpdated(address(0), 0);
         stacks.setProtocolFeeSettings(address(0), 0);
+        assertEq(stacks.protocolFeeReceiver(), address(0));
+        assertEq(stacks.protocolFee(), 0);
         vm.expectEmit(false, false, false, true);
         emit Paused(address(this));
         stacks.pause(true);

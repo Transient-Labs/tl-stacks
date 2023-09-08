@@ -256,7 +256,7 @@ contract TLAuctionHouse is
         // transfer funds (move ERC20, refund ETH)
         uint256 totalAmount = amount + protocolFee;
         if (auction.currencyAddress == address(0)) {
-            if (msg.value < amount + totalAmount) revert InsufficientMsgValue();
+            if (msg.value < totalAmount) revert InsufficientMsgValue();
             uint256 refund = msg.value - totalAmount;
             if (refund > 0) {
                 _safeTransferETH(msg.sender, refund, weth);
