@@ -16,6 +16,7 @@ import {MockERC20} from "./utils/MockERC20.sol";
 
 contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     using Strings for uint256;
+
     bytes32 constant MINTER_ROLE = keccak256("APPROVED_MINT_CONTRACT");
     bytes32 constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
@@ -1108,12 +1109,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.prank(ben);
         stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
         vm.prank(ben);
-        stacks.purchase{value: 2*fee}(address(nft), ben, 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), ben, 2, 0, emptyProof);
         assert(nft.balanceOf(ben) == 2);
 
         // test mint two and get limited to remaining supply of 1
         vm.prank(chris);
-        stacks.purchase{value: 2*fee}(address(nft), chris, 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), chris, 2, 0, emptyProof);
         assert(nft.balanceOf(chris) == 1);
         assert(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
     }
@@ -1132,8 +1133,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         Drop memory drop = Drop(
             DropType.REGULAR,
             receiver,
-            numberToMint+1,
-            numberToMint+1,
+            numberToMint + 1,
+            numberToMint + 1,
             numberToMint,
             address(0),
             block.timestamp,
@@ -1148,16 +1149,15 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), drop);
 
-        // mint 
+        // mint
         vm.prank(ben);
-        stacks.purchase{value: numberToMint*fee}(address(nft), ben, numberToMint, 0, emptyProof);
+        stacks.purchase{value: numberToMint * fee}(address(nft), ben, numberToMint, 0, emptyProof);
         assert(stacks.getNumberMinted(address(nft), ben) == numberToMint);
 
         // close drop and reset
         vm.prank(nftOwner);
         stacks.closeDrop(address(nft));
         assert(stacks.getNumberMinted(address(nft), ben) == 0);
-
     }
 
     function _purchaseEth(
@@ -1180,11 +1180,13 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             // purchase will fail so exit
             return;
         }
-        
+
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), sender, address(0), numberToMint, cost, decayRate, isPresale);
-        stacks.purchase{value: numberToMint * (cost + fee)}(address(nft), sender, numberToMint, presaleNumberCanMint, proof);
-        
+        stacks.purchase{value: numberToMint * (cost + fee)}(
+            address(nft), sender, numberToMint, presaleNumberCanMint, proof
+        );
+
         Drop memory drop = stacks.getDrop(address(nft));
         uint256 nftBalance = nft.balanceOf(sender);
         assert(prevSenderBalance - sender.balance == numberToMint * (cost + fee));
@@ -1194,7 +1196,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(prevDrop.supply - drop.supply == numberToMint);
         assert(prevDrop.initialSupply == drop.initialSupply);
         assert(drop.initialSupply != drop.supply);
-        if (decayRate != 0 && decayRate < 0 && uint256(-1*decayRate)*numberToMint > prevDrop.publicDuration) {
+        if (decayRate != 0 && decayRate < 0 && uint256(-1 * decayRate) * numberToMint > prevDrop.publicDuration) {
             assert(drop.publicDuration == 0);
         } else if (decayRate != 0) {
             assert(int256(drop.publicDuration) - int256(prevDrop.publicDuration) == int256(numberToMint) * decayRate);
@@ -1320,17 +1322,16 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         // test token uris
         for (uint256 i = 0; i < tokensBought; i++) {
-            assert(keccak256(bytes(nft.tokenURI(i+1))) == keccak256(abi.encodePacked(drop.baseUri, "/", (i).toString())));
+            assert(
+                keccak256(bytes(nft.tokenURI(i + 1))) == keccak256(abi.encodePacked(drop.baseUri, "/", (i).toString()))
+            );
         }
     }
 
     /// @dev test purchase functionality for eth, velocity mint
-    function test_purchaseEthVelocity(
-        uint256 startDelay,
-        uint256 publicDuration,
-        uint256 publicCost,
-        int256 decayRate
-    ) public {
+    function test_purchaseEthVelocity(uint256 startDelay, uint256 publicDuration, uint256 publicCost, int256 decayRate)
+        public
+    {
         // limit fuzz variables
         if (startDelay > 365 days) {
             startDelay = startDelay % 365 days;
@@ -1372,7 +1373,6 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), drop);
 
-
         // test drop not started
         if (startDelay > 0) {
             // expect revert when trying to mint
@@ -1397,7 +1397,6 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
             // minter buys one token
             _purchaseEth(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
-
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1430,11 +1429,11 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             // purchase will fail so exit
             return;
         }
-        
+
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), sender, address(coin), numberToMint, cost, decayRate, isPresale);
         stacks.purchase{value: numberToMint * fee}(address(nft), sender, numberToMint, presaleNumberCanMint, proof);
-        
+
         Drop memory drop = stacks.getDrop(address(nft));
         uint256 nftBalance = nft.balanceOf(sender);
         assert(prevSenderBalance - sender.balance == numberToMint * fee);
@@ -1445,7 +1444,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(prevDrop.supply - drop.supply == numberToMint);
         assert(prevDrop.initialSupply == drop.initialSupply);
         assert(drop.initialSupply != drop.supply);
-        if (decayRate != 0 && decayRate < 0 && uint256(-1*decayRate)*numberToMint > prevDrop.publicDuration) {
+        if (decayRate != 0 && decayRate < 0 && uint256(-1 * decayRate) * numberToMint > prevDrop.publicDuration) {
             assert(drop.publicDuration == 0);
         } else if (decayRate != 0) {
             assert(int256(drop.publicDuration) - int256(prevDrop.publicDuration) == int256(numberToMint) * decayRate);
@@ -1583,7 +1582,9 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         // test token uris
         for (uint256 i = 0; i < tokensBought; i++) {
-            assert(keccak256(bytes(nft.tokenURI(i+1))) == keccak256(abi.encodePacked(drop.baseUri, "/", (i).toString())));
+            assert(
+                keccak256(bytes(nft.tokenURI(i + 1))) == keccak256(abi.encodePacked(drop.baseUri, "/", (i).toString()))
+            );
         }
     }
 
@@ -1647,7 +1648,6 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), drop);
 
-
         // test drop not started
         if (startDelay > 0) {
             // expect revert when trying to mint
@@ -1672,7 +1672,6 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
             // minter buys one token
             _purchaseERC20(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
-
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1739,6 +1738,5 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         dropTwo = stacks.getDrop(address(nftTwo));
         assert(dropOne.supply == 9);
         assert(dropTwo.supply == 9);
-
     }
 }

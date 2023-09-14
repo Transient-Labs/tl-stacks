@@ -1,2 +1,0 @@
-RoyaltyRegistry
-RoyaltyEngineV1

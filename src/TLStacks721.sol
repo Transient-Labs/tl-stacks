@@ -365,10 +365,7 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
     /// @param cost The cost per token
     /// @param drop The drop
     /// @return refundAmount The amount of eth refunded to msg.sender
-    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop)
-        internal
-        returns (uint256 refundAmount)
-    {
+    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
         uint256 totalProtocolFee = numberToMint * protocolFee;
         uint256 totalSale = numberToMint * cost;
         if (drop.currencyAddress == address(0)) {

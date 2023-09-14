@@ -66,8 +66,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         addresses[0] = nftOwner;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 0;
-        nft.createToken('https://arweave.net/1', addresses, amounts);
-        nft.createToken('https://arweave.net/2', addresses, amounts);
+        nft.createToken("https://arweave.net/1", addresses, amounts);
+        nft.createToken("https://arweave.net/2", addresses, amounts);
         vm.stopPrank();
 
         coin = new MockERC20(address(this));
@@ -140,21 +140,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     function test_paused() public {
         stacks.pause(true);
 
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
 
         vm.startPrank(nftOwner);
         vm.expectRevert("Pausable: paused");
@@ -179,21 +166,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.assume(notDropAdmin != nftOwner);
         vm.assume(dropAdmin != notDropAdmin);
 
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
 
         // test contract owner
         vm.startPrank(nftOwner);
@@ -261,19 +235,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test configureDrop errors
     function test_configureDropErrors() public {
         Drop memory drop = Drop(
-            DropType.REGULAR,
-            address(0),
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
+            DropType.REGULAR, address(0), 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
         );
 
         vm.startPrank(nftOwner);
@@ -400,7 +362,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
-        Drop memory retreivedDrop = stacks.getDrop(address(nft) ,1);
+        Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.dropType == drop.dropType);
         assert(retreivedDrop.payoutReceiver == drop.payoutReceiver);
         assert(retreivedDrop.initialSupply == drop.initialSupply);
@@ -418,21 +380,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop payout receiver functionality and errors
     function test_updateDropPayoutReceiver(address payoutReceiver) public {
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         if (payoutReceiver == address(0)) {
@@ -452,21 +401,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop allowance
     function test_updateDropAllowance(uint256 allowance) public {
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         drop.allowance = allowance;
@@ -481,21 +417,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop prices
     function test_updateDropPrices(address currencyAddress, uint256 presaleCost, uint256 publicCost) public {
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         drop.currencyAddress = currencyAddress;
@@ -516,21 +439,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     function test_updateDropPayoutReceiverRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         drop.startTime = startTime;
@@ -552,19 +462,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         public
     {
         Drop memory drop = Drop(
-            DropType.VELOCITY,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            -1
+            DropType.VELOCITY, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, -1
         );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
@@ -590,19 +488,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test updating drop merkle root
     function test_updateDropPresaleMerkleRoot(bytes32 presaleMerkleRoot) public {
         Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            1000,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 1000, 0, bytes32(0), 1000, 1 ether, 0
         );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
@@ -618,21 +504,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop decay rate errors
     function test_updateDropDecayRateRegular(int256 decayRate) public {
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
@@ -643,19 +516,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test updating drop decay rate
     function test_updateDropDecayRate(int256 decayRate) public {
         Drop memory drop = Drop(
-            DropType.VELOCITY,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            -1
+            DropType.VELOCITY, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, -1
         );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
@@ -672,21 +533,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test closing a drop
     function test_closeDrop() public {
         uint256 prevRound = stacks.getDropRound(address(nft), 1);
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectEmit(true, true, true, false);
@@ -768,21 +616,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bytes32 root = m.getRoot(data);
 
         // setup drop
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            2,
-            2,
-            1,
-            address(0),
-            block.timestamp,
-            1000,
-            0.1 ether,
-            root,
-            1000,
-            0,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 2, 2, 1, address(0), block.timestamp, 1000, 0.1 ether, root, 1000, 0, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -823,21 +658,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bytes32 root = m.getRoot(data);
 
         // setup drop
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            2,
-            2,
-            1,
-            address(coin),
-            block.timestamp,
-            1000,
-            0.1 ether,
-            root,
-            1000,
-            0,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 2, 2, 1, address(coin), block.timestamp, 1000, 0.1 ether, root, 1000, 0, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -889,21 +711,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         }
 
         // setup drop
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            2,
-            2,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 2, 2, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -926,19 +735,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // setup drop
         Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            2,
-            2,
-            1,
-            address(coin),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
+            DropType.REGULAR, nftOwner, 2, 2, 1, address(coin), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
         );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
@@ -964,21 +761,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.assume(sender != address(0) && recipient != address(0));
         vm.assume(sender != nftOwner && sender != tl);
         vm.assume(recipient.code.length == 0);
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -1006,19 +790,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.assume(sender != nftOwner && sender != tl);
         vm.assume(recipient.code.length == 0);
         Drop memory drop = Drop(
-            DropType.REGULAR,
-            nftOwner,
-            10,
-            10,
-            1,
-            address(coin),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            1 ether,
-            0
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(coin), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
         );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
@@ -1050,21 +822,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test numberCanMint
     function test_numberCanMint() public {
         // set drop
-        Drop memory drop = Drop(
-            DropType.REGULAR,
-            receiver,
-            3,
-            3,
-            2,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            0,
-            0
-        );
+        Drop memory drop =
+            Drop(DropType.REGULAR, receiver, 3, 3, 2, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 0, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -1072,12 +831,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.prank(ben);
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
         vm.prank(ben);
-        stacks.purchase{value: 2*fee}(address(nft), 1, ben, 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), 1, ben, 2, 0, emptyProof);
         assert(nft.balanceOf(ben, 1) == 2);
 
         // test mint two and get limited to remaining supply of 1
         vm.prank(chris);
-        stacks.purchase{value: 2*fee}(address(nft), 1, chris, 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), 1, chris, 2, 0, emptyProof);
         assert(nft.balanceOf(chris, 1) == 1);
         assert(stacks.getDropPhase(address(nft), 1) == DropPhase.ENDED);
     }
@@ -1096,8 +855,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         Drop memory drop = Drop(
             DropType.REGULAR,
             receiver,
-            numberToMint+1,
-            numberToMint+1,
+            numberToMint + 1,
+            numberToMint + 1,
             numberToMint,
             address(0),
             block.timestamp,
@@ -1111,16 +870,15 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
-        // mint 
+        // mint
         vm.prank(ben);
-        stacks.purchase{value: numberToMint*fee}(address(nft), 1, ben, numberToMint, 0, emptyProof);
+        stacks.purchase{value: numberToMint * fee}(address(nft), 1, ben, numberToMint, 0, emptyProof);
         assert(stacks.getNumberMinted(address(nft), 1, ben) == numberToMint);
 
         // close drop and reset
         vm.prank(nftOwner);
         stacks.closeDrop(address(nft), 1);
         assert(stacks.getNumberMinted(address(nft), 1, ben) == 0);
-
     }
 
     function _purchaseEth(
@@ -1143,11 +901,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // purchase will fail so exit
             return;
         }
-        
+
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), 1, sender, address(0), numberToMint, cost, decayRate, isPresale);
-        stacks.purchase{value: numberToMint * (cost + fee)}(address(nft), 1, sender, numberToMint, presaleNumberCanMint, proof);
-        
+        stacks.purchase{value: numberToMint * (cost + fee)}(
+            address(nft), 1, sender, numberToMint, presaleNumberCanMint, proof
+        );
+
         Drop memory drop = stacks.getDrop(address(nft), 1);
         uint256 nftBalance = nft.balanceOf(sender, 1);
         // assert(prevSenderBalance - sender.balance == numberToMint * (cost + fee));
@@ -1157,7 +917,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(prevDrop.supply - drop.supply == numberToMint);
         assert(prevDrop.initialSupply == drop.initialSupply);
         assert(drop.initialSupply != drop.supply);
-        if (decayRate != 0 && decayRate < 0 && uint256(-1*decayRate)*numberToMint > prevDrop.publicDuration) {
+        if (decayRate != 0 && decayRate < 0 && uint256(-1 * decayRate) * numberToMint > prevDrop.publicDuration) {
             assert(drop.publicDuration == 0);
         } else if (decayRate != 0) {
             assert(int256(drop.publicDuration) - int256(prevDrop.publicDuration) == int256(numberToMint) * decayRate);
@@ -1282,12 +1042,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     }
 
     /// @dev test purchase functionality for eth, velocity mint
-    function test_purchaseEthVelocity(
-        uint256 startDelay,
-        uint256 publicDuration,
-        uint256 publicCost,
-        int256 decayRate
-    ) public {
+    function test_purchaseEthVelocity(uint256 startDelay, uint256 publicDuration, uint256 publicCost, int256 decayRate)
+        public
+    {
         // limit fuzz variables
         if (startDelay > 365 days) {
             startDelay = startDelay % 365 days;
@@ -1328,7 +1085,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
-
         // test drop not started
         if (startDelay > 0) {
             // expect revert when trying to mint
@@ -1353,7 +1109,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
             // minter buys one token
             _purchaseEth(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
-
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1386,11 +1141,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // purchase will fail so exit
             return;
         }
-        
+
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), 1, sender, address(coin), numberToMint, cost, decayRate, isPresale);
         stacks.purchase{value: numberToMint * fee}(address(nft), 1, sender, numberToMint, presaleNumberCanMint, proof);
-        
+
         Drop memory drop = stacks.getDrop(address(nft), 1);
         uint256 nftBalance = nft.balanceOf(sender, 1);
         // assert(prevSenderBalance - sender.balance == numberToMint * fee);
@@ -1401,7 +1156,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(prevDrop.supply - drop.supply == numberToMint);
         assert(prevDrop.initialSupply == drop.initialSupply);
         assert(drop.initialSupply != drop.supply);
-        if (decayRate != 0 && decayRate < 0 && uint256(-1*decayRate)*numberToMint > prevDrop.publicDuration) {
+        if (decayRate != 0 && decayRate < 0 && uint256(-1 * decayRate) * numberToMint > prevDrop.publicDuration) {
             assert(drop.publicDuration == 0);
         } else if (decayRate != 0) {
             assert(int256(drop.publicDuration) - int256(prevDrop.publicDuration) == int256(numberToMint) * decayRate);
@@ -1596,7 +1351,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
-
         // test drop not started
         if (startDelay > 0) {
             // expect revert when trying to mint
@@ -1621,7 +1375,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
             // minter buys one token
             _purchaseERC20(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
-
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1635,39 +1388,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test purchase two drops simultaneously
     function test_twoSimultaneousDrops() public {
-        Drop memory dropOne = Drop(
-            DropType.REGULAR,
-            receiver,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            0,
-            0
-        );
+        Drop memory dropOne =
+            Drop(DropType.REGULAR, receiver, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 0, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, dropOne);
 
-        Drop memory dropTwo = Drop(
-            DropType.REGULAR,
-            receiver,
-            10,
-            10,
-            1,
-            address(0),
-            block.timestamp,
-            0,
-            0,
-            bytes32(0),
-            1000,
-            0,
-            0
-        );
+        Drop memory dropTwo =
+            Drop(DropType.REGULAR, receiver, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 0, 0);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 2, dropTwo);
 
@@ -1686,6 +1413,5 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         dropTwo = stacks.getDrop(address(nft), 2);
         assert(dropOne.supply == 9);
         assert(dropTwo.supply == 9);
-
     }
 }
