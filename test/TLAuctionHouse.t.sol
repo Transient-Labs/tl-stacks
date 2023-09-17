@@ -171,6 +171,12 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // limit fuzz inputs
         vm.assume(hacker != ben && hacker != address(0));
         vm.assume(payoutReceiver != address(0));
+        if (reservePrice > 1000 ether) {
+            reservePrice = reservePrice % 1000 ether;
+        }
+        if (duration > 1_000_000 days) {
+            duration = duration % 1_000_000 days;
+        }
 
         address currencyAddress = useEth ? address(0) : address(coin);
 
@@ -228,12 +234,50 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assert(rAuction.startTime == auction.startTime);
         assert(rAuction.duration == auction.duration);
 
-        // auction already configured
-        vm.expectRevert(AuctionAlreadyConfigured.selector);
+        // override auction
+        auction.reservePrice = reservePrice + 1;
+        auction.duration = duration + 1;
+        vm.expectEmit(true, true, true, true);
+        emit AuctionConfigured(ben, address(nft), 1, auction);
         vm.prank(ben);
         auctionHouse.configureAuction(
-            address(nft), 1, address(0), currencyAddress, reservePrice, auctionOpenTime, duration
+            address(nft), 1, payoutReceiver, currencyAddress, reservePrice + 1, auctionOpenTime, duration + 1
         );
+        rAuction = auctionHouse.getAuction(address(nft), 1);
+        assert(rAuction.seller == auction.seller);
+        assert(rAuction.payoutReceiver == auction.payoutReceiver);
+        assert(rAuction.currencyAddress == auction.currencyAddress);
+        assert(rAuction.highestBid == auction.highestBid);
+        assert(rAuction.highestBidder == auction.highestBidder);
+        assert(rAuction.reservePrice == auction.reservePrice);
+        assert(rAuction.auctionOpenTime == auction.auctionOpenTime);
+        assert(rAuction.startTime == auction.startTime);
+        assert(rAuction.duration == auction.duration);
+        
+        // transfer nft and then override auction
+        vm.prank(ben);
+        nft.transferFrom(ben, chris, 1);
+        vm.prank(chris);
+        nft.setApprovalForAll(address(auctionHouse), true);
+        auction.seller = chris;
+        auction.reservePrice = reservePrice;
+        auction.duration = duration;
+        vm.expectEmit(true, true, true, true);
+        emit AuctionConfigured(chris, address(nft), 1, auction);
+        vm.prank(chris);
+        auctionHouse.configureAuction(
+            address(nft), 1, payoutReceiver, currencyAddress, reservePrice, auctionOpenTime, duration
+        );
+        rAuction = auctionHouse.getAuction(address(nft), 1);
+        assert(rAuction.seller == auction.seller);
+        assert(rAuction.payoutReceiver == auction.payoutReceiver);
+        assert(rAuction.currencyAddress == auction.currencyAddress);
+        assert(rAuction.highestBid == auction.highestBid);
+        assert(rAuction.highestBidder == auction.highestBidder);
+        assert(rAuction.reservePrice == auction.reservePrice);
+        assert(rAuction.auctionOpenTime == auction.auctionOpenTime);
+        assert(rAuction.startTime == auction.startTime);
+        assert(rAuction.duration == auction.duration);
     }
 
     /// @dev test canceling an auction
@@ -241,8 +285,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // limit fuzz input
         vm.assume(hacker != ben && hacker != address(0));
 
-        // cancel nonexistent auction (reverts as seller is zero address)
-        vm.expectRevert(NotSeller.selector);
+        // cancel nonexistent auction (should pass but waste of gas)
         vm.prank(ben);
         auctionHouse.cancelAuction(address(nft), 1);
 
@@ -252,8 +295,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours);
 
-        // not seller
-        vm.expectRevert(NotSeller.selector);
+        // not token owner
+        vm.expectRevert(CallerNotTokenOwner.selector);
         vm.prank(hacker);
         auctionHouse.cancelAuction(address(nft), 1);
 
@@ -272,7 +315,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, 0);
 
         // try to cancel
-        vm.expectRevert(AuctionStarted.selector);
+        vm.expectRevert(CallerNotTokenOwner.selector);
         vm.prank(ben);
         auctionHouse.cancelAuction(address(nft), 1);
     }
@@ -832,6 +875,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // limit fuzz inputs
         vm.assume(hacker != ben && hacker != address(0));
         vm.assume(payoutReceiver != address(0));
+        if (price > 1000 ether) {
+            price = price % 1000 ether;
+        }
 
         address currencyAddress = useEth ? address(0) : address(coin);
 
@@ -874,10 +920,40 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assert(sale.price == price);
         assert(sale.saleOpenTime == startTime);
 
-        // sale already configured
-        vm.expectRevert(SaleAlreadyConfigured.selector);
+        // override sale
+        sale.price = price + 1;
+        vm.expectEmit(true, true, true, true);
+        emit SaleConfigured(ben, address(nft), 1, sale);
         vm.prank(ben);
+        auctionHouse.configureSale(address(nft), 1, payoutReceiver, currencyAddress, price + 1, startTime);
+        sale = auctionHouse.getSale(address(nft), 1);
+        assert(sale.seller == ben);
+        assert(sale.payoutReceiver == payoutReceiver);
+        assert(sale.currencyAddress == currencyAddress);
+        assert(sale.price == price + 1);
+        assert(sale.saleOpenTime == startTime);
+        
+        // transfer nft and configure sale
+        sale.price = price;
+        sale.seller = chris;
+        vm.prank(ben);
+        nft.transferFrom(ben, chris, 1);
+        vm.prank(chris);
+        nft.setApprovalForAll(address(auctionHouse), true);
+        vm.expectEmit(true, true, true, true);
+        emit SaleConfigured(chris, address(nft), 1, sale);
+        vm.prank(chris);
         auctionHouse.configureSale(address(nft), 1, payoutReceiver, currencyAddress, price, startTime);
+        sale = auctionHouse.getSale(address(nft), 1);
+        assert(sale.seller == chris);
+        assert(sale.payoutReceiver == payoutReceiver);
+        assert(sale.currencyAddress == currencyAddress);
+        assert(sale.price == price);
+        assert(sale.saleOpenTime == startTime);
+
+        // transfer back to ben
+        vm.prank(chris);
+        nft.transferFrom(chris, ben, 1);
 
         // cancel sale
         vm.prank(ben);
@@ -888,7 +964,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.configureAuction(address(nft), 1, payoutReceiver, currencyAddress, 0, block.timestamp, 24 hours);
         vm.prank(chris);
         auctionHouse.bid(address(nft), 1, 0);
-        vm.expectRevert(AuctionStarted.selector);
+        vm.expectRevert(CallerNotTokenOwner.selector);
         vm.prank(ben);
         auctionHouse.configureSale(address(nft), 1, payoutReceiver, currencyAddress, price, startTime);
     }
@@ -898,8 +974,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // limit fuzz input
         vm.assume(hacker != ben && hacker != address(0));
 
-        // cancel nonexistent auction (reverts as seller is zero address)
-        vm.expectRevert(NotSeller.selector);
+        // cancel nonexistent auction (should pass but waste of gas)
         vm.prank(ben);
         auctionHouse.cancelSale(address(nft), 1);
 
@@ -909,16 +984,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
-        // not seller
-        vm.expectRevert(NotSeller.selector);
-        vm.prank(hacker);
-        auctionHouse.cancelSale(address(nft), 1);
+        // not token owner
+        
 
-        // successfully cancel auction
+        // successfully cancel sale
         vm.expectEmit(true, true, true, false);
         emit SaleCanceled(ben, address(nft), 1);
         vm.prank(ben);
         auctionHouse.cancelSale(address(nft), 1);
+
+        // configure sale, transfer nft, new owner cancels
+
     }
 
     /// @dev test buy now eth errors

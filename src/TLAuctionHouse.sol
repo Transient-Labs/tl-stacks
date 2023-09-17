@@ -128,7 +128,7 @@ contract TLAuctionHouse is
     /// @notice Function to configure an auction
     /// @dev Requires the following items to be true
     ///     - contract is not paused
-    ///     - the auction hasn't been configured yet
+    ///     - the auction hasn't been configured yet for the current token owner
     ///     - msg.sender is the owner of the token
     ///     - auction house is approved for all
     ///     - payoutReceiver isn't the zero address
@@ -149,14 +149,16 @@ contract TLAuctionHouse is
         uint256 duration
     ) external whenNotPaused {
         IERC721 nft = IERC721(nftAddress);
-        Auction memory auction = _auctions[nftAddress][tokenId];
+        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
-        if (auction.seller != address(0)) revert AuctionAlreadyConfigured();
-        if (!_checkTokenOwnership(nft, tokenId, msg.sender)) revert CallerNotTokenOwner();
-        if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
-        if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
+        if (isNftOwner) {
+            if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
+            if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
+        } else {
+            revert CallerNotTokenOwner();
+        }
 
-        auction = Auction(
+        Auction memory auction = Auction(
             msg.sender, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, 0, duration
         );
 
@@ -172,8 +174,11 @@ contract TLAuctionHouse is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     function cancelAuction(address nftAddress, uint256 tokenId) external {
+        IERC721 nft = IERC721(nftAddress);
         Auction memory auction = _auctions[nftAddress][tokenId];
-        if (auction.seller != msg.sender) revert NotSeller();
+        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
+
+        if (!isNftOwner) revert CallerNotTokenOwner();
         if (auction.startTime != 0) revert AuctionStarted();
 
         delete _auctions[nftAddress][tokenId];
@@ -216,6 +221,7 @@ contract TLAuctionHouse is
             delete _sales[nftAddress][tokenId];
             auction.startTime = block.timestamp;
             nft.transferFrom(auction.seller, address(this), tokenId);
+            if (nft.ownerOf(tokenId) != address(this)) revert NftNotTransferred();
             firstBid = true;
         } else {
             // subsequent bids
@@ -306,8 +312,8 @@ contract TLAuctionHouse is
     /// @notice Function to configure a buy now sale
     /// @dev Requires the following to be true
     ///     - contract is not paused
-    ///     - the sale hasn't been configured yet
-    ///     - an auction hasn't been started
+    ///     - the sale hasn't been configured yet by the current token owner
+    ///     - an auction hasn't been started - this is captured by token ownership
     ///     - msg.sender is the owner of the token
     ///     - auction house is approved for all
     ///     - payoutReceiver isn't the zero address
@@ -326,16 +332,16 @@ contract TLAuctionHouse is
         uint256 saleOpenTime
     ) external whenNotPaused {
         IERC721 nft = IERC721(nftAddress);
-        Sale memory sale = _sales[nftAddress][tokenId];
-        Auction memory auction = _auctions[nftAddress][tokenId];
+        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
-        if (sale.seller != address(0)) revert SaleAlreadyConfigured();
-        if (auction.startTime != 0) revert AuctionStarted();
-        if (!_checkTokenOwnership(nft, tokenId, msg.sender)) revert CallerNotTokenOwner();
-        if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
-        if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
+        if (isNftOwner) {
+            if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
+            if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
+        } else {
+            revert CallerNotTokenOwner();
+        }
 
-        sale = Sale(msg.sender, payoutReceiver, currencyAddress, price, saleOpenTime);
+        Sale memory sale = Sale(msg.sender, payoutReceiver, currencyAddress, price, saleOpenTime);
 
         _sales[nftAddress][tokenId] = sale;
 
@@ -343,12 +349,14 @@ contract TLAuctionHouse is
     }
 
     /// @notice Function to cancel a sale
-    /// @dev Requires msg.sender to be the sale seller
+    /// @dev Requires msg.sender to be the token owner
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     function cancelSale(address nftAddress, uint256 tokenId) external {
-        Sale memory sale = _sales[nftAddress][tokenId];
-        if (sale.seller != msg.sender) revert NotSeller();
+        IERC721 nft = IERC721(nftAddress);
+        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
+
+        if (!isNftOwner) revert CallerNotTokenOwner();
 
         delete _sales[nftAddress][tokenId];
 
@@ -403,6 +411,7 @@ contract TLAuctionHouse is
 
         // transfer nft
         nft.transferFrom(sale.seller, msg.sender, tokenId);
+        if (nft.ownerOf(tokenId) !=  msg.sender) revert NftNotTransferred();
 
         emit SaleFulfilled(msg.sender, nftAddress, tokenId, sale);
     }

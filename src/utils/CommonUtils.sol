@@ -41,8 +41,7 @@ interface AuctionHouseErrors {
     error CallerNotTokenOwner();
     error AuctionHouseNotApproved();
     error PayoutToZeroAddress();
-    error NotSeller();
-    error AuctionAlreadyConfigured();
+    error NftNotTransferred();
     error AuctionNotConfigured();
     error AuctionNotStarted();
     error AuctionStarted();
@@ -51,7 +50,6 @@ interface AuctionHouseErrors {
     error AuctionEnded();
     error AuctionNotEnded();
     error InsufficientMsgValue();
-    error SaleAlreadyConfigured();
     error SaleNotConfigured();
     error SaleNotOpen();
 }
