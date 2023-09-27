@@ -178,7 +178,9 @@ contract TLAuctionHouse is
         Auction memory auction = _auctions[nftAddress][tokenId];
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
-        if (!isNftOwner) revert CallerNotTokenOwner();
+        if (msg.sender != auction.seller) {
+            if (!isNftOwner) revert CallerNotTokenOwner();
+        }
         if (auction.startTime != 0) revert AuctionStarted();
 
         delete _auctions[nftAddress][tokenId];
@@ -220,6 +222,8 @@ contract TLAuctionHouse is
             if (amount < auction.reservePrice) revert BidTooLow();
             delete _sales[nftAddress][tokenId];
             auction.startTime = block.timestamp;
+            // check that the nft is owned by the seller still
+            if (nft.ownerOf(tokenId) != auction.seller) revert NftNotOwnedBySeller();
             nft.transferFrom(auction.seller, address(this), tokenId);
             if (nft.ownerOf(tokenId) != address(this)) revert NftNotTransferred();
             firstBid = true;
@@ -354,9 +358,12 @@ contract TLAuctionHouse is
     /// @param tokenId The nft token id
     function cancelSale(address nftAddress, uint256 tokenId) external {
         IERC721 nft = IERC721(nftAddress);
+        Sale memory sale = _sales[nftAddress][tokenId];
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
-        if (!isNftOwner) revert CallerNotTokenOwner();
+        if (msg.sender != sale.seller) {
+            if (!isNftOwner) revert CallerNotTokenOwner();
+        }
 
         delete _sales[nftAddress][tokenId];
 
@@ -383,6 +390,9 @@ contract TLAuctionHouse is
         // check if the sale has started
         if (sale.seller == address(0)) revert SaleNotConfigured();
         if (block.timestamp < sale.saleOpenTime) revert SaleNotOpen();
+
+        // check that the nft is owned by the seller still
+        if (nft.ownerOf(tokenId) != sale.seller) revert NftNotOwnedBySeller();
 
         // clear storage
         delete _auctions[nftAddress][tokenId];
