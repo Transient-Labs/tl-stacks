@@ -8,21 +8,31 @@ clean:
 
 # Remove modules
 remove:
-	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules && git add . && git commit -m "modules"
+	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib
 
 # Install the Modules
 install:
-	forge install foundry-rs/forge-std
-	forge install Transient-Labs/tl-creator-contracts@2.3.0
-	forge install dmfxyz/murky
+	forge install foundry-rs/forge-std --no-commit
+	forge install OpenZeppelin/openzeppelin-contracts@v4.8.3 --no-commit
+	forge install Transient-Labs/tl-sol-tools@2.4.0 --no-commit
+	forge install Transient-Labs/tl-creator-contracts@2.6.2 --no-commit
+	forge install dmfxyz/murky --no-commit
+	git add .
+	git commit -m "installed modules"
 	
 # Update the modules
 update: remove install
 
 # Builds
 build:
-	forge fmt && forge clean && forge build --optimize --optimizer-runs 2000
+	forge fmt && forge clean && forge build
 
 # Tests
-tests:
-	forge test --gas-report -vvv
+default_test:
+	forge test
+
+gas_test:
+	forge test --gas-report
+
+fuzz_test:
+	forge test --fuzz-runs 10000
