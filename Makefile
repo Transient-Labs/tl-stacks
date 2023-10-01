@@ -36,3 +36,23 @@ gas_test:
 
 fuzz_test:
 	forge test --fuzz-runs 10000
+
+# Goerli Deployments
+deploy_stacks_721_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+
+deploy_stacks_1155_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+
+deploy_auction_house_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
+
+# Arbitrum Goerli Deployments
+deploy_stacks_721_arb_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+
+deploy_stacks_1155_arb_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+
+deploy_auction_house_arb_goerli:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
