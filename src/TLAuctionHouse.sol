@@ -139,6 +139,7 @@ contract TLAuctionHouse is
     /// @param reservePrice The auction reserve price
     /// @param auctionOpenTime The time at which bidding is allowed
     /// @param duration The duration of the auction after it is started
+    /// @param reserveAuction A flag dictating if the auction is a reserve auction or regular scheduled auction
     function configureAuction(
         address nftAddress,
         uint256 tokenId,
@@ -146,10 +147,12 @@ contract TLAuctionHouse is
         address currencyAddress,
         uint256 reservePrice,
         uint256 auctionOpenTime,
-        uint256 duration
+        uint256 duration,
+        bool reserveAuction
     ) external whenNotPaused {
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
+        uint256 startTime = reserveAuction ? 0 : auctionOpenTime;
 
         if (isNftOwner) {
             if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
@@ -159,7 +162,7 @@ contract TLAuctionHouse is
         }
 
         Auction memory auction = Auction(
-            msg.sender, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, 0, duration
+            msg.sender, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, startTime, duration
         );
 
         _auctions[nftAddress][tokenId] = auction;
@@ -181,7 +184,7 @@ contract TLAuctionHouse is
         if (msg.sender != auction.seller) {
             if (!isNftOwner) revert CallerNotTokenOwner();
         }
-        if (auction.startTime != 0) revert AuctionStarted();
+        if (auction.highestBidder != address(0)) revert AuctionStarted();
 
         delete _auctions[nftAddress][tokenId];
 
@@ -213,20 +216,22 @@ contract TLAuctionHouse is
         if (auction.seller == address(0)) revert AuctionNotConfigured();
         if (block.timestamp < auction.auctionOpenTime) revert AuctionNotOpen();
 
-        if (auction.startTime == 0) {
+        if (auction.highestBidder == address(0)) {
             // first bid
             // - check bid amount
             // - clear sale
-            // - start the auction
+            // - start the auction (if reserve auction)
             // - escrow the NFT
             if (amount < auction.reservePrice) revert BidTooLow();
             delete _sales[nftAddress][tokenId];
-            auction.startTime = block.timestamp;
-            // check that the nft is owned by the seller still
+            if (auction.startTime == 0) {
+                auction.startTime = block.timestamp;
+                firstBid = true;
+            }
+            // escrow nft
             if (nft.ownerOf(tokenId) != auction.seller) revert NftNotOwnedBySeller();
             nft.transferFrom(auction.seller, address(this), tokenId);
             if (nft.ownerOf(tokenId) != address(this)) revert NftNotTransferred();
-            firstBid = true;
         } else {
             // subsequent bids
             // - check if auction ended
@@ -294,7 +299,7 @@ contract TLAuctionHouse is
         IERC721 nft = IERC721(nftAddress);
 
         // check requirements
-        if (auction.startTime == 0) revert AuctionNotStarted();
+        if (auction.highestBidder == address(0)) revert AuctionNotStarted();
         if (block.timestamp < auction.startTime + auction.duration) revert AuctionNotEnded();
 
         // clear the auction
