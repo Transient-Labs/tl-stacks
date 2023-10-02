@@ -212,7 +212,7 @@ contract TLAuctionHouse is
         bool firstBid;
         bool durationExtended;
 
-        // check if the auction has started
+        // check if the auction is open
         if (auction.seller == address(0)) revert AuctionNotConfigured();
         if (block.timestamp < auction.auctionOpenTime) revert AuctionNotOpen();
 
@@ -392,7 +392,7 @@ contract TLAuctionHouse is
         Sale memory sale = _sales[nftAddress][tokenId];
         IERC721 nft = IERC721(nftAddress);
 
-        // check if the sale has started
+        // check if the sale is open
         if (sale.seller == address(0)) revert SaleNotConfigured();
         if (block.timestamp < sale.saleOpenTime) revert SaleNotOpen();
 
