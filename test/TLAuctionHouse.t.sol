@@ -591,7 +591,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     }
 
     /// @dev test settle auction errors
-    function test_settleAuctionErrors(bool reserveAuction) public {
+    function test_settleAuctionErrors(bool reserveAuction, uint256 waitTime) public {
+        if (waitTime >= 24 hours) {
+            waitTime = waitTime % 24 hours;
+        }
         // auction not configured
         vm.expectRevert(AuctionNotStarted.selector);
         auctionHouse.settleAuction(address(nft), 1);
@@ -605,6 +608,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.settleAuction(address(nft), 1);
 
         // auction not ended
+        vm.warp(block.timestamp + waitTime);
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 0);
         vm.expectRevert(AuctionNotEnded.selector);
