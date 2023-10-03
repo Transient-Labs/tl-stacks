@@ -149,7 +149,7 @@ contract TLAuctionHouse is
         uint256 auctionOpenTime,
         uint256 duration,
         bool reserveAuction
-    ) external whenNotPaused {
+    ) external whenNotPaused nonReentrant {
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
         uint256 startTime = reserveAuction ? 0 : auctionOpenTime;
@@ -176,7 +176,7 @@ contract TLAuctionHouse is
     ///     - the auction cannot be started
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function cancelAuction(address nftAddress, uint256 tokenId) external {
+    function cancelAuction(address nftAddress, uint256 tokenId) external nonReentrant {
         IERC721 nft = IERC721(nftAddress);
         Auction memory auction = _auctions[nftAddress][tokenId];
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
@@ -310,6 +310,7 @@ contract TLAuctionHouse is
 
         // transfer nft
         nft.transferFrom(address(this), auction.highestBidder, tokenId);
+        if (nft.ownerOf(tokenId) != auction.highestBidder) revert NftNotTransferred();
 
         emit AuctionSettled(msg.sender, nftAddress, tokenId, auction);
     }
@@ -339,7 +340,7 @@ contract TLAuctionHouse is
         address currencyAddress,
         uint256 price,
         uint256 saleOpenTime
-    ) external whenNotPaused {
+    ) external whenNotPaused nonReentrant {
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
@@ -361,7 +362,7 @@ contract TLAuctionHouse is
     /// @dev Requires msg.sender to be the token owner
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function cancelSale(address nftAddress, uint256 tokenId) external {
+    function cancelSale(address nftAddress, uint256 tokenId) external nonReentrant {
         IERC721 nft = IERC721(nftAddress);
         Sale memory sale = _sales[nftAddress][tokenId];
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
