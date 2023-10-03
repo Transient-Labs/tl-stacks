@@ -218,8 +218,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         );
 
         // configure auction
-        Auction memory auction =
-            Auction(ben, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, startTime, duration);
+        Auction memory auction = Auction(
+            ben, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, startTime, duration
+        );
         vm.expectEmit(true, true, true, true);
         emit AuctionConfigured(ben, address(nft), 1, auction);
         vm.prank(ben);
@@ -244,7 +245,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         emit AuctionConfigured(ben, address(nft), 1, auction);
         vm.prank(ben);
         auctionHouse.configureAuction(
-            address(nft), 1, payoutReceiver, currencyAddress, reservePrice + 1, auctionOpenTime, duration + 1, reserveAuction
+            address(nft),
+            1,
+            payoutReceiver,
+            currencyAddress,
+            reservePrice + 1,
+            auctionOpenTime,
+            duration + 1,
+            reserveAuction
         );
         rAuction = auctionHouse.getAuction(address(nft), 1);
         assert(rAuction.seller == auction.seller);
@@ -256,7 +264,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assert(rAuction.auctionOpenTime == auction.auctionOpenTime);
         assert(rAuction.startTime == auction.startTime);
         assert(rAuction.duration == auction.duration);
-        
+
         // transfer nft and then override auction
         vm.prank(ben);
         nft.transferFrom(ben, chris, 1);
@@ -363,7 +371,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(address(nft), 1, ben, address(0), 1, block.timestamp + 1000, 24 hours, reserveAuction);
+        auctionHouse.configureAuction(
+            address(nft), 1, ben, address(0), 1, block.timestamp + 1000, 24 hours, reserveAuction
+        );
 
         // auction not open
         vm.expectRevert(AuctionNotOpen.selector);
@@ -431,7 +441,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(address(nft), 1, ben, address(coin), 1, block.timestamp + 1000, 24 hours, reserveAuction);
+        auctionHouse.configureAuction(
+            address(nft), 1, ben, address(coin), 1, block.timestamp + 1000, 24 hours, reserveAuction
+        );
 
         // auction not open
         vm.expectRevert(AuctionNotOpen.selector);
@@ -523,7 +535,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // configure auction
         vm.startPrank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
-        auctionHouse.configureAuction(address(nft), 1, receiver, address(0), reservePrice, block.timestamp, 24 hours, reserveAuction);
+        auctionHouse.configureAuction(
+            address(nft), 1, receiver, address(0), reservePrice, block.timestamp, 24 hours, reserveAuction
+        );
         vm.stopPrank();
 
         // meet reserve
@@ -558,7 +572,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // configure auction
         vm.startPrank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
-        auctionHouse.configureAuction(address(nft), 1, receiver, address(coin), reservePrice, block.timestamp, 24 hours, reserveAuction);
+        auctionHouse.configureAuction(
+            address(nft), 1, receiver, address(coin), reservePrice, block.timestamp, 24 hours, reserveAuction
+        );
         vm.stopPrank();
 
         // approve coin
@@ -616,7 +632,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     }
 
     /// @dev test bid & settle with eth - reserve auction
-    function test_bidEth_reserveAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra) public {
+    function test_bidEth_reserveAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra)
+        public
+    {
         // limit fuzz variables
         if (reservePrice > 500 ether) {
             reservePrice = reservePrice % 500 ether;
@@ -751,7 +769,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     }
 
     /// @dev test bid & settle with erc20 - reserve auction
-    function test_bidERC20_reserveAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra) public {
+    function test_bidERC20_reserveAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra)
+        public
+    {
         // limit fuzz variables
         if (reservePrice > 500 ether) {
             reservePrice = reservePrice % 500 ether;
@@ -899,7 +919,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     }
 
     /// @dev test bid & settle with eth - reserve auction
-    function test_bidEth_scheduledAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra) public {
+    function test_bidEth_scheduledAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra)
+        public
+    {
         // limit fuzz variables
         if (reservePrice > 500 ether) {
             reservePrice = reservePrice % 500 ether;
@@ -916,8 +938,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
 
         // initial variables
         uint256 initAhBalance = address(auctionHouse).balance;
-        Auction memory auction =
-            Auction(ben, receiver, address(0), address(0), 0, reservePrice, block.timestamp + startDelay, block.timestamp + startDelay, duration);
+        Auction memory auction = Auction(
+            ben,
+            receiver,
+            address(0),
+            address(0),
+            0,
+            reservePrice,
+            block.timestamp + startDelay,
+            block.timestamp + startDelay,
+            duration
+        );
         Auction memory retAuction = auction;
         uint256 prevSenderBalance = chris.balance;
         uint256 nextBid = auctionHouse.calcNextMinBid(address(nft), 1);
@@ -1033,7 +1064,12 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     }
 
     /// @dev test bid & settle with erc20 - scheduled auction
-    function test_bidERC20_scheduledAuction(uint256 reservePrice, uint256 startDelay, uint256 duration, uint256 bidExtra) public {
+    function test_bidERC20_scheduledAuction(
+        uint256 reservePrice,
+        uint256 startDelay,
+        uint256 duration,
+        uint256 bidExtra
+    ) public {
         // limit fuzz variables
         if (reservePrice > 500 ether) {
             reservePrice = reservePrice % 500 ether;
@@ -1051,7 +1087,15 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // initial variables
         uint256 initAhBalance = coin.balanceOf(address(auctionHouse));
         Auction memory auction = Auction(
-            ben, receiver, address(coin), address(0), 0, reservePrice, block.timestamp + startDelay, block.timestamp + startDelay, duration
+            ben,
+            receiver,
+            address(coin),
+            address(0),
+            0,
+            reservePrice,
+            block.timestamp + startDelay,
+            block.timestamp + startDelay,
+            duration
         );
         Auction memory retAuction = auction;
         uint256 prevSenderBalance = coin.balanceOf(chris);
@@ -1271,7 +1315,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assert(sale.currencyAddress == currencyAddress);
         assert(sale.price == price + 1);
         assert(sale.saleOpenTime == startTime);
-        
+
         // transfer nft and configure sale
         sale.price = price;
         sale.seller = chris;
@@ -1300,7 +1344,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
 
         // configure auction & start
         vm.prank(ben);
-        auctionHouse.configureAuction(address(nft), 1, payoutReceiver, currencyAddress, 0, block.timestamp, 24 hours, true);
+        auctionHouse.configureAuction(
+            address(nft), 1, payoutReceiver, currencyAddress, 0, block.timestamp, 24 hours, true
+        );
         vm.prank(chris);
         auctionHouse.bid(address(nft), 1, 0);
         vm.expectRevert(CallerNotTokenOwner.selector);
@@ -1362,7 +1408,6 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         emit SaleCanceled(ben, address(nft), 1);
         vm.prank(ben);
         auctionHouse.cancelSale(address(nft), 1);
-
     }
 
     /// @dev test buy now eth errors

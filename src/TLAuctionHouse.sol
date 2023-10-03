@@ -162,7 +162,15 @@ contract TLAuctionHouse is
         }
 
         Auction memory auction = Auction(
-            msg.sender, payoutReceiver, currencyAddress, address(0), 0, reservePrice, auctionOpenTime, startTime, duration
+            msg.sender,
+            payoutReceiver,
+            currencyAddress,
+            address(0),
+            0,
+            reservePrice,
+            auctionOpenTime,
+            startTime,
+            duration
         );
 
         _auctions[nftAddress][tokenId] = auction;
@@ -427,7 +435,7 @@ contract TLAuctionHouse is
 
         // transfer nft
         nft.transferFrom(sale.seller, msg.sender, tokenId);
-        if (nft.ownerOf(tokenId) !=  msg.sender) revert NftNotTransferred();
+        if (nft.ownerOf(tokenId) != msg.sender) revert NftNotTransferred();
 
         emit SaleFulfilled(msg.sender, nftAddress, tokenId, sale);
     }
