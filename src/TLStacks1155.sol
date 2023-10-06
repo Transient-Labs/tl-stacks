@@ -10,6 +10,7 @@ import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol
 import {ERC1155TL} from "tl-creator-contracts/core/ERC1155TL.sol";
 import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
+import {SanctionsCompliance} from "tl-stacks/utils/SanctionsCompliance.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -19,7 +20,15 @@ import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
 /// @notice Transient Labs Stacks mint contract for ERC1155TL contracts
 /// @author transientlabs.xyz
 /// @custom:version-last-updated 2.0.0
-contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLStacks1155Events, DropErrors {
+contract TLStacks1155 is
+    Ownable,
+    Pausable,
+    ReentrancyGuard,
+    TransferHelper,
+    SanctionsCompliance,
+    ITLStacks1155Events,
+    DropErrors
+{
     /*//////////////////////////////////////////////////////////////////////////
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
@@ -43,11 +52,12 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
                                 Constructor
     //////////////////////////////////////////////////////////////////////////*/
 
-    constructor(address initWethAddress, address initProtocolFeeReceiver, uint256 initProtocolFee)
-        Ownable()
-        Pausable()
-        ReentrancyGuard()
-    {
+    constructor(
+        address initSanctionsOracle,
+        address initWethAddress,
+        address initProtocolFeeReceiver,
+        uint256 initProtocolFee
+    ) Ownable() Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
@@ -82,6 +92,13 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
         }
     }
 
+    /// @notice Function to set the sanctions oracle
+    /// @dev Requires owner
+    /// @param newOracle The new oracle address
+    function setSanctionsOracle(address newOracle) external onlyOwner {
+        _updateSanctionsOracle(newOracle);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                             Drop Configuration Functions
     //////////////////////////////////////////////////////////////////////////*/
@@ -96,7 +113,12 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param drop The drop to configure
-    function configureDrop(address nftAddress, uint256 tokenId, Drop calldata drop) external whenNotPaused {
+    function configureDrop(address nftAddress, uint256 tokenId, Drop calldata drop)
+        external
+        whenNotPaused
+    {
+        _isNotSanctioned(msg.sender);
+        
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         if (!_checkPayoutReceiver(drop.payoutReceiver)) revert InvalidPayoutReceiver();
@@ -296,6 +318,8 @@ contract TLStacks1155 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITL
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
+        _isNotSanctioned(msg.sender);
+        
         // cache drop
         Drop memory drop = _drops[nftAddress][tokenId];
         DropPhase dropPhase = _getDropPhase(drop);

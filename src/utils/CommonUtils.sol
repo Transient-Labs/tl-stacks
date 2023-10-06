@@ -17,8 +17,14 @@ enum DropType {
     VELOCITY
 }
 
+/// @dev Common Errors
+interface CommonErrors {
+    error SanctionOracleError();
+    error SanctionedAddress();
+}
+
 /// @dev Errors for Drops
-interface DropErrors {
+interface DropErrors is CommonErrors {
     error NotDropAdmin();
     error NotApprovedMintContract();
     error InvalidPayoutReceiver();
@@ -36,7 +42,7 @@ interface DropErrors {
 }
 
 /// @dev Errors for the Auction House
-interface AuctionHouseErrors {
+interface AuctionHouseErrors is CommonErrors {
     error PercentageTooLarge();
     error CallerNotTokenOwner();
     error AuctionHouseNotApproved();
@@ -53,4 +59,8 @@ interface AuctionHouseErrors {
     error InsufficientMsgValue();
     error SaleNotConfigured();
     error SaleNotOpen();
+}
+
+interface ChainalysisSanctionsOracle {
+    function isSanctioned(address addr) external view returns (bool);
 }

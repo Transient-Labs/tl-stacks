@@ -8,6 +8,7 @@ import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
 import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {Auction, Sale, ITLAuctionHouseEvents} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
+import {SanctionsCompliance} from "tl-stacks/utils/SanctionsCompliance.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Auction House
@@ -22,6 +23,7 @@ contract TLAuctionHouse is
     Pausable,
     ReentrancyGuard,
     RoyaltyPayoutHelper,
+    SanctionsCompliance,
     ITLAuctionHouseEvents,
     AuctionHouseErrors
 {
@@ -50,6 +52,7 @@ contract TLAuctionHouse is
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(
+        address initSanctionsOracle,
         address initWethAddress,
         address initRoyaltyEngineAddress,
         address initProtocolFeeReceiver,
@@ -57,7 +60,13 @@ contract TLAuctionHouse is
         uint256 initMinBidIncreaseLimit,
         uint256 initProtocolFeePerc,
         uint256 initProtocolFeeLimit
-    ) Ownable() Pausable() ReentrancyGuard() RoyaltyPayoutHelper(initWethAddress, initRoyaltyEngineAddress) {
+    )
+        Ownable()
+        Pausable()
+        ReentrancyGuard()
+        RoyaltyPayoutHelper(initWethAddress, initRoyaltyEngineAddress)
+        SanctionsCompliance(initSanctionsOracle)
+    {
         _setMinBidIncreaseSettings(initMinBidIncreasePerc, initMinBidIncreaseLimit);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFeePerc, initProtocolFeeLimit);
     }
@@ -121,6 +130,13 @@ contract TLAuctionHouse is
         }
     }
 
+    /// @notice Function to set the sanctions oracle
+    /// @dev Requires owner
+    /// @param newOracle The new oracle address
+    function setSanctionsOracle(address newOracle) external onlyOwner {
+        _updateSanctionsOracle(newOracle);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                             Auction Configuration Functions
     //////////////////////////////////////////////////////////////////////////*/
@@ -150,6 +166,8 @@ contract TLAuctionHouse is
         uint256 duration,
         bool reserveAuction
     ) external whenNotPaused nonReentrant {
+        _isNotSanctioned(msg.sender);
+
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
         uint256 startTime = reserveAuction ? 0 : auctionOpenTime;
@@ -213,7 +231,14 @@ contract TLAuctionHouse is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param amount The amount to bid in the currency address set in the auction
-    function bid(address nftAddress, uint256 tokenId, uint256 amount) external payable whenNotPaused nonReentrant {
+    function bid(address nftAddress, uint256 tokenId, uint256 amount)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        _isNotSanctioned(msg.sender);
+        
         // cache items
         Auction memory auction = _auctions[nftAddress][tokenId];
         IERC721 nft = IERC721(nftAddress);
@@ -349,6 +374,8 @@ contract TLAuctionHouse is
         uint256 price,
         uint256 saleOpenTime
     ) external whenNotPaused nonReentrant {
+        _isNotSanctioned(msg.sender);
+        
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
@@ -396,7 +423,14 @@ contract TLAuctionHouse is
     ///     - protocol fee has been supplied, if needed
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function buyNow(address nftAddress, uint256 tokenId) external payable whenNotPaused nonReentrant {
+    function buyNow(address nftAddress, uint256 tokenId)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        _isNotSanctioned(msg.sender);
+        
         // cache items
         Sale memory sale = _sales[nftAddress][tokenId];
         IERC721 nft = IERC721(nftAddress);
