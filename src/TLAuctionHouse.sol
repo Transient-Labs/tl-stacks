@@ -8,7 +8,6 @@ import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
 import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {Auction, Sale, ITLAuctionHouseEvents} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
-import {SanctionsCompliance} from "tl-stacks/utils/SanctionsCompliance.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Auction House
@@ -64,8 +63,7 @@ contract TLAuctionHouse is
         Ownable()
         Pausable()
         ReentrancyGuard()
-        RoyaltyPayoutHelper(initWethAddress, initRoyaltyEngineAddress)
-        SanctionsCompliance(initSanctionsOracle)
+        RoyaltyPayoutHelper(initSanctionsOracle, initWethAddress, initRoyaltyEngineAddress)
     {
         _setMinBidIncreaseSettings(initMinBidIncreasePerc, initMinBidIncreaseLimit);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFeePerc, initProtocolFeeLimit);

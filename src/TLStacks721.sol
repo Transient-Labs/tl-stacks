@@ -7,11 +7,11 @@ import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
+import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
 import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
 import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {Drop, ITLStacks721Events} from "tl-stacks/utils/TLStacks721Utils.sol";
-import {SanctionsCompliance} from "tl-stacks/utils/SanctionsCompliance.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -116,7 +116,7 @@ contract TLStacks721 is
     /// @param nftAddress The nft contract address
     /// @param drop The drop to configure
     function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused {
-        _isNotSanctioned(msg.sender);
+        _isSanctioned(msg.sender, true);
         
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
