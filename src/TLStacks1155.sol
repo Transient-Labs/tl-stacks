@@ -6,11 +6,11 @@ import {Pausable} from "openzeppelin/security/Pausable.sol";
 import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
+import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
 import {ERC1155TL} from "tl-creator-contracts/core/ERC1155TL.sol";
 import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
-import {SanctionsCompliance} from "tl-stacks/utils/SanctionsCompliance.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -117,7 +117,9 @@ contract TLStacks1155 is
         external
         whenNotPaused
     {
-        _isNotSanctioned(msg.sender);
+        // sanctions
+        _isSanctioned(msg.sender, true);
+        _isSanctioned(drop.payoutReceiver, true);
         
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -146,6 +148,9 @@ contract TLStacks1155 is
         external
         whenNotPaused
     {
+        // sanctions
+        _isSanctioned(payoutReceiver, true);
+        
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -318,7 +323,7 @@ contract TLStacks1155 is
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
-        _isNotSanctioned(msg.sender);
+        _isSanctioned(msg.sender, true);
         
         // cache drop
         Drop memory drop = _drops[nftAddress][tokenId];

@@ -9,7 +9,8 @@ import {NotSpecifiedRole} from "tl-sol-tools/upgradeable/access/OwnableAccessCon
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {TLStacks1155} from "tl-stacks/TLStacks1155.sol";
 import {ITLStacks1155Events, Drop} from "tl-stacks/utils/TLStacks1155Utils.sol";
-import {DropPhase, DropType, DropErrors, ChainalysisSanctionsOracle} from "tl-stacks/utils/CommonUtils.sol";
+import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
+import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {Receiver} from "./utils/Receiver.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 
@@ -1429,13 +1430,18 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.expectRevert(SanctionedAddress.selector);
         stacks.configureDrop(address(nft), 1, drop);
 
-        // configure drop and try purchase
+        // configure drop
         vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
-
         vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+
+        // can't update payout receiver
+        vm.prank(ben);
+        vm.expectRevert(SanctionedAddress.selector);
+        stacks.updateDropPayoutReceiver(address(nft), 1, ben);
         
+        // can't buy
         vm.prank(ben);
         vm.expectRevert(SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);

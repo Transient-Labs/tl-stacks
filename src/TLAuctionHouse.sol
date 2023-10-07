@@ -22,7 +22,6 @@ contract TLAuctionHouse is
     Pausable,
     ReentrancyGuard,
     RoyaltyPayoutHelper,
-    SanctionsCompliance,
     ITLAuctionHouseEvents,
     AuctionHouseErrors
 {
@@ -164,7 +163,10 @@ contract TLAuctionHouse is
         uint256 duration,
         bool reserveAuction
     ) external whenNotPaused nonReentrant {
-        _isNotSanctioned(msg.sender);
+        // sanctions
+        _isSanctioned(msg.sender, true);
+        _isSanctioned(payoutReceiver, true);
+
 
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
@@ -235,7 +237,7 @@ contract TLAuctionHouse is
         whenNotPaused
         nonReentrant
     {
-        _isNotSanctioned(msg.sender);
+        _isSanctioned(msg.sender, true);
         
         // cache items
         Auction memory auction = _auctions[nftAddress][tokenId];
@@ -372,7 +374,9 @@ contract TLAuctionHouse is
         uint256 price,
         uint256 saleOpenTime
     ) external whenNotPaused nonReentrant {
-        _isNotSanctioned(msg.sender);
+        // sanctions
+        _isSanctioned(msg.sender, true);
+        _isSanctioned(payoutReceiver, true);
         
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
@@ -427,7 +431,7 @@ contract TLAuctionHouse is
         whenNotPaused
         nonReentrant
     {
-        _isNotSanctioned(msg.sender);
+        _isSanctioned(msg.sender, true);
         
         // cache items
         Sale memory sale = _sales[nftAddress][tokenId];

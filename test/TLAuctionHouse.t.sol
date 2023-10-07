@@ -7,7 +7,8 @@ import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
 import {ITLAuctionHouseEvents, Auction, Sale} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
-import {AuctionHouseErrors, ChainalysisSanctionsOracle} from "tl-stacks/utils/CommonUtils.sol";
+import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
+import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {Receiver} from "./utils/Receiver.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 

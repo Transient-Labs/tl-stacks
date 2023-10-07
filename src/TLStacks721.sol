@@ -116,7 +116,9 @@ contract TLStacks721 is
     /// @param nftAddress The nft contract address
     /// @param drop The drop to configure
     function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused {
+        // sanctions
         _isSanctioned(msg.sender, true);
+        _isSanctioned(drop.payoutReceiver, true);
         
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -141,6 +143,9 @@ contract TLStacks721 is
     /// @param nftAddress The nft contract address
     /// @param payoutReceiver The recipient of the funds from the mint
     function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external whenNotPaused {
+        // sanctions
+        _isSanctioned(payoutReceiver, true);
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
@@ -296,7 +301,7 @@ contract TLStacks721 is
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
-        _isNotSanctioned(msg.sender);
+        _isSanctioned(msg.sender, true);
         
         // cache drop
         Drop memory drop = _drops[nftAddress];
