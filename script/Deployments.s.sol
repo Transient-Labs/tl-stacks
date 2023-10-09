@@ -8,6 +8,7 @@ import {TLStacks1155} from "tl-stacks/TLStacks1155.sol";
 
 contract Deployments is Script {
     // these variables are defined and exported .env file
+    address sanctionsOracle = vm.envAddress("SANCTIONS_ORACLE");
     address wethAddress = vm.envAddress("WETH_ADDRESS");
     address protocolFeeReceiver = vm.envAddress("PROTOCOL_FEE_RECEIVER");
     uint256 stacksFee = vm.envUint("STACKS_FEE");
@@ -19,16 +20,16 @@ contract Deployments is Script {
 
     function deployTLStacks721() public {
         vm.broadcast();
-        new TLStacks721(wethAddress, protocolFeeReceiver, stacksFee);
+        new TLStacks721(sanctionsOracle, wethAddress, protocolFeeReceiver, stacksFee);
     }
 
     function deployTLStacks1155() public {
         vm.broadcast();
-        new TLStacks1155(wethAddress, protocolFeeReceiver, stacksFee);
+        new TLStacks1155(sanctionsOracle, wethAddress, protocolFeeReceiver, stacksFee);
     }
 
     function deployTLAuctionHouse() public {
         vm.broadcast();
-        new TLAuctionHouse(wethAddress, royaltyEngineAddress, protocolFeeReceiver, minBidIncreasePerc, minBidIncreaseLimit, ahFeePerc, ahFeeLimit);
+        new TLAuctionHouse(sanctionsOracle, wethAddress, royaltyEngineAddress, protocolFeeReceiver, minBidIncreasePerc, minBidIncreaseLimit, ahFeePerc, ahFeeLimit);
     }
 }

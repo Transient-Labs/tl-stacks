@@ -7,6 +7,7 @@ import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
+import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
 import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
 import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
@@ -20,7 +21,15 @@ import {Drop, ITLStacks721Events} from "tl-stacks/utils/TLStacks721Utils.sol";
 /// @notice Transient Labs Stacks mint contract for ERC721TL-based contracts
 /// @author transientlabs.xyz
 /// @custom:version-last-updated 2.0.0
-contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLStacks721Events, DropErrors {
+contract TLStacks721 is
+    Ownable,
+    Pausable,
+    ReentrancyGuard,
+    TransferHelper,
+    SanctionsCompliance,
+    ITLStacks721Events,
+    DropErrors
+{
     /*//////////////////////////////////////////////////////////////////////////
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
@@ -46,11 +55,12 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
                                 Constructor
     //////////////////////////////////////////////////////////////////////////*/
 
-    constructor(address initWethAddress, address initProtocolFeeReceiver, uint256 initProtocolFee)
-        Ownable()
-        Pausable()
-        ReentrancyGuard()
-    {
+    constructor(
+        address initSanctionsOracle,
+        address initWethAddress,
+        address initProtocolFeeReceiver,
+        uint256 initProtocolFee
+    ) Ownable() Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
@@ -85,6 +95,13 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         }
     }
 
+    /// @notice Function to set the sanctions oracle
+    /// @dev Requires owner
+    /// @param newOracle The new oracle address
+    function setSanctionsOracle(address newOracle) external onlyOwner {
+        _updateSanctionsOracle(newOracle);
+    }
+
     /*//////////////////////////////////////////////////////////////////////////
                             Drop Configuration Functions
     //////////////////////////////////////////////////////////////////////////*/
@@ -99,6 +116,10 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
     /// @param nftAddress The nft contract address
     /// @param drop The drop to configure
     function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused {
+        // sanctions
+        _isSanctioned(msg.sender, true);
+        _isSanctioned(drop.payoutReceiver, true);
+        
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         if (!_isApprovedMintContract(nftAddress)) revert NotApprovedMintContract();
@@ -122,6 +143,9 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
     /// @param nftAddress The nft contract address
     /// @param payoutReceiver The recipient of the funds from the mint
     function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external whenNotPaused {
+        // sanctions
+        _isSanctioned(payoutReceiver, true);
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
@@ -277,6 +301,8 @@ contract TLStacks721 is Ownable, Pausable, ReentrancyGuard, TransferHelper, ITLS
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
+        _isSanctioned(msg.sender, true);
+        
         // cache drop
         Drop memory drop = _drops[nftAddress];
         DropPhase dropPhase = _getDropPhase(drop);

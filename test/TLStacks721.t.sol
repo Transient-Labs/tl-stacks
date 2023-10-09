@@ -11,6 +11,7 @@ import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {TLStacks721} from "tl-stacks/TLStacks721.sol";
 import {ITLStacks721Events, Drop} from "tl-stacks/utils/TLStacks721Utils.sol";
 import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
+import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {Receiver} from "./utils/Receiver.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 
@@ -45,7 +46,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
     function setUp() public {
         wethAddress = address(new WETH9());
-        stacks = new TLStacks721(wethAddress, tl, fee);
+        stacks = new TLStacks721(address(0), wethAddress, tl, fee);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
@@ -1738,5 +1739,53 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         dropTwo = stacks.getDrop(address(nftTwo));
         assert(dropOne.supply == 9);
         assert(dropTwo.supply == 9);
+    }
+
+    function test_sanctions() public {
+        address oracle = makeAddr(unicode"sanctions are the best 🫠");
+        stacks.setSanctionsOracle(oracle);
+
+        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            receiver,
+            10,
+            10,
+            1,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            0,
+            0,
+            "htts://arweave.net/abc"
+        );
+
+        // test configuration function
+        vm.prank(nftOwner);
+        vm.expectRevert(SanctionedAddress.selector);
+        stacks.configureDrop(address(nft), drop);
+
+        // configure drop
+        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+
+        // can't update payout receiver
+        vm.prank(ben);
+        vm.expectRevert(SanctionedAddress.selector);
+        stacks.updateDropPayoutReceiver(address(nft), ben);
+
+        // can't buy
+        vm.prank(ben);
+        vm.expectRevert(SanctionedAddress.selector);
+        stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
+
+        vm.clearMockedCalls();
     }
 }

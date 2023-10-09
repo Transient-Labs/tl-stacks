@@ -8,13 +8,13 @@ clean:
 
 # Remove modules
 remove:
-	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib
+	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules
 
 # Install the Modules
 install:
 	forge install foundry-rs/forge-std --no-commit
 	forge install OpenZeppelin/openzeppelin-contracts@v4.8.3 --no-commit
-	forge install Transient-Labs/tl-sol-tools@2.4.0 --no-commit
+	forge install Transient-Labs/tl-sol-tools@2.5.0 --no-commit
 	forge install Transient-Labs/tl-creator-contracts@2.6.2 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
