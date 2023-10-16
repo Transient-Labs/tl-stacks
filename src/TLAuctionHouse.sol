@@ -167,7 +167,6 @@ contract TLAuctionHouse is
         _isSanctioned(msg.sender, true);
         _isSanctioned(payoutReceiver, true);
 
-
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
         uint256 startTime = reserveAuction ? 0 : auctionOpenTime;
@@ -231,14 +230,9 @@ contract TLAuctionHouse is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param amount The amount to bid in the currency address set in the auction
-    function bid(address nftAddress, uint256 tokenId, uint256 amount)
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-    {
+    function bid(address nftAddress, uint256 tokenId, uint256 amount) external payable whenNotPaused nonReentrant {
         _isSanctioned(msg.sender, true);
-        
+
         // cache items
         Auction memory auction = _auctions[nftAddress][tokenId];
         IERC721 nft = IERC721(nftAddress);
@@ -377,7 +371,7 @@ contract TLAuctionHouse is
         // sanctions
         _isSanctioned(msg.sender, true);
         _isSanctioned(payoutReceiver, true);
-        
+
         IERC721 nft = IERC721(nftAddress);
         bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
 
@@ -425,14 +419,9 @@ contract TLAuctionHouse is
     ///     - protocol fee has been supplied, if needed
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function buyNow(address nftAddress, uint256 tokenId)
-        external
-        payable
-        whenNotPaused
-        nonReentrant
-    {
+    function buyNow(address nftAddress, uint256 tokenId) external payable whenNotPaused nonReentrant {
         _isSanctioned(msg.sender, true);
-        
+
         // cache items
         Sale memory sale = _sales[nftAddress][tokenId];
         IERC721 nft = IERC721(nftAddress);
@@ -582,8 +571,6 @@ contract TLAuctionHouse is
             bidIncrease = minBidIncreaseLimit;
         }
         nextMinBid = currentBid + bidIncrease;
-
-        return nextMinBid;
     }
 
     /// @notice Internal function to calculate the protocol fee
@@ -594,7 +581,6 @@ contract TLAuctionHouse is
         if (fee > protocolFeeLimit) {
             fee = protocolFeeLimit;
         }
-        return fee;
     }
 
     /// @notice Internal function to payout from the contract

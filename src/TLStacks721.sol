@@ -115,11 +115,11 @@ contract TLStacks721 is
     ///     - the `decayRate` is non-zero and there is a presale configured
     /// @param nftAddress The nft contract address
     /// @param drop The drop to configure
-    function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused {
+    function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused nonReentrant {
         // sanctions
         _isSanctioned(msg.sender, true);
         _isSanctioned(drop.payoutReceiver, true);
-        
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         if (!_isApprovedMintContract(nftAddress)) revert NotApprovedMintContract();
@@ -142,7 +142,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @param nftAddress The nft contract address
     /// @param payoutReceiver The recipient of the funds from the mint
-    function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external whenNotPaused {
+    function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external whenNotPaused nonReentrant {
         // sanctions
         _isSanctioned(payoutReceiver, true);
 
@@ -163,7 +163,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @param nftAddress The nft contract address
     /// @param allowance The number of tokens allowed to be minted per wallet during the public phase of the drop
-    function updateDropAllowance(address nftAddress, uint256 allowance) external whenNotPaused {
+    function updateDropAllowance(address nftAddress, uint256 allowance) external whenNotPaused nonReentrant {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
@@ -185,6 +185,7 @@ contract TLStacks721 is
     function updateDropPrices(address nftAddress, address currencyAddress, uint256 presaleCost, uint256 publicCost)
         external
         whenNotPaused
+        nonReentrant
     {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -211,6 +212,7 @@ contract TLStacks721 is
     function updateDropDuration(address nftAddress, uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         external
         whenNotPaused
+        nonReentrant
     {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -233,7 +235,11 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @param nftAddress The nft contract address
     /// @param presaleMerkleRoot The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
-    function updateDropPresaleMerkleRoot(address nftAddress, bytes32 presaleMerkleRoot) external whenNotPaused {
+    function updateDropPresaleMerkleRoot(address nftAddress, bytes32 presaleMerkleRoot)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
@@ -250,7 +256,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @param nftAddress The nft contract address
     /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
-    function updateDropDecayRate(address nftAddress, int256 decayRate) external whenNotPaused {
+    function updateDropDecayRate(address nftAddress, int256 decayRate) external whenNotPaused nonReentrant {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress];
@@ -264,7 +270,7 @@ contract TLStacks721 is
         emit DropUpdated(nftAddress, drop);
     }
 
-    function closeDrop(address nftAddress) external {
+    function closeDrop(address nftAddress) external nonReentrant {
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
 
         // delete the drop
@@ -302,7 +308,8 @@ contract TLStacks721 is
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
         _isSanctioned(msg.sender, true);
-        
+        _isSanctioned(recipient, true);
+
         // cache drop
         Drop memory drop = _drops[nftAddress];
         DropPhase dropPhase = _getDropPhase(drop);
@@ -542,6 +549,5 @@ contract TLStacks721 is
         } else {
             numberCanMint = 0;
         }
-        return numberCanMint;
     }
 }

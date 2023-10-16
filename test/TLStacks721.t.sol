@@ -458,6 +458,9 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), drop);
+        // invalid payout receiver
+        vm.expectRevert(InvalidPayoutReceiver.selector);
+        stacks.updateDropPayoutReceiver(address(nft), address(0));
         if (payoutReceiver == address(0)) {
             vm.expectRevert(InvalidPayoutReceiver.selector);
             stacks.updateDropPayoutReceiver(address(nft), payoutReceiver);
@@ -538,7 +541,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     }
 
     /// @dev test updating regular drop durations
-    function test_updateDropPayoutReceiverRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
+    function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
         Drop memory drop = Drop(
@@ -558,6 +561,9 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             "https://arweave.net/abc"
         );
         vm.startPrank(nftOwner);
+        // drop not configured
+        vm.expectRevert(DropNotConfigured.selector);
+        stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), drop);
         drop.startTime = startTime;
         drop.presaleDuration = presaleDuration;
@@ -571,10 +577,14 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.presaleDuration == presaleDuration);
         assert(retreivedDrop.publicDuration == publicDuration);
         vm.stopPrank();
+
+        // test not drop admin
+        vm.expectRevert(NotDropAdmin.selector);
+        stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
     }
 
     /// @dev test updating velocity drop durations
-    function test_updateDropPayoutReceiverVelocity(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
+    function test_updateDropDurationVelocity(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
         Drop memory drop = Drop(
@@ -593,7 +603,11 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             -1,
             "https://arweave.net/abc"
         );
+
         vm.startPrank(nftOwner);
+        // drop not configured
+        vm.expectRevert(DropNotConfigured.selector);
+        stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), drop);
         if (presaleDuration != 0) {
             vm.expectRevert(NotAllowedForVelocityDrops.selector);
@@ -612,6 +626,11 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             assert(retreivedDrop.publicDuration == publicDuration);
         }
         vm.stopPrank();
+
+        // test not drop admin
+        vm.expectRevert(NotDropAdmin.selector);
+        stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
+
     }
 
     /// @dev test updating drop merkle root
@@ -1741,6 +1760,37 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(dropTwo.supply == 9);
     }
 
+    function test_sellOut() public {
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            receiver,
+            1,
+            1,
+            1,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            0,
+            0,
+            "htts://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        // mint from drop one and assure it doesn't affect drop two
+        vm.prank(ben);
+        stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
+        drop = stacks.getDrop(address(nft));
+        assert(drop.supply == 0);
+        assert(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
+        
+        vm.expectRevert(YouShallNotMint.selector);
+        stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
+    }
+
     function test_sanctions() public {
         address oracle = makeAddr(unicode"sanctions are the best 🫠");
         stacks.setSanctionsOracle(oracle);
@@ -1781,8 +1831,13 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.expectRevert(SanctionedAddress.selector);
         stacks.updateDropPayoutReceiver(address(nft), ben);
 
-        // can't buy
+        // can't buy msg.sender
         vm.prank(ben);
+        vm.expectRevert(SanctionedAddress.selector);
+        stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
+
+        // can't buy recipient
+        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true));
         vm.expectRevert(SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
 

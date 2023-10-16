@@ -11,6 +11,7 @@ import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {Receiver} from "./utils/Receiver.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
+import {MaliciousERC721} from "./utils/MaliciousERC721.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     address wethAddress;
@@ -158,6 +159,15 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.expectRevert("Pausable: paused");
         auctionHouse.buyNow(address(nft), 1);
         vm.stopPrank();
+    }
+
+    /// @dev test owner configuration errors
+    function test_ownerConfigErrors() public {
+        vm.expectRevert(PercentageTooLarge.selector);
+        auctionHouse.setMinBidIncreaseSettings(10_001, 1 ether);
+
+        vm.expectRevert(PercentageTooLarge.selector);
+        auctionHouse.setProtocolFeeSettings(address(this), 10_001, 1 ether);
     }
 
     /// @dev test configuring auctions
@@ -359,6 +369,76 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.expectRevert(AuctionStarted.selector);
         vm.prank(ben);
         auctionHouse.cancelAuction(address(nft), 1);
+    }
+
+    /// @dev test buy now with malicious nft
+    function test_reserveAuctionMaliciousNft() public {
+        // malicious nft
+        MaliciousERC721 mnft = new MaliciousERC721();
+        mnft.mint(ben);
+        mnft.setBeMalicious(true);
+
+        // configure sale
+        vm.prank(ben);
+        mnft.setApprovalForAll(address(auctionHouse), true);
+        vm.prank(ben);
+        auctionHouse.configureAuction(
+            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, true
+        );
+
+        // revert on first bid
+        vm.prank(chris);
+        vm.expectRevert(NftNotTransferred.selector);
+        auctionHouse.bid{value: 1.01 ether}(address(mnft), 1, 1 ether);
+
+        // allow bid
+        mnft.setBeMalicious(false);
+
+        // bid
+        vm.prank(chris);
+        auctionHouse.bid{value: 1.01 ether}(address(mnft), 1, 1 ether);
+
+        // settle auction error
+        mnft.setBeMalicious(true);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(chris);
+        vm.expectRevert(NftNotTransferred.selector);
+        auctionHouse.settleAuction(address(mnft), 1);
+    }
+
+    /// @dev test buy now with malicious nft
+    function test_scheduledAuctionMaliciousNft() public {
+        // malicious nft
+        MaliciousERC721 mnft = new MaliciousERC721();
+        mnft.mint(ben);
+        mnft.setBeMalicious(true);
+
+        // configure sale
+        vm.prank(ben);
+        mnft.setApprovalForAll(address(auctionHouse), true);
+        vm.prank(ben);
+        auctionHouse.configureAuction(
+            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, false
+        );
+
+        // revert on first bid
+        vm.prank(chris);
+        vm.expectRevert(NftNotTransferred.selector);
+        auctionHouse.bid{value: 1.01 ether}(address(mnft), 1, 1 ether);
+
+        // allow bid
+        mnft.setBeMalicious(false);
+
+        // bid
+        vm.prank(chris);
+        auctionHouse.bid{value: 1.01 ether}(address(mnft), 1, 1 ether);
+
+        // settle auction error
+        mnft.setBeMalicious(true);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(chris);
+        vm.expectRevert(NftNotTransferred.selector);
+        auctionHouse.settleAuction(address(mnft), 1);
     }
 
     /// @dev test bid eth errors
@@ -1409,6 +1489,25 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         emit SaleCanceled(ben, address(nft), 1);
         vm.prank(ben);
         auctionHouse.cancelSale(address(nft), 1);
+    }
+
+    /// @dev test buy now with malicious nft
+    function test_buyNowMaliciousNft() public {
+        // malicious nft
+        MaliciousERC721 mnft = new MaliciousERC721();
+        mnft.mint(ben);
+        mnft.setBeMalicious(true);
+
+        // configure sale
+        vm.prank(ben);
+        mnft.setApprovalForAll(address(auctionHouse), true);
+        vm.prank(ben);
+        auctionHouse.configureSale(address(mnft), 1, receiver, address(0), 1 ether, block.timestamp);
+
+        // revert on purchase
+        vm.prank(chris);
+        vm.expectRevert(NftNotTransferred.selector);
+        auctionHouse.buyNow{value: 1.01 ether}(address(mnft), 1);
     }
 
     /// @dev test buy now eth errors

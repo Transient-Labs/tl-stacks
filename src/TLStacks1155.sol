@@ -116,11 +116,12 @@ contract TLStacks1155 is
     function configureDrop(address nftAddress, uint256 tokenId, Drop calldata drop)
         external
         whenNotPaused
+        nonReentrant
     {
         // sanctions
         _isSanctioned(msg.sender, true);
         _isSanctioned(drop.payoutReceiver, true);
-        
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         if (!_checkPayoutReceiver(drop.payoutReceiver)) revert InvalidPayoutReceiver();
@@ -147,10 +148,11 @@ contract TLStacks1155 is
     function updateDropPayoutReceiver(address nftAddress, uint256 tokenId, address payoutReceiver)
         external
         whenNotPaused
+        nonReentrant
     {
         // sanctions
         _isSanctioned(payoutReceiver, true);
-        
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -169,7 +171,11 @@ contract TLStacks1155 is
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param allowance The number of tokens allowed to be minted per wallet during the public phase of the drop
-    function updateDropAllowance(address nftAddress, uint256 tokenId, uint256 allowance) external whenNotPaused {
+    function updateDropAllowance(address nftAddress, uint256 tokenId, uint256 allowance)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -195,7 +201,7 @@ contract TLStacks1155 is
         address currencyAddress,
         uint256 presaleCost,
         uint256 publicCost
-    ) external whenNotPaused {
+    ) external whenNotPaused nonReentrant {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -225,7 +231,7 @@ contract TLStacks1155 is
         uint256 startTime,
         uint256 presaleDuration,
         uint256 publicDuration
-    ) external whenNotPaused {
+    ) external whenNotPaused nonReentrant {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -251,6 +257,7 @@ contract TLStacks1155 is
     function updateDropPresaleMerkleRoot(address nftAddress, uint256 tokenId, bytes32 presaleMerkleRoot)
         external
         whenNotPaused
+        nonReentrant
     {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -269,7 +276,11 @@ contract TLStacks1155 is
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
-    function updateDropDecayRate(address nftAddress, uint256 tokenId, int256 decayRate) external whenNotPaused {
+    function updateDropDecayRate(address nftAddress, uint256 tokenId, int256 decayRate)
+        external
+        whenNotPaused
+        nonReentrant
+    {
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -283,7 +294,7 @@ contract TLStacks1155 is
         emit DropUpdated(nftAddress, tokenId, drop);
     }
 
-    function closeDrop(address nftAddress, uint256 tokenId) external {
+    function closeDrop(address nftAddress, uint256 tokenId) external nonReentrant {
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
 
         // delete the drop
@@ -324,7 +335,8 @@ contract TLStacks1155 is
         bytes32[] calldata proof
     ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
         _isSanctioned(msg.sender, true);
-        
+        _isSanctioned(recipient, true);
+
         // cache drop
         Drop memory drop = _drops[nftAddress][tokenId];
         DropPhase dropPhase = _getDropPhase(drop);
@@ -581,6 +593,5 @@ contract TLStacks1155 is
         } else {
             numberCanMint = 0;
         }
-        return numberCanMint;
     }
 }
