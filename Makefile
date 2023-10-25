@@ -18,7 +18,7 @@ install:
 	forge install Transient-Labs/tl-creator-contracts@2.6.2 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
-	git commit -m "installed modules"
+	git commit
 	
 # Update the modules
 update: remove install
