@@ -14,7 +14,7 @@ remove:
 install:
 	forge install foundry-rs/forge-std --no-commit
 	forge install OpenZeppelin/openzeppelin-contracts@v4.8.3 --no-commit
-	forge install Transient-Labs/tl-sol-tools@2.5.0 --no-commit
+	forge install Transient-Labs/tl-sol-tools@2.6.0 --no-commit
 	forge install Transient-Labs/tl-creator-contracts@2.6.2 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
@@ -56,3 +56,23 @@ deploy_stacks_1155_arb_goerli:
 
 deploy_auction_house_arb_goerli:
 	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
+
+# Ethereum Deployments
+deploy_stacks_721_eth:
+	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+
+deploy_stacks_1155_eth:
+	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+
+deploy_auction_house_eth:
+	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
+
+# Arbitrum Deployments
+deploy_stacks_721_arb:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+
+deploy_stacks_1155_arb:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+
+deploy_auction_house_arb:
+	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"

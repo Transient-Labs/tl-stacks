@@ -9,7 +9,7 @@ import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
 import {ITLAuctionHouseEvents, Auction, Sale} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
 import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
 import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {Receiver} from "./utils/Receiver.sol";
+import {Receiver, RevertingBidder, GriefingBidder} from "./utils/Receiver.sol";
 import {MockERC20} from "./utils/MockERC20.sol";
 import {MaliciousERC721} from "./utils/MaliciousERC721.sol";
 
@@ -685,6 +685,84 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assert(coin.balanceOf(address(auctionHouse)) - prevAHEthBalance == nextBid + fee);
         assert(prevSenderCoinBalance - coin.balanceOf(david) == nextBid + fee);
         assert(prevSenderEthBalance - david.balance == 0);
+    }
+
+    /// @dev test bidder with reverting receiver function
+    function test_revertingBidder(uint256 reservePrice, bool reserveAuction) public {
+        // limit fuzz variables
+        if (reservePrice > 100 ether) {
+            reservePrice = reservePrice % 100 ether;
+        }
+
+        // configure auction
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(auctionHouse), true);
+        auctionHouse.configureAuction(
+            address(nft), 1, receiver, address(0), reservePrice, block.timestamp, 24 hours, reserveAuction
+        );
+        vm.stopPrank();
+
+        // meet reserve
+        uint256 prevAHBalance = address(auctionHouse).balance;
+        uint256 fee = auctionHouse.calcProtocolFee(reservePrice);
+        vm.prank(bsy);
+        auctionHouse.bid{value: reservePrice + fee}(address(nft), 1, reservePrice);
+        assert(address(auctionHouse).balance - prevAHBalance == reservePrice + fee);
+
+        // bid with bidder that reverts on eth received
+        GriefingBidder bidder = new GriefingBidder(address(auctionHouse));
+        uint256 nextBid = auctionHouse.calcNextMinBid(address(nft), 1);
+        fee = auctionHouse.calcProtocolFee(nextBid);
+        vm.prank(david);
+        bidder.bid{value: nextBid + fee}(address(nft), 1, nextBid);
+        assert(address(auctionHouse).balance - prevAHBalance == nextBid + fee);
+
+        // bid again and reverting bidder shouldn't lock the contract
+        uint256 nextNextBid = auctionHouse.calcNextMinBid(address(nft), 1);
+        uint256 nextFee = auctionHouse.calcProtocolFee(nextNextBid);
+        vm.prank(bsy);
+        auctionHouse.bid{value: nextNextBid + nextFee}(address(nft), 1, nextNextBid);
+        assert(address(auctionHouse).balance - prevAHBalance == nextNextBid + nextFee);
+        assert(WETH9(payable(wethAddress)).balanceOf(address(bidder)) == nextBid + fee);
+    }
+
+    /// @dev test bidder with griefing receiver function
+    function test_griefingBidder(uint256 reservePrice, bool reserveAuction) public {
+        // limit fuzz variables
+        if (reservePrice > 100 ether) {
+            reservePrice = reservePrice % 100 ether;
+        }
+
+        // configure auction
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(auctionHouse), true);
+        auctionHouse.configureAuction(
+            address(nft), 1, receiver, address(0), reservePrice, block.timestamp, 24 hours, reserveAuction
+        );
+        vm.stopPrank();
+
+        // meet reserve
+        uint256 prevAHBalance = address(auctionHouse).balance;
+        uint256 fee = auctionHouse.calcProtocolFee(reservePrice);
+        vm.prank(bsy);
+        auctionHouse.bid{value: reservePrice + fee}(address(nft), 1, reservePrice);
+        assert(address(auctionHouse).balance - prevAHBalance == reservePrice + fee);
+
+        // bid with bidder that reverts on eth received
+        RevertingBidder bidder = new RevertingBidder(address(auctionHouse));
+        uint256 nextBid = auctionHouse.calcNextMinBid(address(nft), 1);
+        fee = auctionHouse.calcProtocolFee(nextBid);
+        vm.prank(david);
+        bidder.bid{value: nextBid + fee}(address(nft), 1, nextBid);
+        assert(address(auctionHouse).balance - prevAHBalance == nextBid + fee);
+
+        // bid again and griefing bidder shouldn't lock the contract
+        uint256 nextNextBid = auctionHouse.calcNextMinBid(address(nft), 1);
+        uint256 nextFee = auctionHouse.calcProtocolFee(nextNextBid);
+        vm.prank(bsy);
+        auctionHouse.bid{value: nextNextBid + nextFee, gas: 30_000_000}(address(nft), 1, nextNextBid);
+        assert(address(auctionHouse).balance - prevAHBalance == nextNextBid + nextFee);
+        assert(WETH9(payable(wethAddress)).balanceOf(address(bidder)) == nextBid + fee);
     }
 
     /// @dev test settle auction errors
