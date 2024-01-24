@@ -20,7 +20,7 @@ import {Drop, ITLStacks721Events} from "tl-stacks/utils/TLStacks721Utils.sol";
 /// @title TLStacks721
 /// @notice Transient Labs Stacks mint contract for ERC721TL-based contracts
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.2.0
+/// @custom:version-last-updated 2.3.0
 contract TLStacks721 is
     Ownable,
     Pausable,
@@ -36,7 +36,7 @@ contract TLStacks721 is
 
     using Strings for uint256;
 
-    string public constant VERSION = "2.2.0";
+    string public constant VERSION = "2.3.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
 

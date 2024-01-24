@@ -19,7 +19,7 @@ import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
 /// @title TLStacks1155
 /// @notice Transient Labs Stacks mint contract for ERC1155TL contracts
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.2.0
+/// @custom:version-last-updated 2.3.0
 contract TLStacks1155 is
     Ownable,
     Pausable,
@@ -33,7 +33,7 @@ contract TLStacks1155 is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.2.0";
+    string public constant VERSION = "2.3.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
 

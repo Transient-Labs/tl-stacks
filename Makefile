@@ -13,9 +13,8 @@ remove:
 # Install the Modules
 install:
 	forge install foundry-rs/forge-std --no-commit
-	forge install OpenZeppelin/openzeppelin-contracts@v4.8.3 --no-commit
-	forge install Transient-Labs/tl-sol-tools@2.6.0 --no-commit
-	forge install Transient-Labs/tl-creator-contracts@2.6.2 --no-commit
+	forge install Transient-Labs/tl-sol-tools@3.1.1 --no-commit
+	forge install Transient-Labs/tl-creator-contracts@3.0.1 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
 	git commit
