@@ -556,6 +556,20 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.stopPrank();
     }
 
+    /// @dev test update drop merkle root for velocity mint
+    function test_updateDropPresaleMerkleRoot_velocity(bytes32 presaleMerkleRoot) public {
+        Drop memory drop = Drop(
+            DropType.VELOCITY, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
+        vm.startPrank(nftOwner);
+        stacks.configureDrop(address(nft), 1, drop);
+        drop.presaleMerkleRoot = presaleMerkleRoot;
+        vm.expectRevert(NotAllowedForVelocityDrops.selector);
+        stacks.updateDropPresaleMerkleRoot(address(nft), 1, presaleMerkleRoot);
+
+        vm.stopPrank();
+    }
+
     /// @dev test updating drop decay rate errors
     function test_updateDropDecayRateRegular(int256 decayRate) public {
         Drop memory drop =
