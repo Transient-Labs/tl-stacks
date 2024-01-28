@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/security/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
+import {IERC1155TL} from "tl-creator-contracts/erc-1155/IERC1155TL.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
 import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
-import {ERC1155TL} from "tl-creator-contracts/core/ERC1155TL.sol";
-import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
+import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
+import {Drop, ITLStacks1155Events} from "src/utils/TLStacks1155Utils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -57,7 +57,7 @@ contract TLStacks1155 is
         address initWethAddress,
         address initProtocolFeeReceiver,
         uint256 initProtocolFee
-    ) Ownable() Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
+    ) Ownable(msg.sender) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
@@ -458,7 +458,7 @@ contract TLStacks1155 is
         recipients[0] = recipient;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = numberToMint;
-        ERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
+        IERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
     }
 
     /*//////////////////////////////////////////////////////////////////////////

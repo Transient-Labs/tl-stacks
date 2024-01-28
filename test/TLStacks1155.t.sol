@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
 import {Merkle} from "murky/Merkle.sol";
-import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
-import {ERC1155TL} from "tl-creator-contracts/core/ERC1155TL.sol";
-import {NotSpecifiedRole} from "tl-sol-tools/upgradeable/access/OwnableAccessControlUpgradeable.sol";
+import {ERC1155TL} from "tl-creator-contracts/erc-1155/ERC1155TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {TLStacks1155} from "tl-stacks/TLStacks1155.sol";
-import {ITLStacks1155Events, Drop} from "tl-stacks/utils/TLStacks1155Utils.sol";
-import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {Receiver} from "./utils/Receiver.sol";
-import {MockERC20} from "./utils/MockERC20.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {TLStacks1155} from "src/TLStacks1155.sol";
+import {ITLStacks1155Events, Drop} from "src/utils/TLStacks1155Utils.sol";
+import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
+import {Receiver} from "test/utils/Receiver.sol";
+import {MockERC20} from "test/utils/MockERC20.sol";
 
 contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     bytes32 constant MINTER_ROLE = keccak256("APPROVED_MINT_CONTRACT");
@@ -48,11 +46,11 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         address[] memory mintAddrs = new address[](1);
         mintAddrs[0] = address(stacks);
 
-        ERC1155TL implementation = new ERC1155TL(true);
-        TLCreator proxy = new TLCreator(
-            address(implementation),
-            "Test ERC721",
+        nft = new ERC1155TL(false);
+        nft.initialize(
+            "LFG Bro",
             "LFG",
+            "",
             nftOwner,
             1_000,
             nftOwner,
@@ -60,7 +58,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             false,
             address(0)
         );
-        nft = ERC1155TL(address(proxy));
         vm.startPrank(nftOwner);
         nft.setApprovedMintContracts(mintAddrs, true);
         address[] memory addresses = new address[](1);
@@ -1441,35 +1438,35 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         address oracle = makeAddr(unicode"sanctions are the best 🫠");
         stacks.setSanctionsOracle(oracle);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         Drop memory drop =
             Drop(DropType.REGULAR, receiver, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 0, 0);
 
         // test configuration function
         vm.prank(nftOwner);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.configureDrop(address(nft), 1, drop);
 
         // configure drop
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         // can't update payout receiver
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.updateDropPayoutReceiver(address(nft), 1, ben);
 
         // can't buy msg.sender
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
         // can't buy recipient
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true));
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true));
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
         vm.clearMockedCalls();

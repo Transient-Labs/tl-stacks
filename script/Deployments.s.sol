@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import "forge-std/Script.sol";
-import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
-import {TLStacks721} from "tl-stacks/TLStacks721.sol";
-import {TLStacks1155} from "tl-stacks/TLStacks1155.sol";
+import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
+import {TLStacks721} from "src/TLStacks721.sol";
+import {TLStacks1155} from "src/TLStacks1155.sol";
 
 contract Deployments is Script {
     // these variables are defined and exported .env file

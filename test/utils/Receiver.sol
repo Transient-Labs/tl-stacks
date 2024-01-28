@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
-import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
+import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
 
 contract Receiver {
     event EthReceived(uint256 indexed amount);

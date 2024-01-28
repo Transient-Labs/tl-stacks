@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/security/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
+import {IERC721TL} from "tl-creator-contracts/erc-721/IERC721TL.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
 import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
-import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
-import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {Drop, ITLStacks721Events} from "tl-stacks/utils/TLStacks721Utils.sol";
+import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
+import {Drop, ITLStacks721Events} from "src/utils/TLStacks721Utils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -60,7 +60,7 @@ contract TLStacks721 is
         address initWethAddress,
         address initProtocolFeeReceiver,
         uint256 initProtocolFee
-    ) Ownable() Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
+    ) Ownable(msg.sender) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
@@ -426,7 +426,7 @@ contract TLStacks721 is
     function _mintToken(address nftAddress, address recipient, uint256 numberToMint, Drop memory drop) internal {
         uint256 uriCounter = drop.initialSupply - drop.supply;
         for (uint256 i = 0; i < numberToMint; i++) {
-            ERC721TL(nftAddress).externalMint(
+            IERC721TL(nftAddress).externalMint(
                 recipient, string(abi.encodePacked(drop.baseUri, "/", (uriCounter + i).toString()))
             );
         }

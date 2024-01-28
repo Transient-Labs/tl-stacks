@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/security/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
-import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {Auction, Sale, ITLAuctionHouseEvents} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
+import {AuctionHouseErrors} from "src/utils/CommonUtils.sol";
+import {Auction, Sale, ITLAuctionHouseEvents} from "src/utils/TLAuctionHouseUtils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Auction House
@@ -59,7 +59,7 @@ contract TLAuctionHouse is
         uint256 initProtocolFeePerc,
         uint256 initProtocolFeeLimit
     )
-        Ownable()
+        Ownable(msg.sender)
         Pausable()
         ReentrancyGuard()
         RoyaltyPayoutHelper(initSanctionsOracle, initWethAddress, initRoyaltyEngineAddress)

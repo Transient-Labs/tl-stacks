@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
-import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
-import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
+import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
-import {ITLAuctionHouseEvents, Auction, Sale} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
-import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {Receiver, RevertingBidder, GriefingBidder} from "./utils/Receiver.sol";
-import {MockERC20} from "./utils/MockERC20.sol";
-import {MaliciousERC721} from "./utils/MaliciousERC721.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
+import {ITLAuctionHouseEvents, Auction, Sale} from "src/utils/TLAuctionHouseUtils.sol";
+import {AuctionHouseErrors} from "src/utils/CommonUtils.sol";
+import {Receiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
+import {MockERC20} from "test/utils/MockERC20.sol";
+import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     address wethAddress;
@@ -47,19 +46,19 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
 
         address[] memory empty = new address[](0);
 
-        ERC721TL implementation = new ERC721TL(true);
-        TLCreator proxy = new TLCreator(
-            address(implementation),
+        nft = new ERC721TL(false);
+        nft.initialize(
             "LFG Bro",
             "LFG",
+            "",
             address(this),
             1_000,
             address(this),
             empty,
             false,
+            address(0),
             address(0)
         );
-        nft = ERC721TL(address(proxy));
         nft.mint(ben, "https://arweave.net/NO-BEEF");
         nft.mint(ben, "https://arweave.net/NO-BEEF-2");
         nft.mint(chris, "https://arweave.net/MORE-COFFEE");
@@ -1852,36 +1851,36 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         address oracle = makeAddr(unicode"sanctions are the best 🫠");
         auctionHouse.setSanctionsOracle(oracle);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         vm.prank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
 
         // test configuration functions
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, false);
 
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
         // configure auction and sale and test bid/buy now
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
         vm.prank(ben);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, false);
 
         vm.prank(ben);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         vm.prank(chris);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.bid{value: 1 ether}(address(nft), 1, 1 ether);
 
         vm.prank(chris);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.buyNow(address(nft), 1);
 
         vm.clearMockedCalls();
