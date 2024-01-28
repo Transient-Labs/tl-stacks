@@ -1,0 +1,23 @@
+{
+    "TLAuctionHouse": {
+        "2.3.0": {
+            "constructor_args": "",
+            "salt": "",
+            "deployed_contract": ""
+        }
+    },
+    "TLStacks721": {
+        "2.3.0": {
+            "constructor_args": "",
+            "salt": "",
+            "deployed_contract": ""
+        }
+    },
+    "TLStacks1155": {
+        "2.3.0": {
+            "constructor_args": "",
+            "salt": "",
+            "deployed_contract": ""
+        }
+    }
+}

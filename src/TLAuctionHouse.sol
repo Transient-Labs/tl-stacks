@@ -16,7 +16,7 @@ import {Auction, Sale, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.
 /// @title TLAuctionHouse
 /// @notice Transient Labs Auction House with Reserve Auctions and Buy Now Sales for ERC-721 tokens
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.1.0
+/// @custom:version-last-updated 2.3.0
 contract TLAuctionHouse is
     Ownable,
     Pausable,
@@ -29,7 +29,7 @@ contract TLAuctionHouse is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.1.0";
+    string public constant VERSION = "2.3.0";
     uint256 public constant EXTENSION_TIME = 15 minutes;
     uint256 public constant BASIS = 10_000;
 
