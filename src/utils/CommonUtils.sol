@@ -23,8 +23,8 @@ interface DropErrors {
     error NotApprovedMintContract();
     error InvalidPayoutReceiver();
     error InvalidDropSupply();
-    error DropNotConfigured();
     error DropAlreadyConfigured();
+    error DropUpdateNotAllowed();
     error InvalidDropType();
     error NotAllowedForVelocityDrops();
     error MintZeroTokens();

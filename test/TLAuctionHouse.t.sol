@@ -50,18 +50,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         address[] memory empty = new address[](0);
 
         nft = new ERC721TL(false);
-        nft.initialize(
-            "LFG Bro",
-            "LFG",
-            "",
-            address(this),
-            1_000,
-            address(this),
-            empty,
-            false,
-            address(0),
-            address(0)
-        );
+        nft.initialize("LFG Bro", "LFG", "", address(this), 1_000, address(this), empty, false, address(0), address(0));
         nft.mint(ben, "https://arweave.net/NO-BEEF");
         nft.mint(ben, "https://arweave.net/NO-BEEF-2");
         nft.mint(chris, "https://arweave.net/MORE-COFFEE");
@@ -384,9 +373,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         mnft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(
-            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, true
-        );
+        auctionHouse.configureAuction(address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, true);
 
         // revert on first bid
         vm.prank(chris);
@@ -419,9 +406,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         mnft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(
-            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, false
-        );
+        auctionHouse.configureAuction(address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, false);
 
         // revert on first bid
         vm.prank(chris);
@@ -542,7 +527,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, 0);
 
         // insufficient erc20 approval
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1)
+        );
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 1);
         vm.prank(bsy);
@@ -583,7 +570,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, nextBid - 1);
 
         // insufficient erc20 approval
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, nextBid + fee));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, nextBid + fee
+            )
+        );
         vm.prank(david);
         auctionHouse.bid(address(nft), 1, nextBid);
         vm.prank(david);
@@ -1663,7 +1654,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         nft.transferFrom(chris, ben, 1);
 
         // not enough erc20 approval attached
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1 ether + fee));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1 ether + fee
+            )
+        );
         vm.prank(chris);
         auctionHouse.buyNow(address(nft), 1);
 
@@ -1869,7 +1864,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
         // configure auction and sale and test bid/buy now
-        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
         vm.prank(ben);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, false);
 

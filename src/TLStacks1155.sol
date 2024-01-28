@@ -9,8 +9,8 @@ import {IERC1155TL} from "tl-creator-contracts/erc-1155/IERC1155TL.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
 import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
-import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
-import {Drop, ITLStacks1155Events} from "src/utils/TLStacks1155Utils.sol";
+import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
+import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -107,7 +107,7 @@ contract TLStacks1155 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @dev Reverts if
     ///     - the payout receiver is the zero address
-    ///     - a drop is already configured
+    ///     - a drop is already configured and live
     ///     - the `intiialSupply` does not equal the `supply`
     ///     - the `decayRate` is non-zero and there is a presale configured
     /// @param nftAddress The nft contract address
@@ -130,12 +130,20 @@ contract TLStacks1155 is
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
         if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
-        // check if drop is already configured
+        // check if drop is already configured and live
         Drop memory mDrop = _drops[nftAddress][tokenId];
-        if (mDrop.dropType != DropType.NOT_CONFIGURED) revert DropAlreadyConfigured();
+        DropPhase mPhase = _getDropPhase(mDrop);
+        if (mDrop.dropType != DropType.NOT_CONFIGURED && mPhase != DropPhase.ENDED) {
+            revert DropAlreadyConfigured();
+        }
 
         // store drop
         _drops[nftAddress][tokenId] = drop;
+
+        // increment drop round if drop was previously set
+        if (mDrop.dropType != DropType.NOT_CONFIGURED){
+            _rounds[nftAddress][tokenId] += 1;
+        }
 
         emit DropConfigured(nftAddress, tokenId, drop);
     }
@@ -156,7 +164,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (!_checkPayoutReceiver(payoutReceiver)) revert InvalidPayoutReceiver();
 
         // set new payout receiver
@@ -179,7 +188,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
 
         // set new allowance
         drop.allowance = allowance;
@@ -205,7 +215,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
 
         // set currency address and prices
         drop.currencyAddress = currencyAddress;
@@ -235,7 +246,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (drop.dropType == DropType.VELOCITY && presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
         // update durations
@@ -262,7 +274,9 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
+        if (drop.dropType == DropType.VELOCITY) revert NotAllowedForVelocityDrops();
 
         // update merkle root
         drop.presaleMerkleRoot = presaleMerkleRoot;
@@ -284,7 +298,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (drop.dropType != DropType.VELOCITY) revert NotAllowedForVelocityDrops();
 
         // update decay rate

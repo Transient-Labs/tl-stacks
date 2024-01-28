@@ -18,7 +18,6 @@ contract RevertingReceiver {
 }
 
 contract RevertingBidder {
-
     address public ah;
 
     constructor(address ah_) {
@@ -36,6 +35,7 @@ contract RevertingBidder {
 
 contract GriefingBidder {
     address public ah;
+
     event Grief();
 
     constructor(address ah_) {
@@ -43,7 +43,7 @@ contract GriefingBidder {
     }
 
     receive() external payable {
-        for(uint256 i = 0; i < type(uint256).max; i++) {
+        for (uint256 i = 0; i < type(uint256).max; i++) {
             emit Grief();
         }
     }

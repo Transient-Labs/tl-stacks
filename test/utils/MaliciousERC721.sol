@@ -5,7 +5,6 @@ import {ERC721} from "openzeppelin/token/ERC721/ERC721.sol";
 import {Ownable} from "openzeppelin/access/Ownable.sol";
 
 contract MaliciousERC721 is ERC721, Ownable {
-
     bool public beMalicious;
     uint256 private _counter;
 
@@ -20,11 +19,7 @@ contract MaliciousERC721 is ERC721, Ownable {
         _mint(to, _counter);
     }
 
-    function transferFrom(
-        address from,
-        address to,
-        uint256 tokenId
-    ) public virtual override {
+    function transferFrom(address from, address to, uint256 tokenId) public virtual override {
         address tokenOwner = _ownerOf(tokenId);
         require(_isAuthorized(tokenOwner, _msgSender(), tokenId), "ERC721: caller is not token owner or approved");
 

@@ -50,17 +50,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         mintAddrs[0] = address(stacks);
 
         nft = new ERC1155TL(false);
-        nft.initialize(
-            "LFG Bro",
-            "LFG",
-            "",
-            nftOwner,
-            1_000,
-            nftOwner,
-            empty,
-            false,
-            address(0)
-        );
+        nft.initialize("LFG Bro", "LFG", "", nftOwner, 1_000, nftOwner, empty, false, address(0));
         vm.startPrank(nftOwner);
         nft.setApprovedMintContracts(mintAddrs, true);
         address[] memory addresses = new address[](1);
@@ -220,15 +210,15 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test that updating drops does not work if the drop is not configured
     function test_updateDropsNotConfigured() public {
         vm.startPrank(nftOwner);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPayoutReceiver(address(nft), 1, address(this));
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropAllowance(address(nft), 1, 10);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPrices(address(nft), 1, address(0), 0, 0.5 ether);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPresaleMerkleRoot(address(nft), 1, bytes32(0));
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDecayRate(address(nft), 1, -1);
         vm.stopPrank();
     }
@@ -330,6 +320,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.publicDuration == drop.publicDuration);
         assert(retreivedDrop.publicCost == drop.publicCost);
         assert(retreivedDrop.decayRate == drop.decayRate);
+        assert(stacks.getDropRound(address(nft), 1) == 0);
     }
 
     /// @dev test velocity drop configuration
@@ -377,6 +368,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.publicDuration == drop.publicDuration);
         assert(retreivedDrop.publicCost == drop.publicCost);
         assert(retreivedDrop.decayRate == drop.decayRate);
+        assert(stacks.getDropRound(address(nft), 1) == 0);
     }
 
     /// @dev test updating drop payout receiver functionality and errors
@@ -400,6 +392,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
             assert(retreivedDrop.payoutReceiver == payoutReceiver);
         }
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPayoutReceiver(address(nft), 1, payoutReceiver);
+
         vm.stopPrank();
     }
 
@@ -416,6 +414,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.allowance == allowance);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropAllowance(address(nft), 1, allowance);
+
         vm.stopPrank();
     }
 
@@ -436,6 +440,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.currencyAddress == currencyAddress);
         assert(retreivedDrop.presaleCost == presaleCost);
         assert(retreivedDrop.publicCost == publicCost);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPrices(address(nft), 1, currencyAddress, presaleCost, publicCost);
+
         vm.stopPrank();
     }
 
@@ -443,11 +453,15 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
+        if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
+        if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
+        if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
+
         Drop memory drop =
             Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         // drop not configured
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), 1, drop);
         drop.startTime = startTime;
@@ -461,6 +475,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.startTime == startTime);
         assert(retreivedDrop.presaleDuration == presaleDuration);
         assert(retreivedDrop.publicDuration == publicDuration);
+
+        // warp to end of drop
+        vm.warp(startTime + presaleDuration + publicDuration + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
+
         vm.stopPrank();
 
         // test not drop admin
@@ -472,12 +492,16 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     function test_updateDropDurationVelocity(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
+        if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
+        if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
+        if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
+
         Drop memory drop = Drop(
             DropType.VELOCITY, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, -1
         );
         vm.startPrank(nftOwner);
         // drop not configured
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), 1, drop);
         if (presaleDuration != 0) {
@@ -496,6 +520,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             assert(retreivedDrop.presaleDuration == presaleDuration);
             assert(retreivedDrop.publicDuration == publicDuration);
         }
+
+        // warp to end of drop
+        vm.warp(startTime + presaleDuration + publicDuration + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
+
         vm.stopPrank();
 
         // test not drop admin
@@ -517,6 +547,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.presaleMerkleRoot == presaleMerkleRoot);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 10000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPresaleMerkleRoot(address(nft), 1, presaleMerkleRoot);
+
         vm.stopPrank();
     }
 
@@ -528,6 +564,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
         stacks.updateDropDecayRate(address(nft), 1, decayRate);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDecayRate(address(nft), 1, decayRate);
+
         vm.stopPrank();
     }
 
@@ -545,6 +587,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.decayRate == decayRate);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDecayRate(address(nft), 1, decayRate);
+
         vm.stopPrank();
     }
 
@@ -574,6 +622,61 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.publicCost == 0);
         assert(retreivedDrop.decayRate == 0);
         assert(stacks.getDropRound(address(nft), 1) == prevRound + 1);
+    }
+
+    /// @dev test drop ended and re-configure
+    function test_configureDrop_afterPrevDropEnds() public {
+        // set drop
+        Drop memory drop =
+            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        vm.startPrank(nftOwner);
+        stacks.configureDrop(address(nft), 1, drop);
+        
+        // check drop
+        Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
+        assert(retreivedDrop.dropType == DropType.REGULAR);
+        assert(retreivedDrop.payoutReceiver == nftOwner);
+        assert(retreivedDrop.initialSupply == 10);
+        assert(retreivedDrop.supply == 10);
+        assert(retreivedDrop.allowance == 1);
+        assert(retreivedDrop.currencyAddress == address(0));
+        assert(retreivedDrop.startTime == block.timestamp);
+        assert(retreivedDrop.presaleDuration == 0);
+        assert(retreivedDrop.presaleCost == 0);
+        assert(retreivedDrop.presaleMerkleRoot == bytes32(0));
+        assert(retreivedDrop.publicDuration == 1000);
+        assert(retreivedDrop.publicCost == 1 ether);
+        assert(retreivedDrop.decayRate == 0);
+        assert(stacks.getDropRound(address(nft), 1) == 0);
+        
+        // warp to end and ensure closed
+        vm.warp(block.timestamp + 10000);
+        assert(stacks.getDropPhase(address(nft), 1) == DropPhase.ENDED);
+
+        // set drop again
+        drop.supply = 20;
+        drop.initialSupply = 20;
+        drop.startTime = block.timestamp;
+        stacks.configureDrop(address(nft), 1, drop);
+        
+        // check drop
+        retreivedDrop = stacks.getDrop(address(nft), 1);
+        assert(retreivedDrop.dropType == DropType.REGULAR);
+        assert(retreivedDrop.payoutReceiver == nftOwner);
+        assert(retreivedDrop.initialSupply == 20);
+        assert(retreivedDrop.supply == 20);
+        assert(retreivedDrop.allowance == 1);
+        assert(retreivedDrop.currencyAddress == address(0));
+        assert(retreivedDrop.startTime == block.timestamp);
+        assert(retreivedDrop.presaleDuration == 0);
+        assert(retreivedDrop.presaleCost == 0);
+        assert(retreivedDrop.presaleMerkleRoot == bytes32(0));
+        assert(retreivedDrop.publicDuration == 1000);
+        assert(retreivedDrop.publicCost == 1 ether);
+        assert(retreivedDrop.decayRate == 0);
+        assert(stacks.getDropRound(address(nft), 1) == 1);
+
+        vm.stopPrank();
     }
 
     /// @dev test drop phase calculation
@@ -708,7 +811,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.purchase(address(nft), 1, chris, 1, 3, proof);
 
         // not enough erc20 allowance given
-        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether)
+        );
         vm.prank(chris);
         stacks.purchase{value: fee}(address(nft), 1, chris, 1, 3, proof);
 
@@ -1452,7 +1557,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.configureDrop(address(nft), 1, drop);
 
         // configure drop
-        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
@@ -1468,7 +1575,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
         // can't buy recipient
-        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true));
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true)
+        );
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 

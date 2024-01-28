@@ -6,8 +6,8 @@ import {Pausable} from "openzeppelin/utils/Pausable.sol";
 import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
-import {AuctionHouseErrors} from "src/utils/CommonUtils.sol";
-import {Auction, Sale, ITLAuctionHouseEvents} from "src/utils/TLAuctionHouseUtils.sol";
+import {AuctionHouseErrors} from "./utils/CommonUtils.sol";
+import {Auction, Sale, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Auction House

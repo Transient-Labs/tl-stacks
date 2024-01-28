@@ -2,30 +2,29 @@
 # (-include to ignore error if it does not exist)
 -include .env
 
-# Clean the repo
-clean:
-	forge clean
-
-# Remove modules
+################################################################ Modules ################################################################
 remove:
 	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules
 
-# Install the Modules
 install:
 	forge install foundry-rs/forge-std --no-commit
-	forge install Transient-Labs/tl-creator-contracts@3.0.1 --no-commit
+	forge install Transient-Labs/tl-creator-contracts@3.0.2 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
 	git commit
-	
-# Update the modules
+
 update: remove install
+	
+################################################################ Build ################################################################
+clean:
+	forge fmt && forge clean
 
-# Builds
 build:
-	forge fmt && forge clean && forge build
+	forge build --evm-version paris
 
-# Tests
+clean_build: clean build
+
+################################################################ Tests ################################################################
 default_test:
 	forge test
 
@@ -35,42 +34,33 @@ gas_test:
 fuzz_test:
 	forge test --fuzz-runs 10000
 
-# Goerli Deployments
-deploy_stacks_721_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+################################################################ TLAuctionHouse Deployments ################################################################
+deploy_TLAuctionHouse_sepolia: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
 
-deploy_stacks_1155_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+deploy_TLAuctionHouse_arbitrum_sepolia: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast --skip-simulation
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --verifier-url https://api-sepolia.arbiscan.io/api --etherscan-api-key ${ARBISCAN_KEY} --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
 
-deploy_auction_house_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
+deploy_TLAuctionHouse_base_sepolia: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
 
-# Arbitrum Goerli Deployments
-deploy_stacks_721_arb_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
+deploy_TLAuctionHouse_mainnet: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
 
-deploy_stacks_1155_arb_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
+deploy_TLAuctionHouse_arbitrum_one: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
 
-deploy_auction_house_arb_goerli:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb_goerli --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
-
-# Ethereum Deployments
-deploy_stacks_721_eth:
-	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
-
-deploy_stacks_1155_eth:
-	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
-
-deploy_auction_house_eth:
-	forge script script/Deployments.s.sol:Deployments --rpc-url mainnet --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
-
-# Arbitrum Deployments
-deploy_stacks_721_arb:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks721()"
-
-deploy_stacks_1155_arb:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLStacks1155()"
-
-deploy_auction_house_arb:
-	forge script script/Deployments.s.sol:Deployments --rpc-url arb --ledger --sender ${SENDER} --broadcast --verify --sig "deployTLAuctionHouse()"
+deploy_TLAuctionHouse_base: build
+	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
