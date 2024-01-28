@@ -461,7 +461,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.warp(block.timestamp + 1000);
         vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPayoutReceiver(address(nft), payoutReceiver);
-        
+
         vm.stopPrank();
     }
 
@@ -546,7 +546,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     /// @dev test updating regular drop durations
     function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
-    {   
+    {
         if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
         if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
         if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
@@ -821,7 +821,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), drop);
-        
+
         // check drop
         Drop memory retreivedDrop = stacks.getDrop(address(nft));
         assert(retreivedDrop.dropType == DropType.REGULAR);
@@ -839,7 +839,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.decayRate == 0);
         assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes("https://arweave.net/abc")));
         assert(stacks.getDropRound(address(nft)) == 0);
-        
+
         // warp to end and ensure closed
         vm.warp(block.timestamp + 10000);
         assert(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
@@ -849,7 +849,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         drop.initialSupply = 20;
         drop.startTime = block.timestamp;
         stacks.configureDrop(address(nft), drop);
-        
+
         // check drop
         retreivedDrop = stacks.getDrop(address(nft));
         assert(retreivedDrop.dropType == DropType.REGULAR);

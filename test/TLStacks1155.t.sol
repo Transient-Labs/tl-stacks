@@ -631,7 +631,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
-        
+
         // check drop
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.dropType == DropType.REGULAR);
@@ -648,7 +648,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assert(retreivedDrop.publicCost == 1 ether);
         assert(retreivedDrop.decayRate == 0);
         assert(stacks.getDropRound(address(nft), 1) == 0);
-        
+
         // warp to end and ensure closed
         vm.warp(block.timestamp + 10000);
         assert(stacks.getDropPhase(address(nft), 1) == DropPhase.ENDED);
@@ -658,7 +658,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         drop.initialSupply = 20;
         drop.startTime = block.timestamp;
         stacks.configureDrop(address(nft), 1, drop);
-        
+
         // check drop
         retreivedDrop = stacks.getDrop(address(nft), 1);
         assert(retreivedDrop.dropType == DropType.REGULAR);

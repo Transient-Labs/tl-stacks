@@ -141,7 +141,7 @@ contract TLStacks1155 is
         _drops[nftAddress][tokenId] = drop;
 
         // increment drop round if drop was previously set
-        if (mDrop.dropType != DropType.NOT_CONFIGURED){
+        if (mDrop.dropType != DropType.NOT_CONFIGURED) {
             _rounds[nftAddress][tokenId] += 1;
         }
 

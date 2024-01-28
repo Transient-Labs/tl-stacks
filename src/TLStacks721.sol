@@ -139,7 +139,7 @@ contract TLStacks721 is
         _drops[nftAddress] = drop;
 
         // increment drop round if drop was previously set
-        if (mDrop.dropType != DropType.NOT_CONFIGURED){
+        if (mDrop.dropType != DropType.NOT_CONFIGURED) {
             _rounds[nftAddress] += 1;
         }
 
