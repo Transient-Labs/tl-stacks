@@ -387,80 +387,6 @@ contract TLStacks1155 is
         return refundAmount;
     }
 
-    /// @notice Function to update the state of the drop
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param round The drop round for number minted
-    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberToMint The number of tokens to mint
-    /// @param drop The Drop cached in memory
-    function _updateDropState(
-        address nftAddress,
-        uint256 tokenId,
-        uint256 round,
-        address recipient,
-        uint256 numberToMint,
-        Drop memory drop
-    ) internal {
-        // velocity mint
-        if (drop.dropType == DropType.VELOCITY) {
-            uint256 durationAdjust = drop.decayRate < 0
-                ? uint256(-1 * drop.decayRate) * numberToMint
-                : uint256(drop.decayRate) * numberToMint;
-            if (drop.decayRate < 0) {
-                if (durationAdjust > drop.publicDuration) {
-                    _drops[nftAddress][tokenId].publicDuration = 0;
-                } else {
-                    _drops[nftAddress][tokenId].publicDuration -= durationAdjust;
-                }
-            } else {
-                _drops[nftAddress][tokenId].publicDuration += durationAdjust;
-            }
-        }
-
-        // regular state (applicable to all types of drops)
-        _drops[nftAddress][tokenId].supply -= numberToMint;
-        _numberMinted[nftAddress][tokenId][round][recipient] += numberToMint;
-    }
-
-    /// @notice Internal function to distribute funds for a _purchase
-    /// @param numberToMint The number of tokens that can be minted
-    /// @param cost The cost per token
-    /// @param drop The drop
-    /// @return refundAmount The amount of eth refunded to msg.sender
-    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
-        uint256 totalProtocolFee = numberToMint * protocolFee;
-        uint256 totalSale = numberToMint * cost;
-        if (drop.currencyAddress == address(0)) {
-            uint256 totalCost = totalSale + totalProtocolFee;
-            if (msg.value < totalCost) revert InsufficientFunds();
-            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
-            refundAmount = msg.value - totalCost;
-        } else {
-            if (msg.value < totalProtocolFee) revert InsufficientFunds();
-            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
-            refundAmount = msg.value - totalProtocolFee;
-        }
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
-        if (refundAmount > 0) {
-            _safeTransferETH(msg.sender, refundAmount, weth);
-        }
-        return refundAmount;
-    }
-
-    /// @notice Internal function to mint the token
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberToMint The number of tokens to mint
-    function _mintToken(address nftAddress, uint256 tokenId, address recipient, uint256 numberToMint) internal {
-        address[] memory recipients = new address[](1);
-        recipients[0] = recipient;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = numberToMint;
-        IERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
-    }
-
     /*//////////////////////////////////////////////////////////////////////////
                             External View Functions
     //////////////////////////////////////////////////////////////////////////*/
@@ -593,5 +519,79 @@ contract TLStacks1155 is
         } else {
             numberCanMint = 0;
         }
+    }
+
+    /// @notice Function to update the state of the drop
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param round The drop round for number minted
+    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param numberToMint The number of tokens to mint
+    /// @param drop The Drop cached in memory
+    function _updateDropState(
+        address nftAddress,
+        uint256 tokenId,
+        uint256 round,
+        address recipient,
+        uint256 numberToMint,
+        Drop memory drop
+    ) internal {
+        // velocity mint
+        if (drop.dropType == DropType.VELOCITY) {
+            uint256 durationAdjust = drop.decayRate < 0
+                ? uint256(-1 * drop.decayRate) * numberToMint
+                : uint256(drop.decayRate) * numberToMint;
+            if (drop.decayRate < 0) {
+                if (durationAdjust > drop.publicDuration) {
+                    _drops[nftAddress][tokenId].publicDuration = 0;
+                } else {
+                    _drops[nftAddress][tokenId].publicDuration -= durationAdjust;
+                }
+            } else {
+                _drops[nftAddress][tokenId].publicDuration += durationAdjust;
+            }
+        }
+
+        // regular state (applicable to all types of drops)
+        _drops[nftAddress][tokenId].supply -= numberToMint;
+        _numberMinted[nftAddress][tokenId][round][recipient] += numberToMint;
+    }
+
+    /// @notice Internal function to distribute funds for a _purchase
+    /// @param numberToMint The number of tokens that can be minted
+    /// @param cost The cost per token
+    /// @param drop The drop
+    /// @return refundAmount The amount of eth refunded to msg.sender
+    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
+        uint256 totalProtocolFee = numberToMint * protocolFee;
+        uint256 totalSale = numberToMint * cost;
+        if (drop.currencyAddress == address(0)) {
+            uint256 totalCost = totalSale + totalProtocolFee;
+            if (msg.value < totalCost) revert InsufficientFunds();
+            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
+            refundAmount = msg.value - totalCost;
+        } else {
+            if (msg.value < totalProtocolFee) revert InsufficientFunds();
+            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
+            refundAmount = msg.value - totalProtocolFee;
+        }
+        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
+        if (refundAmount > 0) {
+            _safeTransferETH(msg.sender, refundAmount, weth);
+        }
+        return refundAmount;
+    }
+
+    /// @notice Internal function to mint the token
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param numberToMint The number of tokens to mint
+    function _mintToken(address nftAddress, uint256 tokenId, address recipient, uint256 numberToMint) internal {
+        address[] memory recipients = new address[](1);
+        recipients[0] = recipient;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = numberToMint;
+        IERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
     }
 }
