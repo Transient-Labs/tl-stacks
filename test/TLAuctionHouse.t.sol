@@ -2,6 +2,9 @@
 pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
+import {IERC20Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
 import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
@@ -97,19 +100,19 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
 
         // revert for sender (non-owner)
         vm.startPrank(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.pause(true);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.pause(false);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.transferOwnership(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setWethAddress(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setRoyaltyEngine(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setProtocolFeeSettings(sender, 500, 1 ether);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setMinBidIncreaseSettings(1000, 1 ether);
         vm.stopPrank();
 
@@ -149,13 +152,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.pause(true);
 
         vm.startPrank(ben);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, true);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.bid(address(nft), 1, 100);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.buyNow(address(nft), 1);
         vm.stopPrank();
     }
@@ -539,7 +542,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, 0);
 
         // insufficient erc20 approval
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1));
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 1);
         vm.prank(bsy);
@@ -548,7 +551,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // insufficient erc20 balance
         vm.prank(bsy);
         coin.transfer(ben, 10000 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, bsy, 0, 1));
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 1);
 
@@ -580,7 +583,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, nextBid - 1);
 
         // insufficient erc20 approval
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, nextBid + fee));
         vm.prank(david);
         auctionHouse.bid(address(nft), 1, nextBid);
         vm.prank(david);
@@ -589,9 +592,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         /// insufficint erc20 balance
         vm.prank(david);
         coin.transfer(ben, 10000 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, david, 0, nextBid + fee));
         vm.prank(david);
-        auctionHouse.bid(address(nft), 1, 1);
+        auctionHouse.bid(address(nft), 1, nextBid);
 
         // warp
         vm.warp(block.timestamp + 24 hours + 1);
@@ -1660,7 +1663,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         nft.transferFrom(chris, ben, 1);
 
         // not enough erc20 approval attached
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1 ether + fee));
         vm.prank(chris);
         auctionHouse.buyNow(address(nft), 1);
 
@@ -1672,7 +1675,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(chris);
         coin.transfer(bsy, 10000 ether);
 
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 1 ether + fee));
         vm.prank(chris);
         auctionHouse.buyNow(address(nft), 1);
     }

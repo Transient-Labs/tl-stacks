@@ -3,6 +3,9 @@ pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
 import {Merkle} from "murky/Merkle.sol";
+import {IERC20Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
 import {ERC1155TL} from "tl-creator-contracts/erc-1155/ERC1155TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
@@ -101,15 +104,15 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // revert for sender (non-owner)
         vm.startPrank(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.pause(true);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.pause(false);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.transferOwnership(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setWethAddress(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setProtocolFeeSettings(sender, 1 ether);
         vm.stopPrank();
 
@@ -142,17 +145,17 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
 
         vm.startPrank(nftOwner);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.configureDrop(address(nft), 1, drop);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPayoutReceiver(address(nft), 1, address(this));
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropAllowance(address(nft), 1, 10);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPrices(address(nft), 1, address(0), 0, 0.5 ether);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPresaleMerkleRoot(address(nft), 1, bytes32(0));
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropDecayRate(address(nft), 1, -1);
         vm.stopPrank();
     }
@@ -705,7 +708,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.purchase(address(nft), 1, chris, 1, 3, proof);
 
         // not enough erc20 allowance given
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether));
         vm.prank(chris);
         stacks.purchase{value: fee}(address(nft), 1, chris, 1, 3, proof);
 
@@ -714,7 +717,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         coin.transfer(ben, 100 ether);
         vm.prank(chris);
         coin.approve(address(stacks), 1 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether));
         vm.prank(chris);
         stacks.purchase{value: fee}(address(nft), 1, chris, 1, 3, proof);
     }
