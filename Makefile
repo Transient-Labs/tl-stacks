@@ -8,7 +8,7 @@ remove:
 
 install:
 	forge install foundry-rs/forge-std --no-commit
-	forge install Transient-Labs/tl-creator-contracts@3.0.2 --no-commit
+	forge install Transient-Labs/tl-creator-contracts@3.0.3 --no-commit
 	forge install dmfxyz/murky --no-commit
 	git add .
 	git commit
