@@ -45,7 +45,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     function setUp() public {
         wethAddress = address(new WETH9());
         auctionHouse =
-        new TLAuctionHouse(address(0), wethAddress, royaltyEngine, tl, minBidIncreasePerc, minBidIncreaseLimit, feePerc, feeLimit);
+        new TLAuctionHouse(address(this), address(0), wethAddress, royaltyEngine, tl, minBidIncreasePerc, minBidIncreaseLimit, feePerc, feeLimit);
 
         address[] memory empty = new address[](0);
 

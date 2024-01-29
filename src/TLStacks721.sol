@@ -56,11 +56,12 @@ contract TLStacks721 is
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(
+        address initOwner,
         address initSanctionsOracle,
         address initWethAddress,
         address initProtocolFeeReceiver,
         uint256 initProtocolFee
-    ) Ownable(msg.sender) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
+    ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }

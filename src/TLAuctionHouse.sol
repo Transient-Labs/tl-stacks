@@ -50,6 +50,7 @@ contract TLAuctionHouse is
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(
+        address initOwner,
         address initSanctionsOracle,
         address initWethAddress,
         address initRoyaltyEngineAddress,
@@ -59,7 +60,7 @@ contract TLAuctionHouse is
         uint256 initProtocolFeePerc,
         uint256 initProtocolFeeLimit
     )
-        Ownable(msg.sender)
+        Ownable(initOwner)
         Pausable()
         ReentrancyGuard()
         RoyaltyPayoutHelper(initSanctionsOracle, initWethAddress, initRoyaltyEngineAddress)

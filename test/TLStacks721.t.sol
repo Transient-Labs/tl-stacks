@@ -47,7 +47,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
     function setUp() public {
         wethAddress = address(new WETH9());
-        stacks = new TLStacks721(address(0), wethAddress, tl, fee);
+        stacks = new TLStacks721(address(this), address(0), wethAddress, tl, fee);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
