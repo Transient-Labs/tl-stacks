@@ -31,36 +31,101 @@ default_test:
 gas_test:
 	forge test --gas-report
 
+coverage_test:
+	forge coverage
+
 fuzz_test:
 	forge test --fuzz-runs 10000
 
 ################################################################ TLAuctionHouse Deployments ################################################################
 deploy_TLAuctionHouse_sepolia: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_arbitrum_sepolia: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast --skip-simulation
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --verifier-url https://api-sepolia.arbiscan.io/api --etherscan-api-key ${ARBISCAN_KEY} --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast --skip-simulation
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier-url https://api-sepolia.arbiscan.io/api --etherscan-api-key ${ARBISCAN_KEY} --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_base_sepolia: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_mainnet: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_arbitrum_one: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_base: build
-	forge script script/Deploy.s.sol:DeployERC721TL --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/erc-721/ERC721TL.sol:ERC721TL --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+################################################################ TLStacks721 Deployments ################################################################
+deploy_TLStacks721_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_arbitrum_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast --skip-simulation
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --verifier-url https://api-sepolia.arbiscan.io/api --etherscan-api-key ${ARBISCAN_KEY} --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_base_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_mainnet: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_arbitrum_one: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_base: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+################################################################ TLStacks1155 Deployments ################################################################
+deploy_TLStacks1155_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_arbitrum_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast --skip-simulation
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier-url https://api-sepolia.arbiscan.io/api --etherscan-api-key ${ARBISCAN_KEY} --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_base_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_mainnet: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_arbitrum_one: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_base: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh

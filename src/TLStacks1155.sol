@@ -19,7 +19,7 @@ import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 /// @title TLStacks1155
 /// @notice Transient Labs Stacks mint contract for ERC1155TL contracts
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.3.0
+/// @custom:version-last-updated 2.3.1
 contract TLStacks1155 is
     Ownable,
     Pausable,
@@ -33,7 +33,7 @@ contract TLStacks1155 is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.3.0";
+    string public constant VERSION = "2.3.1";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
 
@@ -364,7 +364,8 @@ contract TLStacks1155 is
         // pre-conditions - revert for safety and expected behavior from users - UX for batch purchases needs to be smart in order to avoid reverting conditions
         if (numberToMint == 0) revert MintZeroTokens();
         if (dropPhase == DropPhase.PRESALE) {
-            bytes32 leaf = keccak256(abi.encode(keccak256(abi.encode(recipient)), presaleNumberCanMint));
+            bytes32 hashedRecipient = keccak256(abi.encode(recipient));
+            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/OpenZeppelin/openzeppelin-contracts/issues/3091
             if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
             numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
         } else if (dropPhase == DropPhase.PUBLIC_SALE) {

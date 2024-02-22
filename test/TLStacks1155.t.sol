@@ -744,10 +744,10 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // setup drop
@@ -786,10 +786,10 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // setup drop
@@ -1073,10 +1073,10 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // limit fuzz variables
@@ -1312,10 +1312,10 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // limit fuzz variables
