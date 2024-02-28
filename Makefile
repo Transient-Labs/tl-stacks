@@ -24,6 +24,9 @@ build:
 
 clean_build: clean build
 
+docs: clean_build
+	forge doc --build
+
 ################################################################ Tests ################################################################
 default_test:
 	forge test
