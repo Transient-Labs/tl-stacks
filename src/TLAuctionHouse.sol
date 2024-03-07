@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/security/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
-import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {Auction, Sale, ITLAuctionHouseEvents} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
+import {AuctionHouseErrors} from "./utils/CommonUtils.sol";
+import {Auction, Sale, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Auction House
@@ -16,7 +16,7 @@ import {Auction, Sale, ITLAuctionHouseEvents} from "tl-stacks/utils/TLAuctionHou
 /// @title TLAuctionHouse
 /// @notice Transient Labs Auction House with Reserve Auctions and Buy Now Sales for ERC-721 tokens
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.1.0
+/// @custom:version-last-updated 2.3.0
 contract TLAuctionHouse is
     Ownable,
     Pausable,
@@ -29,7 +29,7 @@ contract TLAuctionHouse is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.1.0";
+    string public constant VERSION = "2.3.0";
     uint256 public constant EXTENSION_TIME = 15 minutes;
     uint256 public constant BASIS = 10_000;
 
@@ -50,6 +50,7 @@ contract TLAuctionHouse is
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(
+        address initOwner,
         address initSanctionsOracle,
         address initWethAddress,
         address initRoyaltyEngineAddress,
@@ -59,7 +60,7 @@ contract TLAuctionHouse is
         uint256 initProtocolFeePerc,
         uint256 initProtocolFeeLimit
     )
-        Ownable()
+        Ownable(initOwner)
         Pausable()
         ReentrancyGuard()
         RoyaltyPayoutHelper(initSanctionsOracle, initWethAddress, initRoyaltyEngineAddress)

@@ -32,12 +32,26 @@ The auction house contract is `TLAuctionHouse.sol`
 ## Safety
 - If you have a listing on the Auction House and sell the token on another marketplace, beware that your listing on the Auction House is stale and if the NFT returns to your wallet at some point, the listing becomes valid. In the real world, this doesn't seem to occur very often, yet, you'll want to cancel your listing in this scenario.
 
+## Deployments
+Contracts are deployed to the same address cross-chain using CREATE2. In doing such, constructor args have to be set to default values and then changed after deployment. Contracts are initially deployed with an EOA as the owner until initializations are made, then subsequently contract ownership is transferred to multi-sigs.
+
+### WETH Addresses
+Ethereum: `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
+Sepolia: `0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9`
+Arbitrum: `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1`
+Arbitrum-Sepolia: `0x980B62Da83eFf3D4576C647993b0c1D7faf17c73`
+Base: `0x4200000000000000000000000000000000000006`
+Base-Sepolia: `0x4200000000000000000000000000000000000006`
+
+### Sanctions Oracle
+https://go.chainalysis.com/chainalysis-oracle-docs.html
+
 ## Disclaimer
-While best efforts have gone into developing, testing, and peer reviewing these contracts, unexpected behavior may be present in the contracts under certain conditions. Transient Labs is setting up a bug bounty program on ImmuneFi to preemptively squash any bugs found in our contracts.
+While best efforts have gone into developing, testing, and peer reviewing these contracts, unexpected behavior may be present in the contracts under certain conditions. Transient Labs has a bug bounty program to preemptively squash any bugs found in our contracts.
 
 This codebase is provided on an "as is" and "as available" basis.
 
 We do not give any warranties and will not be liable for any loss incurred through any use of this codebase.
 
 ## License
-This code is copyright Transient Labs, Inc 2023 and is licensed under the MIT license.
+This code is copyright Transient Labs, Inc 2024 and is licensed under the MIT license.

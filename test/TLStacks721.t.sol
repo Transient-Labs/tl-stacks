@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
 import {Merkle} from "murky/Merkle.sol";
 import {Strings} from "openzeppelin/utils/Strings.sol";
-import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
-import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
-import {NotSpecifiedRole} from "tl-sol-tools/upgradeable/access/OwnableAccessControlUpgradeable.sol";
+import {IERC20Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
+import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {TLStacks721} from "tl-stacks/TLStacks721.sol";
-import {ITLStacks721Events, Drop} from "tl-stacks/utils/TLStacks721Utils.sol";
-import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {Receiver} from "./utils/Receiver.sol";
-import {MockERC20} from "./utils/MockERC20.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {TLStacks721} from "src/TLStacks721.sol";
+import {ITLStacks721Events, Drop} from "src/utils/TLStacks721Utils.sol";
+import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
+import {Receiver} from "test/utils/Receiver.sol";
+import {MockERC20} from "test/utils/MockERC20.sol";
 
 contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     using Strings for uint256;
@@ -46,25 +47,14 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
     function setUp() public {
         wethAddress = address(new WETH9());
-        stacks = new TLStacks721(address(0), wethAddress, tl, fee);
+        stacks = new TLStacks721(address(this), address(0), wethAddress, tl, fee);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
         mintAddrs[0] = address(stacks);
 
-        ERC721TL implementation = new ERC721TL(true);
-        TLCreator proxy = new TLCreator(
-            address(implementation),
-            "Test ERC721",
-            "LFG",
-            nftOwner,
-            1_000,
-            nftOwner,
-            empty,
-            false,
-            address(0)
-        );
-        nft = ERC721TL(address(proxy));
+        nft = new ERC721TL(false);
+        nft.initialize("LFG Bro", "LFG", "", nftOwner, 1_000, nftOwner, empty, false, address(0), address(0));
         vm.prank(nftOwner);
         nft.setApprovedMintContracts(mintAddrs, true);
 
@@ -83,18 +73,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.deal(bsy, 100 ether);
         vm.deal(minter, 100 ether);
 
-        TLCreator proxyTwo = new TLCreator(
-            address(implementation),
-            "Test ERC721 2",
-            "LFG2",
-            nftOwner,
-            1_000,
-            nftOwner,
-            empty,
-            false,
-            address(0)
-        );
-        nftTwo = ERC721TL(address(proxyTwo));
+        nftTwo = new ERC721TL(false);
+        nftTwo.initialize("Test ERC721 2", "LFG2", "", nftOwner, 1_000, nftOwner, empty, false, address(0), address(0));
         vm.prank(nftOwner);
         nftTwo.setApprovedMintContracts(mintAddrs, true);
     }
@@ -116,15 +96,15 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         // revert for sender (non-owner)
         vm.startPrank(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.pause(true);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.pause(false);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.transferOwnership(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setWethAddress(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setProtocolFeeSettings(sender, 1 ether);
         vm.stopPrank();
 
@@ -171,17 +151,17 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         );
 
         vm.startPrank(nftOwner);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.configureDrop(address(nft), drop);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPayoutReceiver(address(nft), address(this));
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropAllowance(address(nft), 10);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPrices(address(nft), address(0), 0, 0.5 ether);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropDecayRate(address(nft), -1);
         vm.stopPrank();
     }
@@ -260,15 +240,15 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     /// @dev test that updating drops does not work if the drop is not configured
     function test_updateDropsNotConfigured() public {
         vm.startPrank(nftOwner);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPayoutReceiver(address(nft), address(this));
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropAllowance(address(nft), 10);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPrices(address(nft), address(0), 0, 0.5 ether);
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDecayRate(address(nft), -1);
         vm.stopPrank();
     }
@@ -386,6 +366,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.publicCost == drop.publicCost);
         assert(retreivedDrop.decayRate == drop.decayRate);
         assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes(drop.baseUri)));
+        assert(stacks.getDropRound(address(nft)) == 0);
     }
 
     /// @dev test velocity drop configuration
@@ -436,6 +417,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.publicCost == drop.publicCost);
         assert(retreivedDrop.decayRate == drop.decayRate);
         assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes(drop.baseUri)));
+        assert(stacks.getDropRound(address(nft)) == 0);
     }
 
     /// @dev test updating drop payout receiver functionality and errors
@@ -457,10 +439,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             "https://arweave.net/abc"
         );
         vm.startPrank(nftOwner);
+        // configure drop
         stacks.configureDrop(address(nft), drop);
         // invalid payout receiver
         vm.expectRevert(InvalidPayoutReceiver.selector);
         stacks.updateDropPayoutReceiver(address(nft), address(0));
+        // update
         if (payoutReceiver == address(0)) {
             vm.expectRevert(InvalidPayoutReceiver.selector);
             stacks.updateDropPayoutReceiver(address(nft), payoutReceiver);
@@ -473,6 +457,11 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             Drop memory retreivedDrop = stacks.getDrop(address(nft));
             assert(retreivedDrop.payoutReceiver == payoutReceiver);
         }
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPayoutReceiver(address(nft), payoutReceiver);
+
         vm.stopPrank();
     }
 
@@ -495,7 +484,9 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             "https://arweave.net/abc"
         );
         vm.startPrank(nftOwner);
+        // configure drop
         stacks.configureDrop(address(nft), drop);
+        // update
         drop.allowance = allowance;
         vm.expectEmit(true, true, false, true);
         emit DropUpdated(address(nft), drop);
@@ -503,6 +494,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft));
         assert(retreivedDrop.allowance == allowance);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropAllowance(address(nft), allowance);
+
         vm.stopPrank();
     }
 
@@ -537,6 +534,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.currencyAddress == currencyAddress);
         assert(retreivedDrop.presaleCost == presaleCost);
         assert(retreivedDrop.publicCost == publicCost);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPrices(address(nft), currencyAddress, presaleCost, publicCost);
+
         vm.stopPrank();
     }
 
@@ -544,6 +547,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
+        if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
+        if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
+        if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
+
         Drop memory drop = Drop(
             DropType.REGULAR,
             nftOwner,
@@ -562,7 +569,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         );
         vm.startPrank(nftOwner);
         // drop not configured
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), drop);
         drop.startTime = startTime;
@@ -576,6 +583,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.startTime == startTime);
         assert(retreivedDrop.presaleDuration == presaleDuration);
         assert(retreivedDrop.publicDuration == publicDuration);
+
+        // warp to end of drop
+        vm.warp(startTime + presaleDuration + publicDuration + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
+
         vm.stopPrank();
 
         // test not drop admin
@@ -587,6 +600,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     function test_updateDropDurationVelocity(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         public
     {
+        if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
+        if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
+        if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
+
         Drop memory drop = Drop(
             DropType.VELOCITY,
             nftOwner,
@@ -606,7 +623,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         vm.startPrank(nftOwner);
         // drop not configured
-        vm.expectRevert(DropNotConfigured.selector);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
         stacks.configureDrop(address(nft), drop);
         if (presaleDuration != 0) {
@@ -624,13 +641,17 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             assert(retreivedDrop.startTime == startTime);
             assert(retreivedDrop.presaleDuration == presaleDuration);
             assert(retreivedDrop.publicDuration == publicDuration);
+
+            // warp to end of drop
+            vm.warp(startTime + publicDuration + 1000);
+            vm.expectRevert(DropUpdateNotAllowed.selector);
+            stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
         }
         vm.stopPrank();
 
         // test not drop admin
         vm.expectRevert(NotDropAdmin.selector);
         stacks.updateDropDuration(address(nft), startTime, presaleDuration, publicDuration);
-
     }
 
     /// @dev test updating drop merkle root
@@ -660,6 +681,39 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft));
         assert(retreivedDrop.presaleMerkleRoot == presaleMerkleRoot);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 10000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropPresaleMerkleRoot(address(nft), presaleMerkleRoot);
+
+        vm.stopPrank();
+    }
+
+    /// @dev test update drop merkle root for velocity mint
+    function test_updateDropPresaleMerkleRoot_velocity(bytes32 presaleMerkleRoot) public {
+        Drop memory drop = Drop(
+            DropType.VELOCITY,
+            nftOwner,
+            10,
+            10,
+            1,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            1 ether,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.startPrank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        drop.presaleMerkleRoot = presaleMerkleRoot;
+        vm.expectRevert(NotAllowedForVelocityDrops.selector);
+        stacks.updateDropPresaleMerkleRoot(address(nft), presaleMerkleRoot);
+
         vm.stopPrank();
     }
 
@@ -685,6 +739,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.configureDrop(address(nft), drop);
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
         stacks.updateDropDecayRate(address(nft), decayRate);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDecayRate(address(nft), decayRate);
+
         vm.stopPrank();
     }
 
@@ -715,6 +775,12 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft));
         assert(retreivedDrop.decayRate == decayRate);
+
+        // warp to end of drop
+        vm.warp(block.timestamp + 1000);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropDecayRate(address(nft), decayRate);
+
         vm.stopPrank();
     }
 
@@ -759,6 +825,77 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assert(retreivedDrop.decayRate == 0);
         assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes("")));
         assert(stacks.getDropRound(address(nft)) == prevRound + 1);
+    }
+
+    /// @dev test drop ended and re-configure
+    function test_configureDrop_afterPrevDropEnds() public {
+        // set drop
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            1,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            1 ether,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.startPrank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        // check drop
+        Drop memory retreivedDrop = stacks.getDrop(address(nft));
+        assert(retreivedDrop.dropType == DropType.REGULAR);
+        assert(retreivedDrop.payoutReceiver == nftOwner);
+        assert(retreivedDrop.initialSupply == 10);
+        assert(retreivedDrop.supply == 10);
+        assert(retreivedDrop.allowance == 1);
+        assert(retreivedDrop.currencyAddress == address(0));
+        assert(retreivedDrop.startTime == block.timestamp);
+        assert(retreivedDrop.presaleDuration == 0);
+        assert(retreivedDrop.presaleCost == 0);
+        assert(retreivedDrop.presaleMerkleRoot == bytes32(0));
+        assert(retreivedDrop.publicDuration == 1000);
+        assert(retreivedDrop.publicCost == 1 ether);
+        assert(retreivedDrop.decayRate == 0);
+        assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes("https://arweave.net/abc")));
+        assert(stacks.getDropRound(address(nft)) == 0);
+
+        // warp to end and ensure closed
+        vm.warp(block.timestamp + 10000);
+        assert(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
+
+        // set drop again
+        drop.supply = 20;
+        drop.initialSupply = 20;
+        drop.startTime = block.timestamp;
+        stacks.configureDrop(address(nft), drop);
+
+        // check drop
+        retreivedDrop = stacks.getDrop(address(nft));
+        assert(retreivedDrop.dropType == DropType.REGULAR);
+        assert(retreivedDrop.payoutReceiver == nftOwner);
+        assert(retreivedDrop.initialSupply == 20);
+        assert(retreivedDrop.supply == 20);
+        assert(retreivedDrop.allowance == 1);
+        assert(retreivedDrop.currencyAddress == address(0));
+        assert(retreivedDrop.startTime == block.timestamp);
+        assert(retreivedDrop.presaleDuration == 0);
+        assert(retreivedDrop.presaleCost == 0);
+        assert(retreivedDrop.presaleMerkleRoot == bytes32(0));
+        assert(retreivedDrop.publicDuration == 1000);
+        assert(retreivedDrop.publicCost == 1 ether);
+        assert(retreivedDrop.decayRate == 0);
+        assert(keccak256(bytes(retreivedDrop.baseUri)) == keccak256(bytes("https://arweave.net/abc")));
+        assert(stacks.getDropRound(address(nft)) == 1);
+
+        vm.stopPrank();
     }
 
     /// @dev test drop phase calculation
@@ -813,10 +950,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1)));
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3)));
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4)));
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5)));
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1)))));
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3)))));
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4)))));
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5)))));
         bytes32 root = m.getRoot(data);
 
         // setup drop
@@ -869,10 +1006,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1)));
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3)));
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4)));
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5)));
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1)))));
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3)))));
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(4)))));
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(5)))));
         bytes32 root = m.getRoot(data);
 
         // setup drop
@@ -922,7 +1059,9 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.purchase(address(nft), chris, 1, 3, proof);
 
         // not enough erc20 allowance given
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether)
+        );
         vm.prank(chris);
         stacks.purchase{value: fee}(address(nft), chris, 1, 3, proof);
 
@@ -931,7 +1070,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         coin.transfer(ben, 100 ether);
         vm.prank(chris);
         coin.approve(address(stacks), 1 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether));
         vm.prank(chris);
         stacks.purchase{value: fee}(address(nft), chris, 1, 3, proof);
     }
@@ -1235,10 +1374,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // limit fuzz variables
@@ -1483,10 +1622,10 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
-        data[0] = keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))); // mint only on presale
-        data[1] = keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))); // mint all three on presale (more than public allowance)
-        data[2] = keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))); // mint 1 on presale and 1 on public
-        data[3] = keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))); // mint 0 on presale and 2 on public
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(1))))); // mint only on presale
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(3))))); // mint all three on presale (more than public allowance)
+        data[2] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(david)), uint256(2))))); // mint 1 on presale and 1 on public
+        data[3] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(bsy)), uint256(2))))); // mint 0 on presale and 2 on public
         bytes32 root = m.getRoot(data);
 
         // limit fuzz variables
@@ -1786,7 +1925,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         drop = stacks.getDrop(address(nft));
         assert(drop.supply == 0);
         assert(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
-        
+
         vm.expectRevert(YouShallNotMint.selector);
         stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
     }
@@ -1795,7 +1934,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         address oracle = makeAddr(unicode"sanctions are the best 🫠");
         stacks.setSanctionsOracle(oracle);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         Drop memory drop = Drop(
             DropType.REGULAR,
@@ -1816,29 +1955,33 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         // test configuration function
         vm.prank(nftOwner);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.configureDrop(address(nft), drop);
 
         // configure drop
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), drop);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         // can't update payout receiver
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.updateDropPayoutReceiver(address(nft), ben);
 
         // can't buy msg.sender
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
 
         // can't buy recipient
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true));
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true)
+        );
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: fee}(address(nft), ben, 1, 0, emptyProof);
 
         vm.clearMockedCalls();

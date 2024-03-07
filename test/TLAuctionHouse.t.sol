@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Test} from "forge-std/Test.sol";
-import {TLCreator} from "tl-creator-contracts/TLCreator.sol";
-import {ERC721TL} from "tl-creator-contracts/core/ERC721TL.sol";
+import {IERC20Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
+import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {TLAuctionHouse} from "tl-stacks/TLAuctionHouse.sol";
-import {ITLAuctionHouseEvents, Auction, Sale} from "tl-stacks/utils/TLAuctionHouseUtils.sol";
-import {AuctionHouseErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {ChainalysisSanctionsOracle, SanctionedAddress} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {Receiver, RevertingBidder, GriefingBidder} from "./utils/Receiver.sol";
-import {MockERC20} from "./utils/MockERC20.sol";
-import {MaliciousERC721} from "./utils/MaliciousERC721.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
+import {ITLAuctionHouseEvents, Auction, Sale} from "src/utils/TLAuctionHouseUtils.sol";
+import {AuctionHouseErrors} from "src/utils/CommonUtils.sol";
+import {Receiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
+import {MockERC20} from "test/utils/MockERC20.sol";
+import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     address wethAddress;
@@ -43,23 +45,12 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
     function setUp() public {
         wethAddress = address(new WETH9());
         auctionHouse =
-        new TLAuctionHouse(address(0), wethAddress, royaltyEngine, tl, minBidIncreasePerc, minBidIncreaseLimit, feePerc, feeLimit);
+        new TLAuctionHouse(address(this), address(0), wethAddress, royaltyEngine, tl, minBidIncreasePerc, minBidIncreaseLimit, feePerc, feeLimit);
 
         address[] memory empty = new address[](0);
 
-        ERC721TL implementation = new ERC721TL(true);
-        TLCreator proxy = new TLCreator(
-            address(implementation),
-            "LFG Bro",
-            "LFG",
-            address(this),
-            1_000,
-            address(this),
-            empty,
-            false,
-            address(0)
-        );
-        nft = ERC721TL(address(proxy));
+        nft = new ERC721TL(false);
+        nft.initialize("LFG Bro", "LFG", "", address(this), 1_000, address(this), empty, false, address(0), address(0));
         nft.mint(ben, "https://arweave.net/NO-BEEF");
         nft.mint(ben, "https://arweave.net/NO-BEEF-2");
         nft.mint(chris, "https://arweave.net/MORE-COFFEE");
@@ -98,19 +89,19 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
 
         // revert for sender (non-owner)
         vm.startPrank(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.pause(true);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.pause(false);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.transferOwnership(sender);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setWethAddress(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setRoyaltyEngine(address(0));
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setProtocolFeeSettings(sender, 500, 1 ether);
-        vm.expectRevert("Ownable: caller is not the owner");
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         auctionHouse.setMinBidIncreaseSettings(1000, 1 ether);
         vm.stopPrank();
 
@@ -150,13 +141,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.pause(true);
 
         vm.startPrank(ben);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, true);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.bid(address(nft), 1, 100);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
-        vm.expectRevert("Pausable: paused");
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         auctionHouse.buyNow(address(nft), 1);
         vm.stopPrank();
     }
@@ -382,9 +373,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         mnft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(
-            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, true
-        );
+        auctionHouse.configureAuction(address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, true);
 
         // revert on first bid
         vm.prank(chris);
@@ -417,9 +406,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(ben);
         mnft.setApprovalForAll(address(auctionHouse), true);
         vm.prank(ben);
-        auctionHouse.configureAuction(
-            address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, false
-        );
+        auctionHouse.configureAuction(address(mnft), 1, ben, address(0), 1, block.timestamp, 24 hours, false);
 
         // revert on first bid
         vm.prank(chris);
@@ -540,7 +527,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, 0);
 
         // insufficient erc20 approval
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1)
+        );
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 1);
         vm.prank(bsy);
@@ -549,7 +538,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         // insufficient erc20 balance
         vm.prank(bsy);
         coin.transfer(ben, 10000 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, bsy, 0, 1));
         vm.prank(bsy);
         auctionHouse.bid(address(nft), 1, 1);
 
@@ -581,7 +570,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         auctionHouse.bid(address(nft), 1, nextBid - 1);
 
         // insufficient erc20 approval
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, nextBid + fee
+            )
+        );
         vm.prank(david);
         auctionHouse.bid(address(nft), 1, nextBid);
         vm.prank(david);
@@ -590,9 +583,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         /// insufficint erc20 balance
         vm.prank(david);
         coin.transfer(ben, 10000 ether);
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, david, 0, nextBid + fee));
         vm.prank(david);
-        auctionHouse.bid(address(nft), 1, 1);
+        auctionHouse.bid(address(nft), 1, nextBid);
 
         // warp
         vm.warp(block.timestamp + 24 hours + 1);
@@ -1661,7 +1654,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         nft.transferFrom(chris, ben, 1);
 
         // not enough erc20 approval attached
-        vm.expectRevert("ERC20: insufficient allowance");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IERC20Errors.ERC20InsufficientAllowance.selector, address(auctionHouse), 0, 1 ether + fee
+            )
+        );
         vm.prank(chris);
         auctionHouse.buyNow(address(nft), 1);
 
@@ -1673,7 +1670,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         vm.prank(chris);
         coin.transfer(bsy, 10000 ether);
 
-        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 1 ether + fee));
         vm.prank(chris);
         auctionHouse.buyNow(address(nft), 1);
     }
@@ -1852,36 +1849,38 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         address oracle = makeAddr(unicode"sanctions are the best 🫠");
         auctionHouse.setSanctionsOracle(oracle);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         vm.prank(ben);
         nft.setApprovalForAll(address(auctionHouse), true);
 
         // test configuration functions
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, false);
 
         vm.prank(ben);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
         // configure auction and sale and test bid/buy now
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false));
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
         vm.prank(ben);
         auctionHouse.configureAuction(address(nft), 1, ben, address(0), 0, block.timestamp, 24 hours, false);
 
         vm.prank(ben);
         auctionHouse.configureSale(address(nft), 1, ben, address(0), 0, block.timestamp);
 
-        vm.mockCall(oracle, abi.encodeWithSelector(ChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
 
         vm.prank(chris);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.bid{value: 1 ether}(address(nft), 1, 1 ether);
 
         vm.prank(chris);
-        vm.expectRevert(SanctionedAddress.selector);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         auctionHouse.buyNow(address(nft), 1);
 
         vm.clearMockedCalls();

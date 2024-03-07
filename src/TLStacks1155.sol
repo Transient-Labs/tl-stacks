@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.19;
+pragma solidity 0.8.22;
 
 import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/security/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
+import {Pausable} from "openzeppelin/utils/Pausable.sol";
+import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
+import {IERC1155TL} from "tl-creator-contracts/erc-1155/IERC1155TL.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
 import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
 import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
-import {ERC1155TL} from "tl-creator-contracts/core/ERC1155TL.sol";
-import {DropPhase, DropType, DropErrors} from "tl-stacks/utils/CommonUtils.sol";
-import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
+import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
+import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
                             TL Stacks 1155
@@ -19,7 +19,7 @@ import {Drop, ITLStacks1155Events} from "tl-stacks/utils/TLStacks1155Utils.sol";
 /// @title TLStacks1155
 /// @notice Transient Labs Stacks mint contract for ERC1155TL contracts
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.2.0
+/// @custom:version-last-updated 2.3.1
 contract TLStacks1155 is
     Ownable,
     Pausable,
@@ -33,7 +33,7 @@ contract TLStacks1155 is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.2.0";
+    string public constant VERSION = "2.3.1";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
 
@@ -53,11 +53,12 @@ contract TLStacks1155 is
     //////////////////////////////////////////////////////////////////////////*/
 
     constructor(
+        address initOwner,
         address initSanctionsOracle,
         address initWethAddress,
         address initProtocolFeeReceiver,
         uint256 initProtocolFee
-    ) Ownable() Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
+    ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
@@ -107,7 +108,7 @@ contract TLStacks1155 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @dev Reverts if
     ///     - the payout receiver is the zero address
-    ///     - a drop is already configured
+    ///     - a drop is already configured and live
     ///     - the `intiialSupply` does not equal the `supply`
     ///     - the `decayRate` is non-zero and there is a presale configured
     /// @param nftAddress The nft contract address
@@ -130,12 +131,20 @@ contract TLStacks1155 is
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
         if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
-        // check if drop is already configured
+        // check if drop is already configured and live
         Drop memory mDrop = _drops[nftAddress][tokenId];
-        if (mDrop.dropType != DropType.NOT_CONFIGURED) revert DropAlreadyConfigured();
+        DropPhase mPhase = _getDropPhase(mDrop);
+        if (mDrop.dropType != DropType.NOT_CONFIGURED && mPhase != DropPhase.ENDED) {
+            revert DropAlreadyConfigured();
+        }
 
         // store drop
         _drops[nftAddress][tokenId] = drop;
+
+        // increment drop round if drop was previously set
+        if (mDrop.dropType != DropType.NOT_CONFIGURED) {
+            _rounds[nftAddress][tokenId] += 1;
+        }
 
         emit DropConfigured(nftAddress, tokenId, drop);
     }
@@ -156,7 +165,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (!_checkPayoutReceiver(payoutReceiver)) revert InvalidPayoutReceiver();
 
         // set new payout receiver
@@ -179,7 +189,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
 
         // set new allowance
         drop.allowance = allowance;
@@ -205,7 +216,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
 
         // set currency address and prices
         drop.currencyAddress = currencyAddress;
@@ -235,7 +247,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (drop.dropType == DropType.VELOCITY && presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
         // update durations
@@ -262,7 +275,9 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
+        if (drop.dropType == DropType.VELOCITY) revert NotAllowedForVelocityDrops();
 
         // update merkle root
         drop.presaleMerkleRoot = presaleMerkleRoot;
@@ -284,7 +299,8 @@ contract TLStacks1155 is
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
-        if (_getDropPhase(drop) == DropPhase.NOT_CONFIGURED) revert DropNotConfigured();
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (drop.dropType != DropType.VELOCITY) revert NotAllowedForVelocityDrops();
 
         // update decay rate
@@ -348,7 +364,8 @@ contract TLStacks1155 is
         // pre-conditions - revert for safety and expected behavior from users - UX for batch purchases needs to be smart in order to avoid reverting conditions
         if (numberToMint == 0) revert MintZeroTokens();
         if (dropPhase == DropPhase.PRESALE) {
-            bytes32 leaf = keccak256(abi.encode(keccak256(abi.encode(recipient)), presaleNumberCanMint));
+            bytes32 hashedRecipient = keccak256(abi.encode(recipient));
+            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/OpenZeppelin/openzeppelin-contracts/issues/3091
             if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
             numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
         } else if (dropPhase == DropPhase.PUBLIC_SALE) {
@@ -385,80 +402,6 @@ contract TLStacks1155 is
         );
 
         return refundAmount;
-    }
-
-    /// @notice Function to update the state of the drop
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param round The drop round for number minted
-    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberToMint The number of tokens to mint
-    /// @param drop The Drop cached in memory
-    function _updateDropState(
-        address nftAddress,
-        uint256 tokenId,
-        uint256 round,
-        address recipient,
-        uint256 numberToMint,
-        Drop memory drop
-    ) internal {
-        // velocity mint
-        if (drop.dropType == DropType.VELOCITY) {
-            uint256 durationAdjust = drop.decayRate < 0
-                ? uint256(-1 * drop.decayRate) * numberToMint
-                : uint256(drop.decayRate) * numberToMint;
-            if (drop.decayRate < 0) {
-                if (durationAdjust > drop.publicDuration) {
-                    _drops[nftAddress][tokenId].publicDuration = 0;
-                } else {
-                    _drops[nftAddress][tokenId].publicDuration -= durationAdjust;
-                }
-            } else {
-                _drops[nftAddress][tokenId].publicDuration += durationAdjust;
-            }
-        }
-
-        // regular state (applicable to all types of drops)
-        _drops[nftAddress][tokenId].supply -= numberToMint;
-        _numberMinted[nftAddress][tokenId][round][recipient] += numberToMint;
-    }
-
-    /// @notice Internal function to distribute funds for a _purchase
-    /// @param numberToMint The number of tokens that can be minted
-    /// @param cost The cost per token
-    /// @param drop The drop
-    /// @return refundAmount The amount of eth refunded to msg.sender
-    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
-        uint256 totalProtocolFee = numberToMint * protocolFee;
-        uint256 totalSale = numberToMint * cost;
-        if (drop.currencyAddress == address(0)) {
-            uint256 totalCost = totalSale + totalProtocolFee;
-            if (msg.value < totalCost) revert InsufficientFunds();
-            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
-            refundAmount = msg.value - totalCost;
-        } else {
-            if (msg.value < totalProtocolFee) revert InsufficientFunds();
-            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
-            refundAmount = msg.value - totalProtocolFee;
-        }
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
-        if (refundAmount > 0) {
-            _safeTransferETH(msg.sender, refundAmount, weth);
-        }
-        return refundAmount;
-    }
-
-    /// @notice Internal function to mint the token
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param numberToMint The number of tokens to mint
-    function _mintToken(address nftAddress, uint256 tokenId, address recipient, uint256 numberToMint) internal {
-        address[] memory recipients = new address[](1);
-        recipients[0] = recipient;
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = numberToMint;
-        ERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -593,5 +536,79 @@ contract TLStacks1155 is
         } else {
             numberCanMint = 0;
         }
+    }
+
+    /// @notice Function to update the state of the drop
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param round The drop round for number minted
+    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param numberToMint The number of tokens to mint
+    /// @param drop The Drop cached in memory
+    function _updateDropState(
+        address nftAddress,
+        uint256 tokenId,
+        uint256 round,
+        address recipient,
+        uint256 numberToMint,
+        Drop memory drop
+    ) internal {
+        // velocity mint
+        if (drop.dropType == DropType.VELOCITY) {
+            uint256 durationAdjust = drop.decayRate < 0
+                ? uint256(-1 * drop.decayRate) * numberToMint
+                : uint256(drop.decayRate) * numberToMint;
+            if (drop.decayRate < 0) {
+                if (durationAdjust > drop.publicDuration) {
+                    _drops[nftAddress][tokenId].publicDuration = 0;
+                } else {
+                    _drops[nftAddress][tokenId].publicDuration -= durationAdjust;
+                }
+            } else {
+                _drops[nftAddress][tokenId].publicDuration += durationAdjust;
+            }
+        }
+
+        // regular state (applicable to all types of drops)
+        _drops[nftAddress][tokenId].supply -= numberToMint;
+        _numberMinted[nftAddress][tokenId][round][recipient] += numberToMint;
+    }
+
+    /// @notice Internal function to distribute funds for a _purchase
+    /// @param numberToMint The number of tokens that can be minted
+    /// @param cost The cost per token
+    /// @param drop The drop
+    /// @return refundAmount The amount of eth refunded to msg.sender
+    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
+        uint256 totalProtocolFee = numberToMint * protocolFee;
+        uint256 totalSale = numberToMint * cost;
+        if (drop.currencyAddress == address(0)) {
+            uint256 totalCost = totalSale + totalProtocolFee;
+            if (msg.value < totalCost) revert InsufficientFunds();
+            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
+            refundAmount = msg.value - totalCost;
+        } else {
+            if (msg.value < totalProtocolFee) revert InsufficientFunds();
+            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
+            refundAmount = msg.value - totalProtocolFee;
+        }
+        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
+        if (refundAmount > 0) {
+            _safeTransferETH(msg.sender, refundAmount, weth);
+        }
+        return refundAmount;
+    }
+
+    /// @notice Internal function to mint the token
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param numberToMint The number of tokens to mint
+    function _mintToken(address nftAddress, uint256 tokenId, address recipient, uint256 numberToMint) internal {
+        address[] memory recipients = new address[](1);
+        recipients[0] = recipient;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = numberToMint;
+        IERC1155TL(nftAddress).externalMint(tokenId, recipients, amounts);
     }
 }
