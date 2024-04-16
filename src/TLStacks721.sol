@@ -14,13 +14,13 @@ import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
 import {Drop, ITLStacks721Events} from "./utils/TLStacks721Utils.sol";
 
 /*//////////////////////////////////////////////////////////////////////////
-                            TL Stacks 1155
+                            TL Stacks 721
 //////////////////////////////////////////////////////////////////////////*/
 
 /// @title TLStacks721
-/// @notice Transient Labs Stacks mint contract for ERC721TL-based contracts
+/// @notice Transient Labs mint contract for ERC721TL-based contracts
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.3.1
+/// @custom:version-last-updated 2.4.0
 contract TLStacks721 is
     Ownable,
     Pausable,
@@ -36,9 +36,10 @@ contract TLStacks721 is
 
     using Strings for uint256;
 
-    string public constant VERSION = "2.3.1";
+    string public constant VERSION = "2.4.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
+    uint256 public constant BASIS = 10_000;
 
     /*//////////////////////////////////////////////////////////////////////////
                                 State Variables
@@ -46,6 +47,8 @@ contract TLStacks721 is
 
     address public protocolFeeReceiver; // the payout receiver for the protocol fee
     uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer
+    uint256 public freeMintFeeSplit; // the percent (in basis points) to split with the creator on free drops
+    uint256 public referralFeeSplit; // the percent (in basis points) to split when minted with a referral
     address public weth; // weth address
     mapping(address => Drop) internal _drops; // nft address -> Drop
     mapping(address => mapping(uint256 => mapping(address => uint256))) internal _numberMinted; // nft address -> round -> user -> number minted
@@ -60,10 +63,13 @@ contract TLStacks721 is
         address initSanctionsOracle,
         address initWethAddress,
         address initProtocolFeeReceiver,
-        uint256 initProtocolFee
+        uint256 initProtocolFee,
+        uint256 initFreeMintSplit,
+        uint256 initReferralSplit
     ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
+        _setProtocolFeeSplits(initFreeMintSplit, initReferralSplit);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -85,6 +91,34 @@ contract TLStacks721 is
         _setProtocolFeeSettings(newProtocolFeeReceiver, newProtocolFee);
     }
 
+    /// @notice Function to set the protocol fee splits
+    /// @dev Requires owner
+    /// @param newFreeMintFeeSplit The new fee split for free mints
+    /// @param newReferralFeeSplit The new fee split for referrals
+    function setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) external onlyOwner {
+        _setProtocolFeeSplits(newFreeMintFeeSplit,newReferralFeeSplit);
+    }
+
+    /// @notice Function to set the sanctions oracle
+    /// @dev Requires owner
+    /// @param newOracle The new oracle address
+    function setSanctionsOracle(address newOracle) external onlyOwner {
+        _updateSanctionsOracle(newOracle);
+    }
+
+    /// @notice Function to withdraw funds in case any are sent to this address on accident
+    /// @dev Since this contract doesn't escrow funds, this is a safe addition
+    /// @dev Requires owner
+    /// @param currencyAddress The currency address to withdraw for
+    /// @param amount The amount to transfer in base units
+    function withdrawFunds(address currencyAddress, uint256 amount) external onlyOwner {
+        if (currencyAddress == address(0)) {
+            _safeTransferETH(msg.sender, amount, weth);
+        } else {
+            _safeTransferERC20(msg.sender, currencyAddress, amount);
+        }
+    }
+
     /// @notice Function to pause the contract
     /// @dev Requires owner
     /// @param status The boolean to set the internal pause variable
@@ -94,13 +128,6 @@ contract TLStacks721 is
         } else {
             _unpause();
         }
-    }
-
-    /// @notice Function to set the sanctions oracle
-    /// @dev Requires owner
-    /// @param newOracle The new oracle address
-    function setSanctionsOracle(address newOracle) external onlyOwner {
-        _updateSanctionsOracle(newOracle);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -312,17 +339,18 @@ contract TLStacks721 is
     ///     - Already minted the allowance for the recipient
     /// @param nftAddress The nft contract address
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param referralAddress The referrer to the mint
     /// @param numberToMint The number of tokens to mint
     /// @param presaleNumberCanMint The number of tokens the recipient can mint during presale
     /// @param proof The merkle proof for the presale page
-    /// @return refundAmount The amount of eth refunded to the caller
     function purchase(
         address nftAddress,
         address recipient,
+        address referralAddress,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
-    ) external payable whenNotPaused nonReentrant returns (uint256 refundAmount) {
+    ) external payable whenNotPaused nonReentrant {
         _isSanctioned(msg.sender, true);
         _isSanctioned(recipient, true);
 
@@ -347,18 +375,15 @@ contract TLStacks721 is
         } else {
             revert YouShallNotMint();
         }
-        if (numberCanMint == 0) revert AlreadyReachedMintAllowance();
 
         // limit numberToMint to numberCanMint
-        if (numberToMint > numberCanMint) {
-            numberToMint = numberCanMint;
-        }
+        if (numberToMint > numberCanMint) revert CannotMintMoreThanAllowed();
 
         // adjust drop state
         _updateDropState(nftAddress, round, recipient, numberToMint, drop);
 
         // settle funds
-        refundAmount = _settleUp(numberToMint, cost, drop);
+        _settleUp(numberToMint, cost, referralAddress, drop);
 
         // mint
         _mintToken(nftAddress, recipient, numberToMint, drop);
@@ -372,8 +397,6 @@ contract TLStacks721 is
             drop.decayRate,
             dropPhase == DropPhase.PRESALE
         );
-
-        return refundAmount;
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -432,6 +455,17 @@ contract TLStacks721 is
         protocolFee = newProtocolFee;
 
         emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFee);
+    }
+
+    /// @notice Internal function to update the protocol fee split settings
+    /// @param newFreeMintFeeSplit The new fee split for free mints
+    /// @param newReferralFeeSplit The new fee split for referrals
+    function _setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) internal {
+        if (newFreeMintFeeSplit + newReferralFeeSplit > BASIS) revert ProtocolFeeSplitsTooLarge();
+        freeMintFeeSplit = newFreeMintFeeSplit;
+        referralFeeSplit = newReferralFeeSplit;
+
+        emit ProtocolFeeSplitsUpdated(newFreeMintFeeSplit, newReferralFeeSplit);
     }
 
     /// @notice Internal function to check if msg.sender is the owner or an admin on the contract
@@ -532,26 +566,38 @@ contract TLStacks721 is
     /// @notice Internal function to distribute funds for a _purchase
     /// @param numberToMint The number of tokens that can be minted
     /// @param cost The cost per token
+    /// @param referralAddress The address that referred the mint
     /// @param drop The drop
-    /// @return refundAmount The amount of eth refunded to msg.sender
-    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal returns (uint256 refundAmount) {
+    function _settleUp(uint256 numberToMint, uint256 cost, address referralAddress, Drop memory drop) internal {
         uint256 totalProtocolFee = numberToMint * protocolFee;
         uint256 totalSale = numberToMint * cost;
         if (drop.currencyAddress == address(0)) {
             uint256 totalCost = totalSale + totalProtocolFee;
-            if (msg.value < totalCost) revert InsufficientFunds();
-            _safeTransferETH(drop.payoutReceiver, totalSale, weth);
-            refundAmount = msg.value - totalCost;
+            if (msg.value != totalCost) revert IncorrectFunds();
+            if (totalSale > 0) {
+                _safeTransferETH(drop.payoutReceiver, totalSale, weth);
+            }
         } else {
-            if (msg.value < totalProtocolFee) revert InsufficientFunds();
-            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
-            refundAmount = msg.value - totalProtocolFee;
+            if (msg.value != totalProtocolFee) revert IncorrectFunds();
+            if (totalSale > 0) {
+                _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
+            }
         }
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
-        if (refundAmount > 0) {
-            _safeTransferETH(msg.sender, refundAmount, weth);
+        uint256 protocolFeeRemaining = totalProtocolFee;
+        // split protocol fee if free mint
+        if (cost == 0) {
+            uint256 freeMintSplitAmount = totalProtocolFee * freeMintFeeSplit / BASIS;
+            _safeTransferETH(drop.payoutReceiver, freeMintSplitAmount, weth);
+            protocolFeeRemaining -= freeMintSplitAmount;
         }
-        return refundAmount;
+        // split protoocl fee if referred
+        if (referralAddress != address(0)) {
+            uint256 referralSplitAmount = totalProtocolFee * referralFeeSplit / BASIS;
+            _safeTransferETH(referralAddress, referralSplitAmount, weth);
+            protocolFeeRemaining -= referralSplitAmount;
+        }
+        // payout rest of the protocol fee
+        _safeTransferETH(protocolFeeReceiver, protocolFeeRemaining, weth);
     }
 
     /// @notice Internal function to mint the token
