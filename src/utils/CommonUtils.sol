@@ -33,6 +33,7 @@ interface DropErrors {
     error AlreadyReachedMintAllowance();
     error CannotMintMoreThanAllowed();
     error IncorrectFunds();
+    error ProtocolFeeSplitsTooLarge();
 }
 
 /// @dev Errors for the Auction House

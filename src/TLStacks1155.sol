@@ -504,6 +504,7 @@ contract TLStacks1155 is
     /// @param newFreeMintFeeSplit The new fee split for free mints
     /// @param newReferralFeeSplit The new fee split for referrals
     function _setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) internal {
+        if (newFreeMintFeeSplit + newReferralFeeSplit > BASIS) revert ProtocolFeeSplitsTooLarge();
         freeMintFeeSplit = newFreeMintFeeSplit;
         referralFeeSplit = newReferralFeeSplit;
 
@@ -630,15 +631,15 @@ contract TLStacks1155 is
         uint256 protocolFeeRemaining = totalProtocolFee;
         // split protocol fee if free mint
         if (cost == 0) {
-            uint256 split = totalProtocolFee * freeMintFeeSplit / BASIS;
-            _safeTransferETH(drop.payoutReceiver, split, weth);
-            protocolFeeRemaining -= split;
+            uint256 freeMintSplitAmount = totalProtocolFee * freeMintFeeSplit / BASIS;
+            _safeTransferETH(drop.payoutReceiver, freeMintSplitAmount, weth);
+            protocolFeeRemaining -= freeMintSplitAmount;
         }
         // split protoocl fee if referred
         if (referralAddress != address(0)) {
-            uint256 split = totalProtocolFee * referralFeeSplit / BASIS;
-            _safeTransferETH(referralAddress, split, weth);
-            protocolFeeRemaining -= split;
+            uint256 referralSplitAmount = totalProtocolFee * referralFeeSplit / BASIS;
+            _safeTransferETH(referralAddress, referralSplitAmount, weth);
+            protocolFeeRemaining -= referralSplitAmount;
         }
         // payout rest of the protocol fee
         _safeTransferETH(protocolFeeReceiver, protocolFeeRemaining, weth);

@@ -150,6 +150,18 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.pause(false);
     }
 
+    /// @dev test limits on protocol fee splits
+    function test_setProtocolFeeSplits_limits(uint128 freeMintSplitPerc, uint128 referralSplitPerc) public {
+        if (uint256(freeMintSplitPerc) + uint256(referralSplitPerc) > 10_000) {
+            vm.expectRevert(ProtocolFeeSplitsTooLarge.selector);
+            stacks.setProtocolFeeSplits(uint256(freeMintSplitPerc), uint256(referralSplitPerc));
+        } else {
+            stacks.setProtocolFeeSplits(uint256(freeMintSplitPerc), uint256(referralSplitPerc));
+            assertEq(stacks.freeMintFeeSplit(), freeMintSplitPerc);
+            assertEq(stacks.referralFeeSplit(), referralSplitPerc);
+        }
+    }
+
     /// @dev test that pausing the contract blocks all applicable functions
     function test_paused() public {
         stacks.pause(true);
