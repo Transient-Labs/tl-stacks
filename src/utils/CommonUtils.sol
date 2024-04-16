@@ -31,8 +31,8 @@ interface DropErrors {
     error NotOnAllowlist();
     error YouShallNotMint();
     error AlreadyReachedMintAllowance();
-    error InvalidBatchArguments();
-    error InsufficientFunds();
+    error CannotMintMoreThanAllowed();
+    error IncorrectFunds();
 }
 
 /// @dev Errors for the Auction House
