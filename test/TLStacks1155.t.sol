@@ -335,7 +335,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         );
 
         vm.expectEmit(true, true, true, true);
-        emit DropConfigured(address(nft), 1, drop);
+        emit DropConfigured(address(nft), 1, 0, drop);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -383,7 +383,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         );
 
         vm.expectEmit(true, true, true, true);
-        emit DropConfigured(address(nft), 1, drop);
+        emit DropConfigured(address(nft), 1, 0, drop);
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -419,7 +419,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         } else {
             drop.payoutReceiver = payoutReceiver;
             vm.expectEmit(true, true, true, true);
-            emit DropUpdated(address(nft), 1, drop);
+            emit DropUpdated(address(nft), 1, 0, drop);
             stacks.updateDropPayoutReceiver(address(nft), 1, payoutReceiver);
 
             Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -442,7 +442,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.configureDrop(address(nft), 1, drop);
         drop.allowance = allowance;
         vm.expectEmit(true, true, true, true);
-        emit DropUpdated(address(nft), 1, drop);
+        emit DropUpdated(address(nft), 1, 0, drop);
         stacks.updateDropAllowance(address(nft), 1, allowance);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -466,7 +466,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         drop.presaleCost = presaleCost;
         drop.publicCost = publicCost;
         vm.expectEmit(true, true, true, true);
-        emit DropUpdated(address(nft), 1, drop);
+        emit DropUpdated(address(nft), 1, 0, drop);
         stacks.updateDropPrices(address(nft), 1, currencyAddress, presaleCost, publicCost);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -501,7 +501,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         drop.presaleDuration = presaleDuration;
         drop.publicDuration = publicDuration;
         vm.expectEmit(true, true, true, true);
-        emit DropUpdated(address(nft), 1, drop);
+        emit DropUpdated(address(nft), 1, 0, drop);
         stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -545,7 +545,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             drop.presaleDuration = presaleDuration;
             drop.publicDuration = publicDuration;
             vm.expectEmit(true, true, true, true);
-            emit DropUpdated(address(nft), 1, drop);
+            emit DropUpdated(address(nft), 1, 0, drop);
             stacks.updateDropDuration(address(nft), 1, startTime, presaleDuration, publicDuration);
 
             Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -575,7 +575,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.configureDrop(address(nft), 1, drop);
         drop.presaleMerkleRoot = presaleMerkleRoot;
         vm.expectEmit(true, true, true, true);
-        emit DropUpdated(address(nft), 1, drop);
+        emit DropUpdated(address(nft), 1, 0, drop);
         stacks.updateDropPresaleMerkleRoot(address(nft), 1, presaleMerkleRoot);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -629,7 +629,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.configureDrop(address(nft), 1, drop);
         drop.decayRate = decayRate;
         vm.expectEmit(true, true, true, true);
-        emit DropUpdated(address(nft), 1, drop);
+        emit DropUpdated(address(nft), 1, 0, drop);
         stacks.updateDropDecayRate(address(nft), 1, decayRate);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -651,7 +651,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectEmit(true, true, true, false);
-        emit DropClosed(address(nft), 1);
+        emit DropClosed(address(nft), 1, 0);
         stacks.closeDrop(address(nft), 1);
 
         Drop memory retreivedDrop = stacks.getDrop(address(nft), 1);
@@ -704,6 +704,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         drop.supply = 20;
         drop.initialSupply = 20;
         drop.startTime = block.timestamp;
+        vm.expectEmit(true, true, true, true);
+        emit DropConfigured(address(nft), 1, 1, drop);
         stacks.configureDrop(address(nft), 1, drop);
 
         // check drop
@@ -1045,7 +1047,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         }
 
         vm.expectEmit(true, true, true, true);
-        emit Purchase(address(nft), 1, sender, address(0), numberToMint, cost, decayRate, isPresale);
+        emit Purchase(address(nft), 1, 0, sender, address(0), numberToMint, cost, decayRate, isPresale);
         stacks.purchase{value: numberToMint * (cost + fee)}(
             address(nft), 1, sender, referralAddress, numberToMint, presaleNumberCanMint, proof
         );
@@ -1325,7 +1327,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         }
 
         vm.expectEmit(true, true, true, true);
-        emit Purchase(address(nft), 1, sender, address(coin), numberToMint, cost, decayRate, isPresale);
+        emit Purchase(address(nft), 1, 0, sender, address(coin), numberToMint, cost, decayRate, isPresale);
         stacks.purchase{value: numberToMint * fee}(address(nft), 1, sender, referralAddress, numberToMint, presaleNumberCanMint, proof);
 
         Drop memory drop = stacks.getDrop(address(nft), 1);
