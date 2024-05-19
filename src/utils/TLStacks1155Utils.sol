@@ -35,12 +35,13 @@ interface ITLStacks1155Events {
     event WethUpdated(address indexed prevWeth, address indexed newWeth);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
     event ProtocolFeeSplitsUpdated(uint256 indexed freeMintFeeSplit, uint256 indexed referralFeeSplit);
-    event DropConfigured(address indexed nftAddress, uint256 indexed tokenId, Drop drop);
-    event DropUpdated(address indexed nftAddress, uint256 indexed tokenId, Drop drop);
-    event DropClosed(address indexed nftAddress, uint256 indexed tokenId);
+    event DropConfigured(address indexed nftAddress, uint256 indexed tokenId, uint256 indexed round, Drop drop);
+    event DropUpdated(address indexed nftAddress, uint256 indexed tokenId, uint256 indexed round, Drop drop);
+    event DropClosed(address indexed nftAddress, uint256 indexed tokenId, uint256 indexed round);
     event Purchase(
         address indexed nftAddress,
         uint256 indexed tokenId,
+        uint256 indexed round,
         address nftReceiver,
         address currencyAddress,
         uint256 amount,
