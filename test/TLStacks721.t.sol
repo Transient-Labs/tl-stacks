@@ -19,6 +19,7 @@ import {MockERC20} from "test/utils/MockERC20.sol";
 contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     using Strings for uint256;
 
+    uint256 constant BASIS = 10_000;
     bytes32 constant MINTER_ROLE = keccak256("APPROVED_MINT_CONTRACT");
     bytes32 constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
@@ -56,6 +57,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
     event Paused(address account);
     event Unpaused(address account);
+
+    receive() external payable {}
 
     function setUp() public {
         wethAddress = address(new WETH9());
@@ -103,6 +106,48 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         assertTrue(nft.hasRole(MINTER_ROLE, address(stacks)));
     }
 
+    /// @dev test constructor
+    function test_constructor(
+        address initOwner,
+        address initSanctionsOracle,
+        address initWethAddress,
+        address initProtocolFeeReceiver,
+        uint256 initProtocolFee,
+        uint256 initFreeMintSplit,
+        uint256 initReferralSplit
+    ) public {
+        vm.assume(initOwner != address(0));
+        if (initFreeMintSplit > BASIS) {
+            initFreeMintSplit = initFreeMintSplit % BASIS;
+        }
+        if (initReferralSplit > BASIS) {
+            initReferralSplit = initReferralSplit % BASIS;
+        }
+        // limit combo of splits
+        if (initFreeMintSplit + initReferralSplit > BASIS) {
+            initFreeMintSplit = initFreeMintSplit % (BASIS / 2);
+            initReferralSplit = initReferralSplit % (BASIS / 2);
+        }
+
+        stacks = new TLStacks721(
+            initOwner,
+            initSanctionsOracle,
+            initWethAddress,
+            initProtocolFeeReceiver,
+            initProtocolFee,
+            initFreeMintSplit,
+            initReferralSplit
+        );
+
+        assertEq(stacks.owner(), initOwner);
+        assertEq(address(stacks.oracle()), initSanctionsOracle);
+        assertEq(stacks.weth(), initWethAddress);
+        assertEq(stacks.protocolFeeReceiver(), initProtocolFeeReceiver);
+        assertEq(stacks.protocolFee(), initProtocolFee);
+        assertEq(stacks.freeMintFeeSplit(), initFreeMintSplit);
+        assertEq(stacks.referralFeeSplit(), initReferralSplit);
+    }
+
     /// @dev test owner only access for owner functions
     /// @dev reverts if not the owner
     function test_ownerOnlyAccess(address sender) public {
@@ -122,6 +167,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.setProtocolFeeSettings(sender, 1 ether);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setProtocolFeeSplits(10_000, 0);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
+        stacks.withdrawFunds(address(0), 100);
         vm.stopPrank();
 
         // pass for owner
@@ -160,6 +207,36 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             assertEq(stacks.freeMintFeeSplit(), freeMintSplitPerc);
             assertEq(stacks.referralFeeSplit(), referralSplitPerc);
         }
+    }
+
+    /// @dev test withdraw ETH sent to the contract
+    function test_withdrawFunds_eth(uint256 amount) public {
+        vm.assume(amount > 0);
+        if (amount > 100 ether) {
+            amount = amount % 100 ether + 1;
+        }
+        vm.deal(address(stacks), amount);
+
+        uint256 prevBalance = address(this).balance;
+        stacks.withdrawFunds(address(0), amount);
+        assertEq(address(stacks).balance, 0);
+        assertEq(address(this).balance - prevBalance, amount);
+    }
+
+    /// @dev test withdraw ERC-20 sent to the contract
+    function test_withdrawFunds_erc20(uint256 amount) public {
+        vm.assume(amount > 0);
+        if (amount > 100 ether) {
+            amount = amount % 100 ether + 1;
+        }
+
+        vm.prank(bsy);
+        coin.transfer(address(stacks), amount);
+
+        uint256 prevBalance = coin.balanceOf(address(this));
+        stacks.withdrawFunds(address(coin), amount);
+        assertEq(coin.balanceOf(address(stacks)), 0);
+        assertEq(coin.balanceOf(address(this)) - prevBalance, amount);
     }
 
     /// @dev test that pausing the contract blocks all applicable functions

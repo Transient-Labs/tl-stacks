@@ -16,6 +16,7 @@ import {MockERC20} from "test/utils/MockERC20.sol";
 import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
+    uint256 constant BASIS = 10_000;
     address wethAddress;
     TLAuctionHouse auctionHouse;
     ERC721TL nft;
@@ -90,6 +91,49 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents, AuctionHouseErrors {
         assertEq(auctionHouse.protocolFeeLimit(), feeLimit);
         assertEq(auctionHouse.protocolFeeReceiver(), tl);
         assertFalse(auctionHouse.paused());
+    }
+
+    /// @dev test constructor
+    function test_constructor(
+        address initOwner,
+        address initSanctionsOracle,
+        address initWethAddress,
+        address initRoyaltyEngineAddress,
+        address initProtocolFeeReceiver,
+        uint256 initMinBidIncreasePerc,
+        uint256 initMinBidIncreaseLimit,
+        uint256 initProtocolFeePerc,
+        uint256 initProtocolFeeLimit
+    ) public {
+        vm.assume(initOwner != address(0));
+        if (initMinBidIncreasePerc > BASIS) {
+            initMinBidIncreasePerc = initMinBidIncreasePerc % BASIS;
+        }
+        if (initProtocolFeePerc > BASIS) {
+            initProtocolFeePerc = initMinBidIncreasePerc % BASIS;
+        }
+
+        auctionHouse = new TLAuctionHouse(
+            initOwner,
+            initSanctionsOracle,
+            initWethAddress,
+            initRoyaltyEngineAddress,
+            initProtocolFeeReceiver,
+            initMinBidIncreasePerc,
+            initMinBidIncreaseLimit,
+            initProtocolFeePerc,
+            initProtocolFeeLimit
+        );
+
+        assertEq(auctionHouse.owner(), initOwner);
+        assertEq(auctionHouse.weth(), initWethAddress);
+        assertEq(address(auctionHouse.oracle()), initSanctionsOracle);
+        assertEq(address(auctionHouse.royaltyEngine()), initRoyaltyEngineAddress);
+        assertEq(auctionHouse.minBidIncreasePerc(), initMinBidIncreasePerc);
+        assertEq(auctionHouse.minBidIncreaseLimit(), initMinBidIncreaseLimit);
+        assertEq(auctionHouse.protocolFeePerc(), initProtocolFeePerc);
+        assertEq(auctionHouse.protocolFeeLimit(), initProtocolFeeLimit);
+        assertEq(auctionHouse.protocolFeeReceiver(), initProtocolFeeReceiver);
     }
 
     /// @dev test owner only acccess
