@@ -1304,15 +1304,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         bool isPresale
     ) internal {
         vm.startPrank(sender);
-        Balances memory prevBalances = Balances(
-            sender.balance,
-            0,
-            receiver.balance,
-            0,
-            tl.balance,
-            referralAddress.balance,
-            nft.balanceOf(sender)
-        );
+        Balances memory prevBalances =
+            Balances(sender.balance, 0, receiver.balance, 0, tl.balance, referralAddress.balance, nft.balanceOf(sender));
         Drop memory prevDrop = stacks.getDrop(address(nft));
 
         if (prevDrop.publicDuration == 0 && !isPresale) {
@@ -1329,23 +1322,40 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         Drop memory drop = stacks.getDrop(address(nft));
         if (referralAddress != address(0)) {
             if (referralAddress == sender) {
-                assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee) - numberToMint * fee * referralFeeSplit / 10_000);
+                assertEq(
+                    prevBalances.senderEthBalance - sender.balance,
+                    numberToMint * (cost + fee) - numberToMint * fee * referralFeeSplit / 10_000
+                );
             } else {
                 assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee));
-                assertEq(referralAddress.balance - prevBalances.referralEthBalance, numberToMint * fee * referralFeeSplit / 10_000);
+                assertEq(
+                    referralAddress.balance - prevBalances.referralEthBalance,
+                    numberToMint * fee * referralFeeSplit / 10_000
+                );
             }
             if (cost == 0) {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000);
+                assertEq(
+                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
+                );
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance,
+                    numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000
+                );
             } else {
                 assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * cost);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000);
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000
+                );
             }
         } else {
             assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee));
             if (cost == 0) {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000);
+                assertEq(
+                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
+                );
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000
+                );
             } else {
                 assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * cost);
                 assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
@@ -1496,9 +1506,13 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     }
 
     /// @dev test purchase functionality for eth, velocity mint
-    function test_purchaseEthVelocity(uint256 startDelay, uint256 publicDuration, uint256 publicCost, int256 decayRate, address referralAddress)
-        public
-    {
+    function test_purchaseEthVelocity(
+        uint256 startDelay,
+        uint256 publicDuration,
+        uint256 publicCost,
+        int256 decayRate,
+        address referralAddress
+    ) public {
         // limit referral address to EOAs only for simplicity
         vm.assume(referralAddress.code.length == 0 && (referralAddress == address(0) || referralAddress > address(42)));
 
@@ -1526,7 +1540,6 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         if (referralAddress > address(420)) {
             referralAddress = address(0);
         }
-
 
         // setup drop
         Drop memory drop = Drop(
@@ -1612,29 +1625,48 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), 0, sender, address(coin), numberToMint, cost, decayRate, isPresale);
-        stacks.purchase{value: numberToMint * fee}(address(nft), sender, referralAddress, numberToMint, presaleNumberCanMint, proof);
+        stacks.purchase{value: numberToMint * fee}(
+            address(nft), sender, referralAddress, numberToMint, presaleNumberCanMint, proof
+        );
 
         Drop memory drop = stacks.getDrop(address(nft));
         assertEq(prevBalances.senderCoinBalance - coin.balanceOf(sender), numberToMint * cost);
         if (referralAddress != address(0)) {
             if (referralAddress == sender) {
-                assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee - numberToMint * fee * referralFeeSplit / 10_000);
+                assertEq(
+                    prevBalances.senderEthBalance - sender.balance,
+                    numberToMint * fee - numberToMint * fee * referralFeeSplit / 10_000
+                );
             } else {
                 assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
-                assertEq(referralAddress.balance - prevBalances.referralEthBalance, numberToMint * fee * referralFeeSplit / 10_000);
+                assertEq(
+                    referralAddress.balance - prevBalances.referralEthBalance,
+                    numberToMint * fee * referralFeeSplit / 10_000
+                );
             }
             if (cost == 0) {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000);
+                assertEq(
+                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
+                );
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance,
+                    numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000
+                );
             } else {
                 assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000);
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000
+                );
             }
         } else {
             assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
             if (cost == 0) {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000);
+                assertEq(
+                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
+                );
+                assertEq(
+                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000
+                );
             } else {
                 assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
                 assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);

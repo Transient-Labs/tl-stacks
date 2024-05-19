@@ -93,7 +93,7 @@ contract TLStacks1155 is
     /// @param newFreeMintFeeSplit The new fee split for free mints
     /// @param newReferralFeeSplit The new fee split for referrals
     function setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) external onlyOwner {
-        _setProtocolFeeSplits(newFreeMintFeeSplit,newReferralFeeSplit);
+        _setProtocolFeeSplits(newFreeMintFeeSplit, newReferralFeeSplit);
     }
 
     /// @notice Function to set the sanctions oracle
