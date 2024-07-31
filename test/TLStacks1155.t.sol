@@ -33,7 +33,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     address tl = makeAddr("Build Different");
     uint256 fee = 0.00042 ether;
     uint256 freeMintFeeSplit = 5000;
-    uint256 referralFeeSplit = 500;
+    uint256 referralFeeSplit = 2000;
     address ben = address(0x0BEEF);
     address chris = address(0xC0FFEE);
     address david = address(0x1D1B);
