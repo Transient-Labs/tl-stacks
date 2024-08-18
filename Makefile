@@ -56,6 +56,11 @@ deploy_TLAuctionHouse_base_sepolia: build
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
+deploy_TLAuctionHouse_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
 deploy_TLAuctionHouse_mainnet: build
 	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -87,6 +92,11 @@ deploy_TLStacks721_base_sepolia: build
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
+deploy_TLStacks721_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721  --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
 deploy_TLStacks721_mainnet: build
 	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -116,6 +126,11 @@ deploy_TLStacks1155_arbitrum_sepolia: build
 deploy_TLStacks1155_base_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier-url https://api-sepolia.basescan.org/api --etherscan-api-key ${BASESCAN_KEY}  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLStacks1155_mainnet: build
