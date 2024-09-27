@@ -112,6 +112,11 @@ deploy_TLStacks721_base: build
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
+deploy_TLStacks721_shape: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721  --verifier blockscout --verifier-url https://internal-shaper-explorer.alchemypreview.com/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
 ################################################################ TLStacks1155 Deployments ################################################################
 deploy_TLStacks1155_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
@@ -146,4 +151,9 @@ deploy_TLStacks1155_arbitrum_one: build
 deploy_TLStacks1155_base: build
 	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_shape: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier blockscout --verifier-url https://internal-shaper-explorer.alchemypreview.com/api  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
