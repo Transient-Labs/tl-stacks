@@ -3,5 +3,6 @@ out
 env
 .env
 .DS_Store
-broadcast/*
+broadcast/
 docs/
+lib/
