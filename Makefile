@@ -51,7 +51,7 @@ gas-tests: build
 	forge test --gas-report
 
 cov-tests: build
-	forge coverage
+	forge coverage --no-match-coverage "(script|test|Foo|Bar)"
 
 fuzz-tests: build
 	forge test --fuzz-runs 10000
@@ -94,7 +94,7 @@ deploy_TLAuctionHouse_base: build
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
-deploy_TLAuctionHouse_shape_sepolia: build
+deploy_TLAuctionHouse_shape: build
 	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
