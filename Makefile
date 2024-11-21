@@ -2,13 +2,17 @@
 # (-include to ignore error if it does not exist)
 -include .env
 
-################################################################ Helpers ################################################################
+#####################################
+### FORMAT & LINT
+#####################################
 fmt:
 	forge fmt
 
-################################################################ Modules ################################################################
+#####################################
+### MODULES
+#####################################
 remove:
-	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules
+	rm -rf lib
 
 install:
 	forge install foundry-rs/forge-std --no-git
@@ -17,7 +21,9 @@ install:
 
 update: remove install
 	
-################################################################ Build ################################################################
+#####################################
+### BUILD
+#####################################
 clean:
 	forge fmt && forge clean
 
@@ -29,20 +35,24 @@ clean_build: clean build
 docs: clean_build
 	forge doc --build
 
-################################################################ Tests ################################################################
-default_test: build
+#####################################
+### TESTS
+#####################################
+tests: build
 	forge test
 
-gas_test: build
+gas-tests: build
 	forge test --gas-report
 
-coverage_test: build
+cov-tests: build
 	forge coverage
 
-fuzz_test: build
+fuzz-tests: build
 	forge test --fuzz-runs 10000
 
-################################################################ TLAuctionHouse Deployments ################################################################
+#####################################
+### TLAuctionHouse
+#####################################
 deploy_TLAuctionHouse_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -56,6 +66,11 @@ deploy_TLAuctionHouse_arbitrum_sepolia: build
 deploy_TLAuctionHouse_base_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLAuctionHouse_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLAuctionHouse_mainnet: build
@@ -73,7 +88,14 @@ deploy_TLAuctionHouse_base: build
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
-################################################################ TLStacks721 Deployments ################################################################
+deploy_TLAuctionHouse_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+#####################################
+### TLStacks721
+#####################################
 deploy_TLStacks721_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -87,6 +109,11 @@ deploy_TLStacks721_arbitrum_sepolia: build
 deploy_TLStacks721_base_sepolia: build
 	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks721_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721  --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 deploy_TLStacks721_mainnet: build
@@ -104,7 +131,14 @@ deploy_TLStacks721_base: build
 	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
-################################################################ TLStacks1155 Deployments ################################################################
+deploy_TLStacks721_shape: build
+	forge script script/Deploy.s.sol:DeployTLStacks721 --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks721.sol:TLStacks721  --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+#####################################
+### TLStacks1155
+#####################################
 deploy_TLStacks1155_sepolia: build
 	# forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -120,6 +154,11 @@ deploy_TLStacks1155_base_sepolia: build
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
+deploy_TLStacks1155_shape_sepolia: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
 deploy_TLStacks1155_mainnet: build
 	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
@@ -133,4 +172,9 @@ deploy_TLStacks1155_arbitrum_one: build
 deploy_TLStacks1155_base: build
 	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_TLStacks1155_shape: build
+	forge script script/Deploy.s.sol:DeployTLStacks1155 --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLStacks1155.sol:TLStacks1155 --verifier blockscout --verifier-url https://shapescan.xyz/api  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
