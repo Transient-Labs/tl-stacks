@@ -19,7 +19,7 @@ import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 /// @title TLStacks1155
 /// @notice Transient Labs mint contract for ERC1155TL contracts
 /// @author transientlabs.xyz
-/// @custom:version 2.5.0
+/// @custom:version-last-updated 2.4.0
 contract TLStacks1155 is
     Ownable,
     Pausable,
@@ -33,7 +33,7 @@ contract TLStacks1155 is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.5.0";
+    string public constant VERSION = "2.4.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
     uint256 public constant BASIS = 10_000;
@@ -173,7 +173,7 @@ contract TLStacks1155 is
             _rounds[nftAddress][tokenId] += 1;
         }
 
-        emit DropConfigured(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropConfigured(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to update the payout receiver of a drop
@@ -200,7 +200,7 @@ contract TLStacks1155 is
         drop.payoutReceiver = payoutReceiver;
         _drops[nftAddress][tokenId].payoutReceiver = drop.payoutReceiver;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to update the drop public allowance
@@ -223,7 +223,7 @@ contract TLStacks1155 is
         drop.allowance = allowance;
         _drops[nftAddress][tokenId].allowance = drop.allowance;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to update the drop prices and currency
@@ -254,7 +254,7 @@ contract TLStacks1155 is
         _drops[nftAddress][tokenId].presaleCost = drop.presaleCost;
         _drops[nftAddress][tokenId].publicCost = drop.publicCost;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to adjust drop durations
@@ -286,7 +286,7 @@ contract TLStacks1155 is
         _drops[nftAddress][tokenId].presaleDuration = drop.presaleDuration;
         _drops[nftAddress][tokenId].publicDuration = drop.publicDuration;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to adjust the drop merkle root
@@ -310,7 +310,7 @@ contract TLStacks1155 is
         drop.presaleMerkleRoot = presaleMerkleRoot;
         _drops[nftAddress][tokenId].presaleMerkleRoot = drop.presaleMerkleRoot;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     /// @notice Function to adjust the drop decay rate
@@ -334,7 +334,7 @@ contract TLStacks1155 is
         drop.decayRate = decayRate;
         _drops[nftAddress][tokenId].decayRate = drop.decayRate;
 
-        emit DropUpdated(nftAddress, tokenId, _rounds[nftAddress][tokenId], drop);
+        emit DropUpdated(nftAddress, tokenId, drop);
     }
 
     function closeDrop(address nftAddress, uint256 tokenId) external nonReentrant {
@@ -344,9 +344,9 @@ contract TLStacks1155 is
         delete _drops[nftAddress][tokenId];
 
         // clear the number minted round
-        uint256 round = _rounds[nftAddress][tokenId]++;
+        _rounds[nftAddress][tokenId]++;
 
-        emit DropClosed(nftAddress, tokenId, round);
+        emit DropClosed(nftAddress, tokenId);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -418,7 +418,6 @@ contract TLStacks1155 is
         emit Purchase(
             nftAddress,
             tokenId,
-            round,
             recipient,
             drop.currencyAddress,
             numberToMint,
