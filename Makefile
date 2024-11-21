@@ -2,6 +2,10 @@
 # (-include to ignore error if it does not exist)
 -include .env
 
+################################################################ Helpers ################################################################
+fmt:
+	forge fmt
+
 ################################################################ Modules ################################################################
 remove:
 	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules
@@ -28,16 +32,16 @@ docs: clean_build
 	forge doc --build
 
 ################################################################ Tests ################################################################
-default_test:
+default_test: build
 	forge test
 
-gas_test:
+gas_test: build
 	forge test --gas-report
 
-coverage_test:
+coverage_test: build
 	forge coverage
 
-fuzz_test:
+fuzz_test: build
 	forge test --fuzz-runs 10000
 
 ################################################################ TLAuctionHouse Deployments ################################################################
