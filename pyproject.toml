@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "tl-stacks"
+version = "0.1.0"
+description = "local python env to run slither"
+authors = ["Your Name <you@example.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+slither-analyzer = "^0.10.4"
+pre-commit = "^4.0.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
