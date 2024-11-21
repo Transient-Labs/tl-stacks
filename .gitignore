@@ -6,3 +6,4 @@ env
 broadcast/
 docs/
 lib/
+.venv/
