@@ -11,11 +11,9 @@ remove:
 	rm -rf .gitmodules && rm -rf .git/modules/* && rm -rf lib && touch .gitmodules
 
 install:
-	forge install foundry-rs/forge-std --no-commit
-	forge install Transient-Labs/tl-creator-contracts@3.0.3 --no-commit
-	forge install dmfxyz/murky --no-commit
-	git add .
-	git commit
+	forge install foundry-rs/forge-std --no-git
+	forge install Transient-Labs/tl-creator-contracts@3.3.0 --no-git
+	forge install dmfxyz/murky --no-git
 
 update: remove install
 	
