@@ -18,12 +18,9 @@
         "tl-creator-contracts/=lib/tl-creator-contracts/src/",
         "tl-sol-tools/=lib/tl-creator-contracts/lib/tl-sol-tools/src/"
     ],
-    "emeraldwalk.runonsave": {
-        "commands": [
-            {
-                "match": "\\.sol",
-                "cmd": "make fmt"
-            }
-        ]
-    }
+    "editor.formatOnSave": true,
+    "[solidity]": {
+        "editor.defaultFormatter": "NomicFoundation.hardhat-solidity" 
+    },
+    "solidity.formatter": "forge",
 }
