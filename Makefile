@@ -11,6 +11,9 @@ fmt:
 slither:
 	poetry run slither .
 
+install-pre-commit:
+	poetry run pre-commit install
+
 #####################################
 ### MODULES
 #####################################
