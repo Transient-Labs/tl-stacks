@@ -35,23 +35,3 @@ interface DropErrors {
     error IncorrectFunds();
     error ProtocolFeeSplitsTooLarge();
 }
-
-/// @dev Errors for the Auction House
-interface AuctionHouseErrors {
-    error PercentageTooLarge();
-    error CallerNotTokenOwner();
-    error AuctionHouseNotApproved();
-    error PayoutToZeroAddress();
-    error NftNotOwnedBySeller();
-    error NftNotTransferred();
-    error AuctionNotConfigured();
-    error AuctionNotStarted();
-    error AuctionStarted();
-    error AuctionNotOpen();
-    error BidTooLow();
-    error AuctionEnded();
-    error AuctionNotEnded();
-    error InsufficientMsgValue();
-    error SaleNotConfigured();
-    error SaleNotOpen();
-}

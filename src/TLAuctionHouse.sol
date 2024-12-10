@@ -5,121 +5,437 @@ import {Ownable} from "openzeppelin/access/Ownable.sol";
 import {Pausable} from "openzeppelin/utils/Pausable.sol";
 import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
-import {RoyaltyPayoutHelper} from "tl-sol-tools/payments/RoyaltyPayoutHelper.sol";
-import {AuctionHouseErrors} from "./utils/CommonUtils.sol";
-import {Auction, Sale, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
-
-/*//////////////////////////////////////////////////////////////////////////
-                            TL Auction House
-//////////////////////////////////////////////////////////////////////////*/
+import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
+import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {ListingType, Listing, Auction, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
+import {ICreatorLookup} from "./helpers/ICreatorLookup.sol";
+import {IRoyaltyLookup} from "./helpers/IRoyaltyLookup.sol";
 
 /// @title TLAuctionHouse
-/// @notice Transient Labs Auction House with Reserve Auctions and Buy Now Sales for ERC-721 tokens
+/// @notice Transient Labs Auction House for ERC-721 tokens
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.3.0
+/// @custom:version-last-updated 2.6.0
 contract TLAuctionHouse is
     Ownable,
     Pausable,
     ReentrancyGuard,
-    RoyaltyPayoutHelper,
-    ITLAuctionHouseEvents,
-    AuctionHouseErrors
+    SanctionsCompliance,
+    TransferHelper,
+    ITLAuctionHouseEvents
 {
-    /*//////////////////////////////////////////////////////////////////////////
-                                  Constants
-    //////////////////////////////////////////////////////////////////////////*/
+    ///////////////////////////////////////////////////////////////////////////
+    /// CONSTANTS
+    ///////////////////////////////////////////////////////////////////////////
 
-    string public constant VERSION = "2.3.0";
-    uint256 public constant EXTENSION_TIME = 15 minutes;
+    string public constant VERSION = "2.6.0";
+    uint256 public constant EXTENSION_TIME = 5 minutes;
     uint256 public constant BASIS = 10_000;
+    uint256 public constant BID_INCREASE_BPS = 500; // 5% increase between bids
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                State Variables
-    //////////////////////////////////////////////////////////////////////////*/
+    ///////////////////////////////////////////////////////////////////////////
+    /// STATE VARIABLES
+    ///////////////////////////////////////////////////////////////////////////
 
-    address public protocolFeeReceiver; // the payout receiver for the protocol fee
-    uint256 public minBidIncreasePerc; // the nominal bid increase percentage (out of BASIS) so bids can't be increased by just tiny amounts
-    uint256 public minBidIncreaseLimit; // the absolute min bid increase amount (ex: 1 ether)
-    uint256 public protocolFeePerc; // the nominal protocol fee percentage (out of BASIS) to charge the buyer or seller
-    uint256 public protocolFeeLimit; // the absolute limit for the protocol fee (ex: 1 ether)
-    mapping(address => mapping(uint256 => Auction)) internal _auctions; // nft address -> token id -> auction
-    mapping(address => mapping(uint256 => Sale)) internal _sales; // nft address -> token id -> sale
+    uint256 private _id; // listing id
+    address public protocolFeeReceiver; // receives protocol fee
+    uint256 public protocolFeeBps; // basis points for protocol fee
+    address public weth; // weth address
+    ICreatorLookup public creatorLookup; // creator lookup contract
+    IRoyaltyLookup public royaltyLookup; // royalty lookup contract
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Constructor
-    //////////////////////////////////////////////////////////////////////////*/
+    mapping(address => mapping(uint256 => Listing)) private _listings; // nft address -> token id -> listing
+    mapping(uint256 => Auction) private _auctions; // listing id -> auction
 
-    constructor(
-        address initOwner,
-        address initSanctionsOracle,
-        address initWethAddress,
-        address initRoyaltyEngineAddress,
-        address initProtocolFeeReceiver,
-        uint256 initMinBidIncreasePerc,
-        uint256 initMinBidIncreaseLimit,
-        uint256 initProtocolFeePerc,
-        uint256 initProtocolFeeLimit
-    )
+    ///////////////////////////////////////////////////////////////////////////
+    /// ERRORS
+    ///////////////////////////////////////////////////////////////////////////
+
+    error InvalidListingType();
+    error NotTokenOwner();
+    error TokenNotTransferred();
+    error NotSeller();
+    error ListingNotSetup();
+    error AuctionStarted();
+    error AuctionNotStarted();
+    error AuctionNotEnded();
+    error CannotBidYet();
+    error CannotBuyYet();
+    error InvalidRecipient();
+    error BidTooLow();
+    error AuctionEnded();
+    error UnexpectedMsgValue();
+    error InvalidProtocolFeeBps();
+
+    ///////////////////////////////////////////////////////////////////////////
+    /// CONSTRUCTOR
+    ///////////////////////////////////////////////////////////////////////////
+
+    constructor(address initOwner, address initSanctionsOracle)
         Ownable(initOwner)
         Pausable()
         ReentrancyGuard()
-        RoyaltyPayoutHelper(initSanctionsOracle, initWethAddress, initRoyaltyEngineAddress)
+        SanctionsCompliance(initSanctionsOracle)
+    {}
+
+    ///////////////////////////////////////////////////////////////////////////
+    /// PUBLIC FUNCTIONS
+    ///////////////////////////////////////////////////////////////////////////
+
+    /// @notice Function to list an NFT for sale
+    /// @dev Requirements
+    ///      - only the token owner can list
+    ///      - the token is escrowed upon listing
+    ///      - if the auction house isn't approved for the token, escrowing will fail, so no need to check for that explicitly
+    function list(
+        address nftAddress,
+        uint256 tokenId,
+        ListingType type_,
+        address payoutReceiver,
+        address currencyAddress,
+        uint256 openTime,
+        uint256 reservePrice,
+        uint256 auctionDuration,
+        uint256 buyNowPrice
+    ) external whenNotPaused nonReentrant {
+        // check for sanctioned addresses
+        _isSanctioned(msg.sender, true);
+        _isSanctioned(payoutReceiver, true);
+
+        // check that the sender owns the token
+        IERC721 nftContract = IERC721(nftAddress);
+        if (nftContract.ownerOf(tokenId) != msg.sender) revert NotTokenOwner(); // once listed, can't list again as the msg.sender wouldn't be the owner
+
+        // create listing
+        uint256 id = ++_id;
+        Listing memory listing = Listing({
+            type_: type_,
+            zeroProtocolFee: false,
+            seller: msg.sender,
+            payoutReceiver: payoutReceiver,
+            currencyAddress: currencyAddress,
+            openTime: openTime,
+            reservePrice: reservePrice,
+            buyNowPrice: buyNowPrice,
+            id: id
+        });
+
+        // adjust listing based on listing type
+        if (type_ == ListingType.SCHEDULED_AUCTION) {
+            listing.buyNowPrice = 0;
+            _auctions[id].startTime = openTime;
+            _auctions[id].duration = auctionDuration;
+        } else if (type_ == ListingType.RESERVE_AUCTION) {
+            listing.buyNowPrice = 0;
+            _auctions[id].duration = auctionDuration;
+        } else if (type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
+            _auctions[id].duration = auctionDuration;
+        } else if (type_ == ListingType.BUY_NOW) {
+            listing.reservePrice = 0;
+        } else {
+            revert InvalidListingType();
+        }
+
+        // set listing
+        _listings[nftAddress][tokenId] = listing;
+
+        // escrow token, should revert if contract isn't approved
+        nftContract.transferFrom(msg.sender, address(this), tokenId);
+
+        // check to ensure it was escrowed
+        if (nftContract.ownerOf(tokenId) != address(this)) revert TokenNotTransferred();
+
+        emit ListingConfigured(msg.sender, nftAddress, tokenId, listing, _auctions[id]);
+    }
+
+    /// @notice Function to cancel a listing
+    /// @dev Requirements
+    ///      - only the seller of the listing can delist
+    ///      - the listing must be active
+    ///      - the auction cannot have been started when delisting
+    function delist(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
+        // cache data
+        IERC721 nftContract = IERC721(nftAddress);
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
+
+        // revert if caller is not seller
+        // this also catches if the nft is not listing, as the seller is the zero address
+        if (msg.sender != listing.seller) revert NotSeller();
+
+        // check if auction has been bid on (this should always pass if listing type is BUY_NOW)
+        if (auction.highestBidder != address(0)) revert AuctionStarted();
+
+        // delete listing & auction
+        delete _listings[nftAddress][tokenId];
+        delete _auctions[listing.id];
+
+        // transfer token back to seller
+        nftContract.transferFrom(address(this), listing.seller, tokenId);
+
+        emit ListingCanceled(msg.sender, nftAddress, tokenId);
+    }
+
+    /// @notice Function to bid on a token that has an auction configured
+    /// @dev Requirements
+    ///      - msg.sender & recipient can't be sanctioned addresses
+    ///      - recipient cannot be the zero address
+    ///      - a listing must be configured as an auction
+    ///      - the block timestamp is past the listing open time
+    ///      - the bid can't be too low (under reserve price for first bid or under next bid for subsequent bids)
+    ///      - the auction can't have ended
+    ///      - the funds sent must match `amount` exactly when bidding
+    ///      - the previous bid is sent back
+    ///      - if bidding with ERC-20 tokens, no ETH is allowed to be sent
+    ///      - if a bid comes within `EXTENSION_TIME`, extend the auction back to `EXTENSION_TIME`
+    ///      - the bidder can specify a recipient for the nft they are bidding on, which allows for cross-chain bids to occur
+    function bid(address nftAddress, uint256 tokenId, address recipient, uint256 amount)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
     {
-        _setMinBidIncreaseSettings(initMinBidIncreasePerc, initMinBidIncreaseLimit);
-        _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFeePerc, initProtocolFeeLimit);
+        // check sender & recipient
+        _isSanctioned(msg.sender, true);
+        if (!_isValidRecipient(recipient)) revert InvalidRecipient();
+
+        // cache data
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
+        uint256 previousBid = auction.highestBid;
+        address previousBidder = auction.highestBidder;
+        bool firstBid = false;
+
+        // check the listing type
+        if (listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.BUY_NOW) {
+            revert InvalidListingType();
+        }
+
+        // cannot bid if prior to listing.openTime
+        if (block.timestamp < listing.openTime) revert CannotBidYet();
+
+        // check constraints on first bid versus other bids
+        if (auction.highestBidder == address(0)) {
+            // first bid
+            firstBid = true;
+
+            // first bid cannot bid under reserve price
+            if (amount < listing.reservePrice) revert BidTooLow();
+
+            // set start time if reserve auction
+            if (
+                listing.type_ == ListingType.RESERVE_AUCTION
+                    || listing.type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW
+            ) {
+                auction.startTime = block.timestamp;
+            }
+
+            // if scheduled auction, make sure that can't bid on a token that has gone past the scheduled duration without bids
+            if (listing.type_ == ListingType.SCHEDULED_AUCTION) {
+                if (block.timestamp > auction.startTime + auction.duration) revert AuctionEnded();
+            }
+        } else {
+            // subsequent bids
+            // cannot bid after auction is ended
+            if (block.timestamp > auction.startTime + auction.duration) revert AuctionEnded();
+
+            // ensure amount being bid is greater than minimum next bid
+            if (amount < _calcNextBid(auction.highestBid)) revert BidTooLow();
+        }
+
+        // update auction, extending duration if needed
+        auction.highestBid = amount;
+        auction.highestBidder = msg.sender;
+        auction.recipient = recipient;
+        uint256 timeRemaining = auction.startTime + auction.duration - block.timestamp; // checks for being past auction end time avoid underflow issues here
+        if (timeRemaining < EXTENSION_TIME) {
+            auction.duration += EXTENSION_TIME - timeRemaining;
+        }
+        _auctions[listing.id] = auction;
+
+        // transfer funds as needed for the bid
+        if (listing.currencyAddress == address(0)) {
+            // ETH
+            // escrow msg.value
+            if (msg.value != amount) revert UnexpectedMsgValue();
+        } else {
+            // ERC-20
+            // make sure they didn't send any ETH along
+            if (msg.value != 0) revert UnexpectedMsgValue();
+
+            // escrow amount from sender (not recipient)
+            _safeTransferFromERC20(msg.sender, address(this), listing.currencyAddress, amount);
+        }
+
+        // return previous bid, if it's a subsequent bid
+        if (!firstBid) {
+            _payout(previousBidder, listing.currencyAddress, previousBid);
+        }
+
+        emit AuctionBid(msg.sender, nftAddress, tokenId, listing, auction);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Owner Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /// @notice Function to settle an auction
+    /// @dev Requirements
+    ///      - can be called by anyone on the blockchain
+    ///      - the listing must be configured as an auction
+    ///      - the auction must have been started AND ended
+    ///      - royalties are paid out on secondary sales, where the creator of the token is not the seller
+    function settleAuction(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
+        // cache data
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
 
-    /// @notice Function to set a new royalty engine address
-    /// @dev Requires owner
-    /// @param newRoyaltyEngine The new royalty engine address
-    function setRoyaltyEngine(address newRoyaltyEngine) external onlyOwner {
-        address prevRoyaltyEngine = address(royaltyEngine);
-        _setRoyaltyEngineAddress(newRoyaltyEngine);
+        // check to make sure the listing is the right type
+        if (listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.BUY_NOW) {
+            revert InvalidListingType();
+        }
 
-        emit RoyaltyEngineUpdated(prevRoyaltyEngine, newRoyaltyEngine);
+        // check that auction was bid on
+        if (auction.highestBidder == address(0)) revert AuctionNotStarted();
+
+        // ensure auction is ended
+        if (block.timestamp <= auction.startTime + auction.duration) revert AuctionNotEnded();
+
+        // delete listing & auction
+        delete _listings[nftAddress][tokenId];
+        delete _auctions[listing.id];
+
+        // settle up
+        _settleUp(
+            nftAddress,
+            tokenId,
+            listing.zeroProtocolFee,
+            auction.recipient,
+            listing.currencyAddress,
+            listing.seller,
+            listing.payoutReceiver,
+            auction.highestBid
+        );
+
+        emit AuctionSettled(msg.sender, nftAddress, tokenId, listing, auction);
     }
+
+    /// @notice Function to buy a token at a fixed price
+    /// @dev Requirements
+    ///      - msg.sender and recipient cannot be sanctioned
+    ///      - recipient cannot be the zero address
+    ///      - listing must be configured as a reserve auction with a buy now price or just a buy now
+    ///      - if it's an auction + buy now, the auction cannot be started
+    ///      - the listing must be open
+    ///      - royalties are paid out for secondary sales, where the creator of the token is not the seller
+    function buyNow(address nftAddress, uint256 tokenId, address recipient)
+        external
+        payable
+        whenNotPaused
+        nonReentrant
+    {
+        // check sender & recipient
+        _isSanctioned(msg.sender, true);
+        if (!_isValidRecipient(recipient)) revert InvalidRecipient();
+
+        // cache data
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
+
+        // check the listing type
+        if (
+            listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.SCHEDULED_AUCTION
+                || listing.type_ == ListingType.RESERVE_AUCTION
+        ) {
+            revert InvalidListingType();
+        }
+
+        // cannot buy if an auction is live
+        if (auction.highestBidder != address(0)) revert AuctionStarted();
+
+        // cannot buy if prior to listing.openTime
+        if (block.timestamp < listing.openTime) revert CannotBuyYet();
+
+        // delete listing & auction
+        delete _listings[nftAddress][tokenId];
+        delete _auctions[listing.id];
+
+        // handle funds transfer
+        if (listing.currencyAddress == address(0)) {
+            // ETH
+            // escrow msg.value
+            if (msg.value != listing.buyNowPrice) revert UnexpectedMsgValue();
+        } else {
+            // ERC-20
+            // make sure they didn't send any ETH along
+            if (msg.value != 0) revert UnexpectedMsgValue();
+
+            // escrow amount from sender (not recipient)
+            _safeTransferFromERC20(msg.sender, address(this), listing.currencyAddress, listing.buyNowPrice);
+        }
+
+        // settle up
+        _settleUp(
+            nftAddress,
+            tokenId,
+            listing.zeroProtocolFee,
+            recipient,
+            listing.currencyAddress,
+            listing.seller,
+            listing.payoutReceiver,
+            listing.buyNowPrice
+        );
+
+        emit BuyNowFulfilled(msg.sender, nftAddress, tokenId, recipient, listing);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    /// ADMIN FUNCTIONS
+    ///////////////////////////////////////////////////////////////////////////
 
     /// @notice Function to set a new weth address
     /// @dev Requires owner
-    /// @param newWethAddress The new weth address
     function setWethAddress(address newWethAddress) external onlyOwner {
-        address prevWeth = weth;
-        _setWethAddress(newWethAddress);
+        address prevWethAddress = weth;
+        weth = newWethAddress;
 
-        emit WethUpdated(prevWeth, newWethAddress);
-    }
-
-    /// @notice Function to set the min bid increase settings
-    /// @dev Requires owner
-    /// @param newMinBidIncreasePerc The new minimum bid increase nominal percentage, out of `BASIS`
-    /// @param newMinBidIncreaseLimit The new minimum bid increase absolute limit
-    function setMinBidIncreaseSettings(uint256 newMinBidIncreasePerc, uint256 newMinBidIncreaseLimit)
-        external
-        onlyOwner
-    {
-        _setMinBidIncreaseSettings(newMinBidIncreasePerc, newMinBidIncreaseLimit);
+        emit WethUpdated(prevWethAddress, newWethAddress);
     }
 
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
-    /// @param newProtocolFeeReceiver The new protocol fee receiver
-    /// @param newProtocolFeePerc The new protocol fee percentage, out of `BASIS`
-    /// @param newProtocolFeeLimit The new protocol fee limit
-    function setProtocolFeeSettings(
-        address newProtocolFeeReceiver,
-        uint256 newProtocolFeePerc,
-        uint256 newProtocolFeeLimit
-    ) external onlyOwner {
-        _setProtocolFeeSettings(newProtocolFeeReceiver, newProtocolFeePerc, newProtocolFeeLimit);
+    /// @dev The new protocol fee bps must be out of `BASIS`
+    function setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFeeBps) external onlyOwner {
+        if (!_isValidRecipient(newProtocolFeeReceiver)) revert InvalidRecipient();
+        if (newProtocolFeeBps > BASIS) revert InvalidProtocolFeeBps();
+
+        protocolFeeReceiver = newProtocolFeeReceiver;
+        protocolFeeBps = newProtocolFeeBps;
+
+        emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFeeBps);
+    }
+
+    /// @notice Function to set the sanctions oracle
+    /// @dev Requires owner
+    function setSanctionsOracle(address newOracle) external onlyOwner {
+        _updateSanctionsOracle(newOracle);
+    }
+
+    /// @notice Function to update the creator lookup contract
+    /// @dev Requires owner
+    function setCreatorLookup(address newCreatorLookupAddress) external onlyOwner {
+        address prevCreatorLookup = address(creatorLookup);
+        creatorLookup = ICreatorLookup(newCreatorLookupAddress);
+
+        emit CreatorLookupUpdated(prevCreatorLookup, newCreatorLookupAddress);
+    }
+
+    /// @notice Function to update the royalty lookup contract
+    /// @dev Requires owner
+    function setRoyaltyLookup(address newRoyaltyLookupAddress) external onlyOwner {
+        address prevRoyaltyLookup = address(royaltyLookup);
+        royaltyLookup = IRoyaltyLookup(newRoyaltyLookupAddress);
+
+        emit RoyaltyLookupUpdated(prevRoyaltyLookup, newRoyaltyLookupAddress);
     }
 
     /// @notice Function to pause the contract
     /// @dev Requires owner
-    /// @param status The boolean to set the internal pause variable
     function pause(bool status) external onlyOwner {
         if (status) {
             _pause();
@@ -128,492 +444,130 @@ contract TLAuctionHouse is
         }
     }
 
-    /// @notice Function to set the sanctions oracle
+    /// @notice Function to remove protocol fee from a specific listing
     /// @dev Requires owner
-    /// @param newOracle The new oracle address
-    function setSanctionsOracle(address newOracle) external onlyOwner {
-        _updateSanctionsOracle(newOracle);
+    function removeProtocolFee(address nftAddress, uint256 tokenId) external onlyOwner {
+        if (_listings[nftAddress][tokenId].type_ == ListingType.NOT_CONFIGURED) revert InvalidListingType();
+
+        _listings[nftAddress][tokenId].zeroProtocolFee = true;
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                            Auction Configuration Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    ///////////////////////////////////////////////////////////////////////////
+    /// VIEW FUNCTIONS
+    ///////////////////////////////////////////////////////////////////////////
 
-    /// @notice Function to configure an auction
-    /// @dev Requires the following items to be true
-    ///     - contract is not paused
-    ///     - the auction hasn't been configured yet for the current token owner
-    ///     - msg.sender is the owner of the token
-    ///     - auction house is approved for all
-    ///     - payoutReceiver isn't the zero address
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param payoutReceiver The address that receives the payout from the auction
-    /// @param currencyAddress The currency to use
-    /// @param reservePrice The auction reserve price
-    /// @param auctionOpenTime The time at which bidding is allowed
-    /// @param duration The duration of the auction after it is started
-    /// @param reserveAuction A flag dictating if the auction is a reserve auction or regular scheduled auction
-    function configureAuction(
-        address nftAddress,
-        uint256 tokenId,
-        address payoutReceiver,
-        address currencyAddress,
-        uint256 reservePrice,
-        uint256 auctionOpenTime,
-        uint256 duration,
-        bool reserveAuction
-    ) external whenNotPaused nonReentrant {
-        // sanctions
-        _isSanctioned(msg.sender, true);
-        _isSanctioned(payoutReceiver, true);
+    function getListing(address nftAddress, uint256 tokenId) external view returns (Listing memory, Auction memory) {
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
 
-        IERC721 nft = IERC721(nftAddress);
-        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
-        uint256 startTime = reserveAuction ? 0 : auctionOpenTime;
-
-        if (isNftOwner) {
-            if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
-            if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
-        } else {
-            revert CallerNotTokenOwner();
-        }
-
-        Auction memory auction = Auction(
-            msg.sender,
-            payoutReceiver,
-            currencyAddress,
-            address(0),
-            0,
-            reservePrice,
-            auctionOpenTime,
-            startTime,
-            duration
-        );
-
-        _auctions[nftAddress][tokenId] = auction;
-
-        emit AuctionConfigured(msg.sender, nftAddress, tokenId, auction);
+        return (listing, auction);
     }
 
-    /// @notice Function to cancel an auction
-    /// @dev Requires the following to be true
-    ///     - msg.sender to be the auction seller
-    ///     - the auction cannot be started
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    function cancelAuction(address nftAddress, uint256 tokenId) external nonReentrant {
-        IERC721 nft = IERC721(nftAddress);
-        Auction memory auction = _auctions[nftAddress][tokenId];
-        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
+    function getNextBid(address nftAddress, uint256 tokenId) external view returns (uint256) {
+        Listing memory listing = _listings[nftAddress][tokenId];
+        Auction memory auction = _auctions[listing.id];
 
-        if (msg.sender != auction.seller) {
-            if (!isNftOwner) revert CallerNotTokenOwner();
-        }
-        if (auction.highestBidder != address(0)) revert AuctionStarted();
-
-        delete _auctions[nftAddress][tokenId];
-
-        emit AuctionCanceled(msg.sender, nftAddress, tokenId);
+        return _calcNextBid(auction.highestBid);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Auction Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Function to bid on an auction
-    /// @dev Requires the following to be true
-    ///     - contract is not paused
-    ///     - block.timestamp is greater than the auction open timestamp
-    ///     - bid meets or exceeds the reserve price / min bid price
-    ///     - msg.sender has attached enough eth/erc20 as specified by `amount`
-    ///     - protocol fee has been supplied, if needed
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param amount The amount to bid in the currency address set in the auction
-    function bid(address nftAddress, uint256 tokenId, uint256 amount) external payable whenNotPaused nonReentrant {
-        _isSanctioned(msg.sender, true);
-
-        // cache items
-        Auction memory auction = _auctions[nftAddress][tokenId];
-        IERC721 nft = IERC721(nftAddress);
-        bool firstBid;
-        bool durationExtended;
-
-        // check if the auction is open
-        if (auction.seller == address(0)) revert AuctionNotConfigured();
-        if (block.timestamp < auction.auctionOpenTime) revert AuctionNotOpen();
-
-        if (auction.highestBidder == address(0)) {
-            // first bid
-            // - check bid amount
-            // - clear sale
-            // - start the auction (if reserve auction)
-            // - escrow the NFT
-            if (amount < auction.reservePrice) revert BidTooLow();
-            delete _sales[nftAddress][tokenId];
-            if (auction.startTime == 0) {
-                auction.startTime = block.timestamp;
-                firstBid = true;
-            }
-            // escrow nft
-            if (nft.ownerOf(tokenId) != auction.seller) revert NftNotOwnedBySeller();
-            nft.transferFrom(auction.seller, address(this), tokenId);
-            if (nft.ownerOf(tokenId) != address(this)) revert NftNotTransferred();
-        } else {
-            // subsequent bids
-            // - check if auction ended
-            // - check bid amount
-            // - refund previous bidder
-            if (block.timestamp > auction.startTime + auction.duration) revert AuctionEnded();
-            if (amount < _calcNextMinBid(auction.highestBid)) revert BidTooLow();
-            uint256 refundAmount = auction.highestBid + _calcProtocolFee(auction.highestBid);
-            if (auction.currencyAddress == address(0)) {
-                _safeTransferETH(auction.highestBidder, refundAmount, weth);
-            } else {
-                _safeTransferERC20(auction.highestBidder, auction.currencyAddress, refundAmount);
-            }
-        }
-
-        // set highest bid
-        auction.highestBid = amount;
-        auction.highestBidder = msg.sender;
-
-        // extend auction if needed
-        uint256 timeRemaining = auction.startTime + auction.duration - block.timestamp;
-        if (timeRemaining < EXTENSION_TIME) {
-            auction.duration += EXTENSION_TIME - timeRemaining;
-            durationExtended = true;
-        }
-
-        // store updated parameters to storage
-        Auction storage sAuction = _auctions[nftAddress][tokenId];
-        sAuction.highestBid = auction.highestBid;
-        sAuction.highestBidder = auction.highestBidder;
-        if (firstBid) sAuction.startTime = auction.startTime;
-        if (durationExtended) sAuction.duration = auction.duration;
-
-        // calculate the protocol fee
-        uint256 protocolFee = _calcProtocolFee(amount);
-
-        // transfer funds (move ERC20, refund ETH)
-        uint256 totalAmount = amount + protocolFee;
-        if (auction.currencyAddress == address(0)) {
-            if (msg.value < totalAmount) revert InsufficientMsgValue();
-            uint256 refund = msg.value - totalAmount;
-            if (refund > 0) {
-                _safeTransferETH(msg.sender, refund, weth);
-            }
-        } else {
-            _safeTransferFromERC20(msg.sender, address(this), auction.currencyAddress, totalAmount);
-            if (msg.value > 0) {
-                _safeTransferETH(msg.sender, msg.value, weth);
-            }
-        }
-
-        emit AuctionBid(msg.sender, nftAddress, tokenId, auction);
+    function getIfPrimarySale(address nftAddress, uint256 tokenId) external view returns (bool) {
+        Listing memory listing = _listings[nftAddress][tokenId];
+        return creatorLookup.getCreator(nftAddress, tokenId) == listing.seller;
     }
 
-    /// @notice Function to settle an auction
-    /// @dev Can be called by anyone
-    /// @dev Requires the following to be true
-    ///     - auction has been started
-    ///     - auction has ended
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    function settleAuction(address nftAddress, uint256 tokenId) external nonReentrant {
-        // cache items
-        Auction memory auction = _auctions[nftAddress][tokenId];
-        IERC721 nft = IERC721(nftAddress);
-
-        // check requirements
-        if (auction.highestBidder == address(0)) revert AuctionNotStarted();
-        if (block.timestamp < auction.startTime + auction.duration) revert AuctionNotEnded();
-
-        // clear the auction
-        delete _auctions[nftAddress][tokenId];
-
-        // payout auction
-        _payout(nftAddress, tokenId, auction.currencyAddress, auction.highestBid, auction.payoutReceiver);
-
-        // transfer nft
-        nft.transferFrom(address(this), auction.highestBidder, tokenId);
-        if (nft.ownerOf(tokenId) != auction.highestBidder) revert NftNotTransferred();
-
-        emit AuctionSettled(msg.sender, nftAddress, tokenId, auction);
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                            Sales Configuration Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Function to configure a buy now sale
-    /// @dev Requires the following to be true
-    ///     - contract is not paused
-    ///     - the sale hasn't been configured yet by the current token owner
-    ///     - an auction hasn't been started - this is captured by token ownership
-    ///     - msg.sender is the owner of the token
-    ///     - auction house is approved for all
-    ///     - payoutReceiver isn't the zero address
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @param payoutReceiver The address that receives the payout from the sale
-    /// @param currencyAddress The currency to use
-    /// @param price The sale price
-    /// @param saleOpenTime The time at which the sale opens
-    function configureSale(
-        address nftAddress,
-        uint256 tokenId,
-        address payoutReceiver,
-        address currencyAddress,
-        uint256 price,
-        uint256 saleOpenTime
-    ) external whenNotPaused nonReentrant {
-        // sanctions
-        _isSanctioned(msg.sender, true);
-        _isSanctioned(payoutReceiver, true);
-
-        IERC721 nft = IERC721(nftAddress);
-        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
-
-        if (isNftOwner) {
-            if (!_checkAuctionHouseApproval(nft, msg.sender)) revert AuctionHouseNotApproved();
-            if (!_checkPayoutReceiver(payoutReceiver)) revert PayoutToZeroAddress();
-        } else {
-            revert CallerNotTokenOwner();
-        }
-
-        Sale memory sale = Sale(msg.sender, payoutReceiver, currencyAddress, price, saleOpenTime);
-
-        _sales[nftAddress][tokenId] = sale;
-
-        emit SaleConfigured(msg.sender, nftAddress, tokenId, sale);
-    }
-
-    /// @notice Function to cancel a sale
-    /// @dev Requires msg.sender to be the token owner
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    function cancelSale(address nftAddress, uint256 tokenId) external nonReentrant {
-        IERC721 nft = IERC721(nftAddress);
-        Sale memory sale = _sales[nftAddress][tokenId];
-        bool isNftOwner = _checkTokenOwnership(nft, tokenId, msg.sender);
-
-        if (msg.sender != sale.seller) {
-            if (!isNftOwner) revert CallerNotTokenOwner();
-        }
-
-        delete _sales[nftAddress][tokenId];
-
-        emit SaleCanceled(msg.sender, nftAddress, tokenId);
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Sales Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Function to buy a token
-    /// @dev Requires the following to be true
-    ///     - contract is not paused
-    ///     - block.timestamp is greater than the sale open timestamp
-    ///     - msg.sender has attached enough eth/erc20 as specified by the sale
-    ///     - protocol fee has been supplied, if needed
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    function buyNow(address nftAddress, uint256 tokenId) external payable whenNotPaused nonReentrant {
-        _isSanctioned(msg.sender, true);
-
-        // cache items
-        Sale memory sale = _sales[nftAddress][tokenId];
-        IERC721 nft = IERC721(nftAddress);
-
-        // check if the sale is open
-        if (sale.seller == address(0)) revert SaleNotConfigured();
-        if (block.timestamp < sale.saleOpenTime) revert SaleNotOpen();
-
-        // check that the nft is owned by the seller still
-        if (nft.ownerOf(tokenId) != sale.seller) revert NftNotOwnedBySeller();
-
-        // clear storage
-        delete _auctions[nftAddress][tokenId];
-        delete _sales[nftAddress][tokenId];
-
-        // calculate the protocol fee
-        uint256 protocolFee = _calcProtocolFee(sale.price);
-
-        // transfer funds to the contract, refunding if needed
-        uint256 totalAmount = sale.price + protocolFee;
-        if (sale.currencyAddress == address(0)) {
-            if (msg.value < totalAmount) revert InsufficientMsgValue();
-            uint256 refund = msg.value - totalAmount;
-            if (refund > 0) {
-                _safeTransferETH(msg.sender, refund, weth);
-            }
-        } else {
-            _safeTransferFromERC20(msg.sender, address(this), sale.currencyAddress, totalAmount);
-            if (msg.value > 0) {
-                _safeTransferETH(msg.sender, msg.value, weth);
-            }
-        }
-
-        // payout sale
-        _payout(nftAddress, tokenId, sale.currencyAddress, sale.price, sale.payoutReceiver);
-
-        // transfer nft
-        nft.transferFrom(sale.seller, msg.sender, tokenId);
-        if (nft.ownerOf(tokenId) != msg.sender) revert NftNotTransferred();
-
-        emit SaleFulfilled(msg.sender, nftAddress, tokenId, sale);
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                External View Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice function to get a sale
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @return sale The sale struct
-    function getSale(address nftAddress, uint256 tokenId) external view returns (Sale memory) {
-        return _sales[nftAddress][tokenId];
-    }
-
-    /// @notice function to get an auction
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @return auction The auction struct
-    function getAuction(address nftAddress, uint256 tokenId) external view returns (Auction memory) {
-        return _auctions[nftAddress][tokenId];
-    }
-
-    /// @notice function to get the next minimum bid price for an auction
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The nft token id
-    /// @return uint256 The next minimum bid required
-    function calcNextMinBid(address nftAddress, uint256 tokenId) external view returns (uint256) {
-        return _calcNextMinBid(_auctions[nftAddress][tokenId].highestBid);
-    }
-
-    /// @notice function to calculate the protocol fee
-    /// @param amount The value to calculate the fee for
-    /// @return uint256 The calculated fee
-    function calcProtocolFee(uint256 amount) external view returns (uint256) {
-        return _calcProtocolFee(amount);
-    }
-
-    /*//////////////////////////////////////////////////////////////////////////
-                                Internal Helper Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Internal function to set the min bid increase settings
-    /// @param newMinBidIncreasePerc The new minimum bid increase nominal percentage, out of `BASIS`
-    /// @param newMinBidIncreaseLimit The new minimum bid increase absolute limit
-    function _setMinBidIncreaseSettings(uint256 newMinBidIncreasePerc, uint256 newMinBidIncreaseLimit) internal {
-        if (newMinBidIncreasePerc > BASIS) revert PercentageTooLarge();
-
-        minBidIncreasePerc = newMinBidIncreasePerc;
-        minBidIncreaseLimit = newMinBidIncreaseLimit;
-
-        emit MinBidIncreaseUpdated(newMinBidIncreasePerc, newMinBidIncreaseLimit);
-    }
-
-    /// @notice Internal function to set the protocol fee settings
-    /// @param newProtocolFeeReceiver The new protocol fee receiver
-    /// @param newProtocolFeePerc The new protocol fee percentage, out of `BASIS`
-    /// @param newProtocolFeeLimit The new protocol fee limit
-    function _setProtocolFeeSettings(
-        address newProtocolFeeReceiver,
-        uint256 newProtocolFeePerc,
-        uint256 newProtocolFeeLimit
-    ) internal {
-        if (newProtocolFeePerc > BASIS) revert PercentageTooLarge();
-
-        protocolFeeReceiver = newProtocolFeeReceiver;
-        protocolFeePerc = newProtocolFeePerc;
-        protocolFeeLimit = newProtocolFeeLimit;
-
-        emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFeePerc, newProtocolFeeLimit);
-    }
-
-    /// @notice Internal function to check if a token is owned by an address
-    /// @param nft The nft contract
-    /// @param tokenId The nft token id
-    /// @param potentialTokenOwner The potential token owner to check against
-    /// @return bool Indication of if the address in quesion is the owner of the token
-    function _checkTokenOwnership(IERC721 nft, uint256 tokenId, address potentialTokenOwner)
-        internal
+    function getRoyalty(address nftAddress, uint256 tokenId, uint256 value)
+        external
         view
-        returns (bool)
+        returns (address payable[] memory, uint256[] memory)
     {
-        return nft.ownerOf(tokenId) == potentialTokenOwner;
+        if (address(royaltyLookup).code.length == 0) return (new address payable[](0), new uint256[](0));
+        try royaltyLookup.getRoyaltyView(nftAddress, tokenId, value) returns (
+            address payable[] memory recipients, uint256[] memory amounts
+        ) {
+            return (recipients, amounts);
+        } catch {
+            return (new address payable[](0), new uint256[](0));
+        }
     }
 
-    /// @notice Internal function to check if the auction house is approved for all
-    /// @param nft The nft contract
-    /// @param seller The seller to check against
-    /// @return bool Indication of if the auction house is approved for all by the seller
-    function _checkAuctionHouseApproval(IERC721 nft, address seller) internal view returns (bool) {
-        return nft.isApprovedForAll(seller, address(this));
+    ///////////////////////////////////////////////////////////////////////////
+    /// HELPER FUNCTIONS
+    ///////////////////////////////////////////////////////////////////////////
+
+    /// @notice Internal function to check if an nft recipient is valid
+    /// @dev Returns false if the recipient is sanctioned or if it is the zero address
+    function _isValidRecipient(address recipient) private view returns (bool) {
+        if (recipient == address(0)) return false;
+        if (_isSanctioned(recipient, false)) return false;
+        return true;
     }
 
-    /// @notice Internal function to check if a payout address is a valid address
-    /// @param payoutReceiver The payout address to check
-    /// @return bool Indication of if the payout address is not the zero address
-    function _checkPayoutReceiver(address payoutReceiver) internal pure returns (bool) {
-        return payoutReceiver != address(0);
-    }
-
-    /// @notice Internal function to calculate the next min bid price
+    /// @notice Internal function to calculate the next bid price
     /// @param currentBid The current bid
-    /// @return nextMinBid The next minimum bid
-    function _calcNextMinBid(uint256 currentBid) internal view returns (uint256 nextMinBid) {
-        uint256 bidIncrease = currentBid * minBidIncreasePerc / BASIS;
-        if (bidIncrease > minBidIncreaseLimit) {
-            bidIncrease = minBidIncreaseLimit;
-        }
-        nextMinBid = currentBid + bidIncrease;
-    }
-
-    /// @notice Internal function to calculate the protocol fee
-    /// @param amount The value of the sale
-    /// @return fee The protocol fee
-    function _calcProtocolFee(uint256 amount) internal view returns (uint256 fee) {
-        fee = amount * protocolFeePerc / BASIS;
-        if (fee > protocolFeeLimit) {
-            fee = protocolFeeLimit;
+    /// @return nextBid The next bid
+    function _calcNextBid(uint256 currentBid) private pure returns (uint256 nextBid) {
+        uint256 inc = currentBid * BID_INCREASE_BPS / BASIS;
+        if (inc == 0) {
+            return currentBid + 1;
+        } else {
+            return currentBid + inc;
         }
     }
 
-    /// @notice Internal function to payout from the contract
-    /// @param nftAddress The nft contract address
-    /// @param tokenId The token id
-    /// @param currencyAddress The currency address (ZERO ADDRESS == ETH)
-    /// @param amount The sale/auction end price
-    /// @param payoutReceiver The receiver for the sale payout (what's remaining after royalties)
-    function _payout(
+    /// @notice Internal function to abstract payouts when settling a listing
+    function _payout(address to, address currencyAddress, uint256 value) private {
+        if (currencyAddress == address(0)) {
+            _safeTransferETH(to, value, weth);
+        } else {
+            _safeTransferERC20(to, currencyAddress, value);
+        }
+    }
+
+    /// @notice Internal function to settle a sale/Auction
+    function _settleUp(
         address nftAddress,
         uint256 tokenId,
+        bool zeroProtocolFee,
+        address recipient,
         address currencyAddress,
-        uint256 amount,
-        address payoutReceiver
-    ) internal {
-        // calc protocol fee
-        uint256 protocolFee = _calcProtocolFee(amount);
+        address seller,
+        address payoutReceiver,
+        uint256 value
+    ) private {
+        uint256 remainingValue = value;
 
-        // payout royalties
-        uint256 remainingAmount = _payoutRoyalties(nftAddress, tokenId, currencyAddress, amount);
-
-        // distribute protocol fee and remaining amount - should be escrowed in this contract
-        if (currencyAddress == address(0)) {
-            // transfer protocol fee
-            _safeTransferETH(protocolFeeReceiver, protocolFee, weth);
-            // transfer remaining value to payout receiver
-            _safeTransferETH(payoutReceiver, remainingAmount, weth);
-        } else {
-            // transfer protocol fee
-            _safeTransferERC20(protocolFeeReceiver, currencyAddress, protocolFee);
-            // transfer remaining value to payout receiver
-            _safeTransferERC20(payoutReceiver, currencyAddress, remainingAmount);
+        // take protocol fee (if not zeroed by contract owner)
+        if (!zeroProtocolFee) {
+            uint256 protocolFee = value * protocolFeeBps / BASIS;
+            remainingValue -= protocolFee;
+            _payout(protocolFeeReceiver, currencyAddress, protocolFee);
         }
+
+        // if secondary sale, payout royalties (seller is not the creator)
+        address creator = creatorLookup.getCreator(nftAddress, tokenId);
+        if (seller != creator && address(royaltyLookup).code.length > 0) {
+            // secondary sale
+            try royaltyLookup.getRoyalty(nftAddress, tokenId, remainingValue) returns (
+                address payable[] memory recipients, uint256[] memory amounts
+            ) {
+                if (recipients.length == amounts.length) {
+                    // payout if array lengths match
+                    for (uint256 i = 0; i < recipients.length; ++i) {
+                        if (_isSanctioned(recipients[i], false)) continue; // don't pay to sanctioned addresses
+                        if (amounts[i] > remainingValue) break;
+                        remainingValue -= amounts[i];
+                        _payout(recipients[i], currencyAddress, amounts[i]);
+                    }
+                }
+            } catch {
+                // do nothing if royalty lookup call fails
+            }
+        }
+
+        // pay remaining amount to payout receiver (set by the seller)
+        _payout(payoutReceiver, currencyAddress, remainingValue);
+
+        // transfer nft to recipient
+        IERC721(nftAddress).transferFrom(address(this), recipient, tokenId);
     }
 }

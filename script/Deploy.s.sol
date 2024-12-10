@@ -9,28 +9,28 @@ interface ICreate2Deployer {
     function computeAddress(bytes32 salt, bytes32 codeHash) external view returns (address);
 }
 
-contract DeployTLAuctionHouse is Script {
-    using Strings for address;
+// contract DeployTLAuctionHouse is Script {
+//     using Strings for address;
 
-    function run() public {
-        // get environment variables
-        ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
-        bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
-        bytes32 salt = vm.envBytes32("SALT");
+//     function run() public {
+//         // get environment variables
+//         ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
+//         bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
+//         bytes32 salt = vm.envBytes32("SALT");
 
-        // get bytecode
-        bytes memory bytecode = abi.encodePacked(vm.getCode("TLAuctionHouse.sol:TLAuctionHouse"), constructorArgs);
+//         // get bytecode
+//         bytes memory bytecode = abi.encodePacked(vm.getCode("TLAuctionHouse.sol:TLAuctionHouse"), constructorArgs);
 
-        // deploy
-        address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
-        console.logAddress(deployedContract);
-        vm.broadcast();
-        create2Deployer.deploy(0, salt, bytecode);
+//         // deploy
+//         address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
+//         console.logAddress(deployedContract);
+//         vm.broadcast();
+//         create2Deployer.deploy(0, salt, bytecode);
 
-        // save deployed contract address
-        vm.writeLine("out.txt", deployedContract.toHexString());
-    }
-}
+//         // save deployed contract address
+//         vm.writeLine("out.txt", deployedContract.toHexString());
+//     }
+// }
 
 contract DeployTLStacks721 is Script {
     using Strings for address;

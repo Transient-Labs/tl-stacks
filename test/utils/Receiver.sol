@@ -29,7 +29,7 @@ contract RevertingBidder {
     }
 
     function bid(address nftAddress, uint256 tokenId, uint256 bid_) external payable {
-        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, bid_);
+        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, address(this), bid_);
     }
 }
 
@@ -49,6 +49,6 @@ contract GriefingBidder {
     }
 
     function bid(address nftAddress, uint256 tokenId, uint256 bid_) external payable {
-        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, bid_);
+        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, address(this), bid_);
     }
 }
