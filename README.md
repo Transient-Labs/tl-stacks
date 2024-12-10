@@ -16,21 +16,22 @@ The mint contracts are
 - only the NFT contract owner or admins can configure/alter/cancel a mint
 
 ## Auction House
-A contract for reserve auctions and/or buy nows for minted ERC-721 tokens. Works for any ERC-721 token in existence.
+A contract for auctions and/or buy nows for minted ERC-721 tokens. Works for any ERC-721 compliant token in existence.
 
 The auction house contract is `TLAuctionHouse.sol`
 
 ### Features
-- implements a capped percentage buyers fee
+- protocol fee as a percentage of the sale, charged to the seller
+- auction durations extended for any bids that come in the last five minutes
+- listings can be scheduled ahead of time
 - configurable for any ERC-20 token
-- ALWAYS respects royalties if configured on the Royalty Registry
-- Reserve auction can be configured ahead of time and have any duration desired
-- Reserve auction and buy now can be listed at the same time and if either is hit first, the other is canceled automatically
-- Only the NFT owner can configure or cancel an auction/buy now (this is true even when the NFT transfers hands outside of this contract)
-- Buy Nows can be configured ahead of time as well
-
-## Safety
-- If you have a listing on the Auction House and sell the token on another marketplace, beware that your listing on the Auction House is stale and if the NFT returns to your wallet at some point, the listing becomes valid. In the real world, this doesn't seem to occur very often, yet, you'll want to cancel your listing in this scenario.
+- respects royalties on secondary sales (if configured on the token)
+- listing types
+    - Scheduled auction
+    - Reserve auction
+    - Reserve auction + buy now
+    - Buy now
+- only the NFT owner can configure or cancel an listing
 
 ## Deployments
 Contracts are deployed to the same address cross-chain using CREATE2. In doing such, constructor args have to be set to default values and then changed after deployment. Contracts are initially deployed with an EOA as the owner until initializations are made, then subsequently contract ownership is transferred to multi-sigs.
@@ -42,6 +43,8 @@ Arbitrum: `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1`
 Arbitrum-Sepolia: `0x980B62Da83eFf3D4576C647993b0c1D7faf17c73`
 Base: `0x4200000000000000000000000000000000000006`
 Base-Sepolia: `0x4200000000000000000000000000000000000006`
+Shaep: `0x4200000000000000000000000000000000000006`
+Shape-Sepolia: `0x4200000000000000000000000000000000000006`
 
 ### Sanctions Oracle
 https://go.chainalysis.com/chainalysis-oracle-docs.html
