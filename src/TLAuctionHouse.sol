@@ -86,6 +86,15 @@ contract TLAuctionHouse is
     ///      - only the token owner can list
     ///      - the token is escrowed upon listing
     ///      - if the auction house isn't approved for the token, escrowing will fail, so no need to check for that explicitly
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param type_ The ListingType
+    /// @param payoutReceiver The address that will receive payout for the sale
+    /// @param currencyAddress The address of the currency to use (zero address == ETH)
+    /// @param openTime The time at which the listing will open (if in the past, defaults to current block timestamp)
+    /// @param reservePrice The reserve price for the auction (if part of the listing type)
+    /// @param auctionDuration The duration of the auction
+    /// @param buyNowPrice The price at which the token can be instantly bought if the listing if properly configured for this
     function list(
         address nftAddress,
         uint256 tokenId,
@@ -104,6 +113,11 @@ contract TLAuctionHouse is
         // check that the sender owns the token
         IERC721 nftContract = IERC721(nftAddress);
         if (nftContract.ownerOf(tokenId) != msg.sender) revert NotTokenOwner(); // once listed, can't list again as the msg.sender wouldn't be the owner
+
+        // if openTime is in a previous block, set to the current block timestamp
+        if (openTime < block.timestamp) {
+            openTime = block.timestamp;
+        }
 
         // create listing
         uint256 id = ++_id;
@@ -152,6 +166,8 @@ contract TLAuctionHouse is
     ///      - only the seller of the listing can delist
     ///      - the listing must be active
     ///      - the auction cannot have been started when delisting
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function delist(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
         // cache data
         IERC721 nftContract = IERC721(nftAddress);
@@ -188,6 +204,10 @@ contract TLAuctionHouse is
     ///      - if bidding with ERC-20 tokens, no ETH is allowed to be sent
     ///      - if a bid comes within `EXTENSION_TIME`, extend the auction back to `EXTENSION_TIME`
     ///      - the bidder can specify a recipient for the nft they are bidding on, which allows for cross-chain bids to occur
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param recipient The recipient that will receive the NFT if the bid is the winning bid
+    /// @param amount The amount to bid
     function bid(address nftAddress, uint256 tokenId, address recipient, uint256 amount)
         external
         payable
@@ -203,7 +223,6 @@ contract TLAuctionHouse is
         Auction memory auction = _auctions[listing.id];
         uint256 previousBid = auction.highestBid;
         address previousBidder = auction.highestBidder;
-        bool firstBid = false;
 
         // check the listing type
         if (listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.BUY_NOW) {
@@ -214,10 +233,7 @@ contract TLAuctionHouse is
         if (block.timestamp < listing.openTime) revert CannotBidYet();
 
         // check constraints on first bid versus other bids
-        if (auction.highestBidder == address(0)) {
-            // first bid
-            firstBid = true;
-
+        if (previousBidder == address(0)) {
             // first bid cannot bid under reserve price
             if (amount < listing.reservePrice) revert BidTooLow();
 
@@ -267,9 +283,7 @@ contract TLAuctionHouse is
         }
 
         // return previous bid, if it's a subsequent bid
-        if (!firstBid) {
-            _payout(previousBidder, listing.currencyAddress, previousBid);
-        }
+        _payout(previousBidder, listing.currencyAddress, previousBid);
 
         emit AuctionBid(msg.sender, nftAddress, tokenId, listing, auction);
     }
@@ -280,6 +294,8 @@ contract TLAuctionHouse is
     ///      - the listing must be configured as an auction
     ///      - the auction must have been started AND ended
     ///      - royalties are paid out on secondary sales, where the creator of the token is not the seller
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function settleAuction(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
         // cache data
         Listing memory listing = _listings[nftAddress][tokenId];
@@ -323,6 +339,9 @@ contract TLAuctionHouse is
     ///      - if it's an auction + buy now, the auction cannot be started
     ///      - the listing must be open
     ///      - royalties are paid out for secondary sales, where the creator of the token is not the seller
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param recipient The recipient that will receive the NFT if the bid is the winning bid
     function buyNow(address nftAddress, uint256 tokenId, address recipient)
         external
         payable
@@ -390,6 +409,7 @@ contract TLAuctionHouse is
 
     /// @notice Function to set a new weth address
     /// @dev Requires owner
+    /// @param newWethAddress The weth contract address
     function setWethAddress(address newWethAddress) external onlyOwner {
         address prevWethAddress = weth;
         weth = newWethAddress;
@@ -400,6 +420,8 @@ contract TLAuctionHouse is
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
     /// @dev The new protocol fee bps must be out of `BASIS`
+    /// @param newProtocolFeeReceiver The new address to receive protocol fees
+    /// @param newProtocolFeeBps The new bps for the protocol fee
     function setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFeeBps) external onlyOwner {
         if (!_isValidRecipient(newProtocolFeeReceiver)) revert InvalidRecipient();
         if (newProtocolFeeBps > BASIS) revert InvalidProtocolFeeBps();
@@ -412,12 +434,14 @@ contract TLAuctionHouse is
 
     /// @notice Function to set the sanctions oracle
     /// @dev Requires owner
+    /// @param newOracle The new sanctions oracle address (zero address disables)
     function setSanctionsOracle(address newOracle) external onlyOwner {
         _updateSanctionsOracle(newOracle);
     }
 
     /// @notice Function to update the creator lookup contract
     /// @dev Requires owner
+    /// @param newCreatorLookupAddress The helper contract address for looking up a token creator
     function setCreatorLookup(address newCreatorLookupAddress) external onlyOwner {
         address prevCreatorLookup = address(creatorLookup);
         creatorLookup = ICreatorLookup(newCreatorLookupAddress);
@@ -427,6 +451,7 @@ contract TLAuctionHouse is
 
     /// @notice Function to update the royalty lookup contract
     /// @dev Requires owner
+    /// @param newRoyaltyLookupAddress The helper contract address for looking up token royalties
     function setRoyaltyLookup(address newRoyaltyLookupAddress) external onlyOwner {
         address prevRoyaltyLookup = address(royaltyLookup);
         royaltyLookup = IRoyaltyLookup(newRoyaltyLookupAddress);
@@ -436,6 +461,7 @@ contract TLAuctionHouse is
 
     /// @notice Function to pause the contract
     /// @dev Requires owner
+    /// @param status The boolean flag for the paused status
     function pause(bool status) external onlyOwner {
         if (status) {
             _pause();
@@ -446,6 +472,8 @@ contract TLAuctionHouse is
 
     /// @notice Function to remove protocol fee from a specific listing
     /// @dev Requires owner
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function removeProtocolFee(address nftAddress, uint256 tokenId) external onlyOwner {
         if (_listings[nftAddress][tokenId].type_ == ListingType.NOT_CONFIGURED) revert InvalidListingType();
 
@@ -456,6 +484,9 @@ contract TLAuctionHouse is
     /// VIEW FUNCTIONS
     ///////////////////////////////////////////////////////////////////////////
 
+    /// @notice Function to get a specific listing
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function getListing(address nftAddress, uint256 tokenId) external view returns (Listing memory, Auction memory) {
         Listing memory listing = _listings[nftAddress][tokenId];
         Auction memory auction = _auctions[listing.id];
@@ -463,6 +494,9 @@ contract TLAuctionHouse is
         return (listing, auction);
     }
 
+    /// @notice Function to get the next bid amount for a token
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function getNextBid(address nftAddress, uint256 tokenId) external view returns (uint256) {
         Listing memory listing = _listings[nftAddress][tokenId];
         Auction memory auction = _auctions[listing.id];
@@ -470,11 +504,18 @@ contract TLAuctionHouse is
         return _calcNextBid(auction.highestBid);
     }
 
+    /// @notice Function to understand if the sale is a primary or secondary sale
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
     function getIfPrimarySale(address nftAddress, uint256 tokenId) external view returns (bool) {
         Listing memory listing = _listings[nftAddress][tokenId];
         return creatorLookup.getCreator(nftAddress, tokenId) == listing.seller;
     }
 
+    /// @notice Function to get the royalty amount that will be paid to the creator
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param value The value to check against
     function getRoyalty(address nftAddress, uint256 tokenId, uint256 value)
         external
         view
@@ -516,6 +557,8 @@ contract TLAuctionHouse is
 
     /// @notice Internal function to abstract payouts when settling a listing
     function _payout(address to, address currencyAddress, uint256 value) private {
+        if (to == address(0) || value == 0) return;
+
         if (currencyAddress == address(0)) {
             _safeTransferETH(to, value, weth);
         } else {

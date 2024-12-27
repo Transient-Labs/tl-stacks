@@ -41,39 +41,23 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         // if royalty registry is enabled, use that, otherwise fallback to ERC-2981
         if (address(royaltyEngine) != address(0)) {
             // make sure royalty engine is not an EOA
-            if (address(royaltyEngine).code.length == 0) return (new address payable[](0), new uint256[](0));
+            if (address(royaltyEngine).code.length == 0) return (recipients, amounts);
 
             // try looking up royalty
             try royaltyEngine.getRoyalty(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
                 // if array lengths don't match, return empty
-                if (r.length != a.length) return (new address payable[](0), new uint256[](0));
+                if (r.length != a.length) return (recipients, amounts);
 
                 // return values from the royalty registry otherwise
                 return (r, a);
             } catch {
                 // if error, return empty
-                return (new address payable[](0), new uint256[](0));
+                return (recipients, amounts);
             }
         } else {
-            // make sure nft address is not an EOA
-            if (nftAddress.code.length == 0) return (new address payable[](0), new uint256[](0));
-
-            // try looking up royalty
-            try IEIP2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
-                // convert return value to arrays
-                address payable[] memory r = new address payable[](1);
-                r[0] = payable(r_);
-                uint256[] memory a = new uint256[](1);
-                a[0] = a_;
-
-                // return arrays
-                return (r, a);
-            } catch {
-                // if error, return empty
-                return (new address payable[](0), new uint256[](0));
-            }
+            return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
         }
     }
 
@@ -86,39 +70,23 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         // if royalty registry is enabled, use that, otherwise fallback to ERC-2981
         if (address(royaltyEngine) != address(0)) {
             // make sure royalty engine is not an EOA
-            if (address(royaltyEngine).code.length == 0) return (new address payable[](0), new uint256[](0));
+            if (address(royaltyEngine).code.length == 0) return (recipients, amounts);
 
             // try looking up royalty
             try royaltyEngine.getRoyaltyView(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
                 // if array lengths don't match, return empty
-                if (r.length != a.length) return (new address payable[](0), new uint256[](0));
+                if (r.length != a.length) return (recipients, amounts);
 
                 // return values from the royalty registry otherwise
                 return (r, a);
             } catch {
                 // if error, return empty
-                return (new address payable[](0), new uint256[](0));
+                return (recipients, amounts);
             }
         } else {
-            // make sure nft address is not an EOA
-            if (nftAddress.code.length == 0) return (new address payable[](0), new uint256[](0));
-
-            // try looking up royalty
-            try IEIP2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
-                // convert return value to arrays
-                address payable[] memory r = new address payable[](1);
-                r[0] = payable(r_);
-                uint256[] memory a = new uint256[](1);
-                a[0] = a_;
-
-                // return arrays
-                return (r, a);
-            } catch {
-                // if error, return empty
-                return (new address payable[](0), new uint256[](0));
-            }
+            return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
         }
     }
 
@@ -129,5 +97,34 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
     /// @notice Function to set the royalty engine
     function setRoyaltyEngine(address royaltyEngine_) external onlyOwner {
         royaltyEngine = IRoyaltyEngineV1(royaltyEngine_);
+    }
+
+    ///////////////////////////////////////////////////////////////////////////
+    /// INTERNAL HELPERS
+    ///////////////////////////////////////////////////////////////////////////
+
+    /// @notice Internal function to get royalty info based on ERC-2981 specification
+    function _getERC2981RoyaltyInfo(address nftAddress, uint256 tokenId, uint256 value)
+        internal
+        view
+        returns (address payable[] memory recipients, uint256[] memory amounts)
+    {
+        // make sure nft address is not an EOA
+        if (nftAddress.code.length == 0) return (recipients, amounts);
+
+        // try looking up royalty
+        try IEIP2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
+            // convert return value to arrays
+            address payable[] memory r = new address payable[](1);
+            r[0] = payable(r_);
+            uint256[] memory a = new uint256[](1);
+            a[0] = a_;
+
+            // return arrays
+            return (r, a);
+        } catch {
+            // if error, return empty
+            return (recipients, amounts);
+        }
     }
 }

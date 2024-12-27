@@ -284,6 +284,52 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.clearMockedCalls();
     }
 
+    function test_list_oldTimestamp() public {
+        // list
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        vm.expectEmit(true, true, true, true);
+        emit ListingConfigured(
+            ben,
+            address(nft),
+            1,
+            Listing({
+                type_: ListingType.SCHEDULED_AUCTION,
+                zeroProtocolFee: false,
+                seller: ben,
+                payoutReceiver: ben,
+                currencyAddress: address(0),
+                openTime: block.timestamp,
+                reservePrice: 0,
+                buyNowPrice: 0,
+                id: 1
+            }),
+            Auction({
+                highestBid: 0,
+                highestBidder: address(0),
+                recipient: address(0),
+                duration: 24 hours,
+                startTime: block.timestamp
+            })
+        );
+        ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, ben, address(0), 0, 0, 24 hours, 0);
+        vm.stopPrank();
+
+        // check values
+        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        assertTrue(l.type_ == ListingType.SCHEDULED_AUCTION);
+        assertEq(l.seller, ben);
+        assertFalse(l.zeroProtocolFee);
+        assertEq(l.payoutReceiver, ben);
+        assertEq(l.currencyAddress, address(0));
+        assertEq(l.openTime, block.timestamp);
+        assertEq(l.reservePrice, 0);
+        assertEq(l.buyNowPrice, 0);
+        assertEq(l.id, 1);
+        assertEq(a.startTime, block.timestamp);
+        assertEq(a.duration, 24 hours);
+    }
+
     function test_list_scheduledAuction(
         address payoutReceiver,
         address currencyAddress,
