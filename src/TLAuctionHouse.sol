@@ -604,6 +604,7 @@ contract TLAuctionHouse is
                 }
             } catch {
                 // do nothing if royalty lookup call fails
+                // this causes the coverage test to say a line is missing coverage
             }
         }
 
