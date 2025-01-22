@@ -20,17 +20,12 @@ struct Listing {
     uint256 openTime;
     uint256 reservePrice;
     uint256 buyNowPrice;
-    uint256 id;
-}
-
-/// @dev The Auction struct contains information related to the auction progress itself,
-/// while general information is stored in the listing
-struct Auction {
     uint256 startTime;
     uint256 duration;
     address recipient;
     address highestBidder;
     uint256 highestBid;
+    uint256 id;
 }
 
 interface ITLAuctionHouseEvents {
@@ -40,18 +35,14 @@ interface ITLAuctionHouseEvents {
     event RoyaltyLookupUpdated(address indexed prevRoyaltyLookup, address indexed newRoyaltyLookup);
 
     event ListingConfigured(
-        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing, Auction auction
+        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing
     );
     event ListingCanceled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId);
 
-    event AuctionBid(
-        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing, Auction auction
-    );
-    event AuctionSettled(
-        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing, Auction auction
-    );
+    event AuctionBid(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
+    event AuctionSettled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
 
     event BuyNowFulfilled(
-        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, address recipie, Listing listing
+        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, address recipient, Listing listing
     );
 }

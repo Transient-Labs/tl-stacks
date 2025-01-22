@@ -7,7 +7,7 @@ import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
 import {IERC721} from "openzeppelin/token/ERC721/IERC721.sol";
 import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
 import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {ListingType, Listing, Auction, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
+import {ListingType, Listing, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
 import {ICreatorLookup} from "./helpers/ICreatorLookup.sol";
 import {IRoyaltyLookup} from "./helpers/IRoyaltyLookup.sol";
 
@@ -44,7 +44,6 @@ contract TLAuctionHouse is
     IRoyaltyLookup public royaltyLookup; // royalty lookup contract
 
     mapping(address => mapping(uint256 => Listing)) private _listings; // nft address -> token id -> listing
-    mapping(uint256 => Auction) private _auctions; // listing id -> auction
 
     ///////////////////////////////////////////////////////////////////////////
     /// ERRORS
@@ -130,21 +129,25 @@ contract TLAuctionHouse is
             openTime: openTime,
             reservePrice: reservePrice,
             buyNowPrice: buyNowPrice,
+            startTime: 0,
+            duration: auctionDuration,
+            recipient: address(0),
+            highestBidder: address(0),
+            highestBid: 0,
             id: id
         });
 
         // adjust listing based on listing type
         if (type_ == ListingType.SCHEDULED_AUCTION) {
+            listing.startTime = openTime;
             listing.buyNowPrice = 0;
-            _auctions[id].startTime = openTime;
-            _auctions[id].duration = auctionDuration;
         } else if (type_ == ListingType.RESERVE_AUCTION) {
             listing.buyNowPrice = 0;
-            _auctions[id].duration = auctionDuration;
         } else if (type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
-            _auctions[id].duration = auctionDuration;
+            // do nothing
         } else if (type_ == ListingType.BUY_NOW) {
             listing.reservePrice = 0;
+            listing.duration = 0;
         } else {
             revert InvalidListingType();
         }
@@ -158,7 +161,7 @@ contract TLAuctionHouse is
         // check to ensure it was escrowed
         if (nftContract.ownerOf(tokenId) != address(this)) revert TokenNotTransferred();
 
-        emit ListingConfigured(msg.sender, nftAddress, tokenId, listing, _auctions[id]);
+        emit ListingConfigured(msg.sender, nftAddress, tokenId, listing);
     }
 
     /// @notice Function to cancel a listing
@@ -172,18 +175,16 @@ contract TLAuctionHouse is
         // cache data
         IERC721 nftContract = IERC721(nftAddress);
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
 
         // revert if caller is not seller
         // this also catches if the nft is not listing, as the seller is the zero address
         if (msg.sender != listing.seller) revert NotSeller();
 
         // check if auction has been bid on (this should always pass if listing type is BUY_NOW)
-        if (auction.highestBidder != address(0)) revert AuctionStarted();
+        if (listing.highestBidder != address(0)) revert AuctionStarted();
 
         // delete listing & auction
         delete _listings[nftAddress][tokenId];
-        delete _auctions[listing.id];
 
         // transfer token back to seller
         nftContract.transferFrom(address(this), listing.seller, tokenId);
@@ -220,9 +221,8 @@ contract TLAuctionHouse is
 
         // cache data
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
-        uint256 previousBid = auction.highestBid;
-        address previousBidder = auction.highestBidder;
+        uint256 previousBid = listing.highestBid;
+        address previousBidder = listing.highestBidder;
 
         // check the listing type
         if (listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.BUY_NOW) {
@@ -242,31 +242,41 @@ contract TLAuctionHouse is
                 listing.type_ == ListingType.RESERVE_AUCTION
                     || listing.type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW
             ) {
-                auction.startTime = block.timestamp;
+                listing.startTime = block.timestamp;
             }
 
             // if scheduled auction, make sure that can't bid on a token that has gone past the scheduled duration without bids
             if (listing.type_ == ListingType.SCHEDULED_AUCTION) {
-                if (block.timestamp > auction.startTime + auction.duration) revert AuctionEnded();
+                if (block.timestamp > listing.startTime + listing.duration) revert AuctionEnded();
             }
         } else {
             // subsequent bids
             // cannot bid after auction is ended
-            if (block.timestamp > auction.startTime + auction.duration) revert AuctionEnded();
+            if (block.timestamp > listing.startTime + listing.duration) revert AuctionEnded();
 
             // ensure amount being bid is greater than minimum next bid
-            if (amount < _calcNextBid(auction.highestBid)) revert BidTooLow();
+            if (amount < _calcNextBid(listing.highestBid)) revert BidTooLow();
         }
 
         // update auction, extending duration if needed
-        auction.highestBid = amount;
-        auction.highestBidder = msg.sender;
-        auction.recipient = recipient;
-        uint256 timeRemaining = auction.startTime + auction.duration - block.timestamp; // checks for being past auction end time avoid underflow issues here
+        listing.highestBid = amount;
+        listing.highestBidder = msg.sender;
+        listing.recipient = recipient;
+        uint256 timeRemaining = listing.startTime + listing.duration - block.timestamp; // checks for being past auction end time avoid underflow issues here
         if (timeRemaining < EXTENSION_TIME) {
-            auction.duration += EXTENSION_TIME - timeRemaining;
+            listing.duration += EXTENSION_TIME - timeRemaining;
         }
-        _auctions[listing.id] = auction;
+
+        // save new listing items in storage
+        _listings[nftAddress][tokenId].highestBid = listing.highestBid;
+        _listings[nftAddress][tokenId].highestBidder = listing.highestBidder;
+        _listings[nftAddress][tokenId].recipient = listing.recipient;
+        if (_listings[nftAddress][tokenId].startTime != listing.startTime) {
+            _listings[nftAddress][tokenId].startTime = listing.startTime;
+        }
+        if (_listings[nftAddress][tokenId].duration != listing.duration) {
+            _listings[nftAddress][tokenId].duration = listing.duration;
+        }
 
         // transfer funds as needed for the bid
         if (listing.currencyAddress == address(0)) {
@@ -285,7 +295,7 @@ contract TLAuctionHouse is
         // return previous bid, if it's a subsequent bid
         _payout(previousBidder, listing.currencyAddress, previousBid);
 
-        emit AuctionBid(msg.sender, nftAddress, tokenId, listing, auction);
+        emit AuctionBid(msg.sender, nftAddress, tokenId, listing);
     }
 
     /// @notice Function to settle an auction
@@ -299,7 +309,6 @@ contract TLAuctionHouse is
     function settleAuction(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
         // cache data
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
 
         // check to make sure the listing is the right type
         if (listing.type_ == ListingType.NOT_CONFIGURED || listing.type_ == ListingType.BUY_NOW) {
@@ -307,28 +316,27 @@ contract TLAuctionHouse is
         }
 
         // check that auction was bid on
-        if (auction.highestBidder == address(0)) revert AuctionNotStarted();
+        if (listing.highestBidder == address(0)) revert AuctionNotStarted();
 
         // ensure auction is ended
-        if (block.timestamp <= auction.startTime + auction.duration) revert AuctionNotEnded();
+        if (block.timestamp <= listing.startTime + listing.duration) revert AuctionNotEnded();
 
         // delete listing & auction
         delete _listings[nftAddress][tokenId];
-        delete _auctions[listing.id];
 
         // settle up
         _settleUp(
             nftAddress,
             tokenId,
             listing.zeroProtocolFee,
-            auction.recipient,
+            listing.recipient,
             listing.currencyAddress,
             listing.seller,
             listing.payoutReceiver,
-            auction.highestBid
+            listing.highestBid
         );
 
-        emit AuctionSettled(msg.sender, nftAddress, tokenId, listing, auction);
+        emit AuctionSettled(msg.sender, nftAddress, tokenId, listing);
     }
 
     /// @notice Function to buy a token at a fixed price
@@ -354,7 +362,6 @@ contract TLAuctionHouse is
 
         // cache data
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
 
         // check the listing type
         if (
@@ -365,14 +372,13 @@ contract TLAuctionHouse is
         }
 
         // cannot buy if an auction is live
-        if (auction.highestBidder != address(0)) revert AuctionStarted();
+        if (listing.highestBidder != address(0)) revert AuctionStarted();
 
         // cannot buy if prior to listing.openTime
         if (block.timestamp < listing.openTime) revert CannotBuyYet();
 
         // delete listing & auction
         delete _listings[nftAddress][tokenId];
-        delete _auctions[listing.id];
 
         // handle funds transfer
         if (listing.currencyAddress == address(0)) {
@@ -487,11 +493,10 @@ contract TLAuctionHouse is
     /// @notice Function to get a specific listing
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function getListing(address nftAddress, uint256 tokenId) external view returns (Listing memory, Auction memory) {
+    function getListing(address nftAddress, uint256 tokenId) external view returns (Listing memory) {
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
 
-        return (listing, auction);
+        return listing;
     }
 
     /// @notice Function to get the next bid amount for a token
@@ -499,9 +504,8 @@ contract TLAuctionHouse is
     /// @param tokenId The nft token id
     function getNextBid(address nftAddress, uint256 tokenId) external view returns (uint256) {
         Listing memory listing = _listings[nftAddress][tokenId];
-        Auction memory auction = _auctions[listing.id];
 
-        return _calcNextBid(auction.highestBid);
+        return _calcNextBid(listing.highestBid);
     }
 
     /// @notice Function to understand if the sale is a primary or secondary sale

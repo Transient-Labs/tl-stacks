@@ -11,7 +11,7 @@ import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgrad
 import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
 import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
 import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {ITLAuctionHouseEvents, ListingType, Listing, Auction} from "src/utils/TLAuctionHouseUtils.sol";
+import {ITLAuctionHouseEvents, ListingType, Listing} from "src/utils/TLAuctionHouseUtils.sol";
 import {Receiver, RevertingReceiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
 import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
@@ -302,21 +302,19 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 openTime: block.timestamp,
                 reservePrice: 0,
                 buyNowPrice: 0,
-                id: 1
-            }),
-            Auction({
                 highestBid: 0,
                 highestBidder: address(0),
                 recipient: address(0),
                 duration: 24 hours,
-                startTime: block.timestamp
+                startTime: block.timestamp,
+                id: 1
             })
         );
         ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, ben, address(0), 0, 0, 24 hours, 0);
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.SCHEDULED_AUCTION);
         assertEq(l.seller, ben);
         assertFalse(l.zeroProtocolFee);
@@ -326,8 +324,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 1);
-        assertEq(a.startTime, block.timestamp);
-        assertEq(a.duration, 24 hours);
+        assertEq(l.startTime, block.timestamp);
+        assertEq(l.duration, 24 hours);
     }
 
     function test_list_scheduledAuction(
@@ -358,14 +356,12 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 openTime: block.timestamp + startDelay,
                 reservePrice: reservePrice,
                 buyNowPrice: 0,
-                id: 1
-            }),
-            Auction({
                 highestBid: 0,
                 highestBidder: address(0),
                 recipient: address(0),
                 duration: duration,
-                startTime: block.timestamp + startDelay
+                startTime: block.timestamp + startDelay,
+                id: 1
             })
         );
         ah.list(
@@ -382,7 +378,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.SCHEDULED_AUCTION);
         assertEq(l.seller, ben);
         assertFalse(l.zeroProtocolFee);
@@ -392,8 +388,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, reservePrice);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 1);
-        assertEq(a.startTime, block.timestamp + startDelay);
-        assertEq(a.duration, duration);
+        assertEq(l.startTime, block.timestamp + startDelay);
+        assertEq(l.duration, duration);
     }
 
     function test_list_reserveAuction(
@@ -424,9 +420,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 openTime: block.timestamp + startDelay,
                 reservePrice: reservePrice,
                 buyNowPrice: 0,
+                highestBid: 0,
+                highestBidder: address(0),
+                recipient: address(0),
+                duration: duration,
+                startTime: 0,
                 id: 1
-            }),
-            Auction({highestBid: 0, highestBidder: address(0), recipient: address(0), duration: duration, startTime: 0})
+            })
         );
         ah.list(
             address(nft),
@@ -442,7 +442,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.RESERVE_AUCTION);
         assertEq(l.seller, ben);
         assertFalse(l.zeroProtocolFee);
@@ -452,8 +452,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, reservePrice);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 1);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, duration);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, duration);
     }
 
     function test_list_reserveAuctionPlusBuyNow(
@@ -484,9 +484,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 openTime: block.timestamp + startDelay,
                 reservePrice: reservePrice,
                 buyNowPrice: buyNowPrice,
+                highestBid: 0,
+                highestBidder: address(0),
+                recipient: address(0),
+                duration: duration,
+                startTime: 0,
                 id: 1
-            }),
-            Auction({highestBid: 0, highestBidder: address(0), recipient: address(0), duration: duration, startTime: 0})
+            })
         );
         ah.list(
             address(nft),
@@ -502,7 +506,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW);
         assertEq(l.seller, ben);
         assertFalse(l.zeroProtocolFee);
@@ -512,8 +516,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, reservePrice);
         assertEq(l.buyNowPrice, buyNowPrice);
         assertEq(l.id, 1);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, duration);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, duration);
     }
 
     function test_list_buyNow(
@@ -544,9 +548,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 openTime: block.timestamp + startDelay,
                 reservePrice: 0,
                 buyNowPrice: buyNowPrice,
+                highestBid: 0,
+                highestBidder: address(0),
+                recipient: address(0),
+                duration: 0,
+                startTime: 0,
                 id: 1
-            }),
-            Auction({highestBid: 0, highestBidder: address(0), recipient: address(0), duration: 0, startTime: 0})
+            })
         );
         ah.list(
             address(nft),
@@ -562,7 +570,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.BUY_NOW);
         assertEq(l.seller, ben);
         assertFalse(l.zeroProtocolFee);
@@ -572,8 +580,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, buyNowPrice);
         assertEq(l.id, 1);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, 0);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, 0);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -637,7 +645,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -647,8 +655,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, 0);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, 0);
     }
 
     function test_delist_reserveAuction(
@@ -682,7 +690,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -692,8 +700,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, 0);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, 0);
     }
 
     function test_delist_reserveAuctionPlusBuyNow(
@@ -727,7 +735,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -737,8 +745,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, 0);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, 0);
     }
 
     function test_delist_buyNow(
@@ -772,7 +780,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // check values
-        (Listing memory l, Auction memory a) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -782,8 +790,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.startTime, 0);
-        assertEq(a.duration, 0);
+        assertEq(l.startTime, 0);
+        assertEq(l.duration, 0);
     }
 
     ///////////////////////////////////////////////////////////////////////////
@@ -898,9 +906,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.02 ether}(address(nft), 1, chris, 0.02 ether);
 
         // ensure auction values are correct
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        assertEq(a.highestBid, 0.02 ether);
-        assertEq(a.highestBidder, chris);
+        Listing memory l = ah.getListing(address(nft), 1);
+        assertEq(l.highestBid, 0.02 ether);
+        assertEq(l.highestBidder, chris);
 
         // reverting bidder gets funds back as WETH
         assertEq(address(bidder).balance, 0);
@@ -929,9 +937,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.02 ether}(address(nft), 1, chris, 0.02 ether);
 
         // ensure auction values are correct
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        assertEq(a.highestBid, 0.02 ether);
-        assertEq(a.highestBidder, chris);
+        Listing memory l = ah.getListing(address(nft), 1);
+        assertEq(l.highestBid, 0.02 ether);
+        assertEq(l.highestBidder, chris);
 
         // griefing bidder gets funds back as WETH
         assertEq(address(bidder).balance, 0);
@@ -951,8 +959,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.deal(chris, 0.1 ether);
 
         // warp to end of auction
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // chris bids and it reverts
         vm.prank(chris);
@@ -968,12 +976,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.delist(address(nft), 1);
     }
 
-    function _check_auction_data(address nftAddress, uint256 tokenId, Listing memory l, Auction memory a)
-        private
-        view
-    {
+    function _check_auction_data(address nftAddress, uint256 tokenId, Listing memory l) private view {
         // ensure auction values are correct
-        (Listing memory l2, Auction memory a2) = ah.getListing(nftAddress, tokenId);
+        Listing memory l2 = ah.getListing(nftAddress, tokenId);
         assert(l.type_ == l2.type_);
         assertEq(l.seller, l2.seller);
         assertEq(l.payoutReceiver, l2.payoutReceiver);
@@ -982,43 +987,43 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, l2.reservePrice);
         assertEq(l.buyNowPrice, l2.buyNowPrice);
         assertEq(l.id, l2.id);
-        assertEq(a.highestBidder, a2.highestBidder);
-        assertEq(a.highestBid, a2.highestBid);
-        assertEq(a.recipient, a2.recipient);
-        assertEq(a.duration, a2.duration);
-        assertEq(a.startTime, a2.startTime);
+        assertEq(l.highestBidder, l2.highestBidder);
+        assertEq(l.highestBid, l2.highestBid);
+        assertEq(l.recipient, l2.recipient);
+        assertEq(l.duration, l2.duration);
+        assertEq(l.startTime, l2.startTime);
     }
 
     function _bid_eth(address nftAddress, uint256 tokenId, address sender, address recipient, uint256 amount) private {
         // get existing data
-        (Listing memory l, Auction memory a) = ah.getListing(nftAddress, tokenId);
+        Listing memory l = ah.getListing(nftAddress, tokenId);
 
         uint256 ahPrevBalance = address(ah).balance;
         uint256 senderPrevBalance = sender.balance;
-        uint256 prevBidderBalance = a.highestBidder.balance;
-        uint256 prevHighestBid = a.highestBid;
-        address prevBidder = a.highestBidder;
+        uint256 prevBidderBalance = l.highestBidder.balance;
+        uint256 prevHighestBid = l.highestBid;
+        address prevBidder = l.highestBidder;
 
         // adjust data
-        a.highestBidder = sender;
-        a.highestBid = amount;
-        a.recipient = recipient;
-        if (a.startTime == 0) {
-            a.startTime = block.timestamp;
+        l.highestBidder = sender;
+        l.highestBid = amount;
+        l.recipient = recipient;
+        if (l.startTime == 0) {
+            l.startTime = block.timestamp;
         }
-        uint256 timeLeft = a.startTime + a.duration - block.timestamp;
+        uint256 timeLeft = l.startTime + l.duration - block.timestamp;
         if (timeLeft < 300) {
-            a.duration += 300 - timeLeft;
+            l.duration += 300 - timeLeft;
         }
 
         // bid
         vm.prank(sender);
         vm.expectEmit(true, true, true, true);
-        emit AuctionBid(sender, nftAddress, tokenId, l, a);
+        emit AuctionBid(sender, nftAddress, tokenId, l);
         ah.bid{value: amount}(address(nft), tokenId, recipient, amount);
 
         // ensure auction values are correct
-        _check_auction_data(nftAddress, tokenId, l, a);
+        _check_auction_data(nftAddress, tokenId, l);
 
         // esnure funds transfer
         assertEq(address(ah).balance - ahPrevBalance, amount - prevHighestBid);
@@ -1027,13 +1032,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     }
 
     function _settle_auction(address nftAddress, uint256 tokenId) private {
-        (Listing memory l, Auction memory a) = ah.getListing(nftAddress, tokenId);
+        Listing memory l = ah.getListing(nftAddress, tokenId);
 
-        uint256 protocolFee = a.highestBid * ah.protocolFeeBps() / ah.BASIS();
+        uint256 protocolFee = l.highestBid * ah.protocolFeeBps() / ah.BASIS();
 
         bool primarySale = ah.getIfPrimarySale(nftAddress, tokenId);
         (address payable[] memory recipients, uint256[] memory amounts) =
-            ah.getRoyalty(nftAddress, tokenId, a.highestBid - protocolFee);
+            ah.getRoyalty(nftAddress, tokenId, l.highestBid - protocolFee);
 
         uint256[] memory prevValues = new uint256[](recipients.length);
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -1045,11 +1050,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 payoutReceiverPrevBalance = l.payoutReceiver.balance;
 
         vm.expectEmit(true, true, true, true);
-        emit AuctionSettled(address(this), address(nft), tokenId, l, a);
+        emit AuctionSettled(address(this), address(nft), tokenId, l);
         ah.settleAuction(address(nft), tokenId);
 
-        uint256 remainingValue = a.highestBid - protocolFee;
-        assertEq(ahPrevBalance - address(ah).balance, a.highestBid);
+        uint256 remainingValue = l.highestBid - protocolFee;
+        assertEq(ahPrevBalance - address(ah).balance, l.highestBid);
         assertEq(tl.balance - tlPrevBalance, protocolFee);
         if (!primarySale) {
             for (uint256 i = 0; i < recipients.length; i++) {
@@ -1058,10 +1063,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             }
         }
         assertEq(l.payoutReceiver.balance - payoutReceiverPrevBalance, remainingValue);
-        assertEq(ERC721TL(nftAddress).ownerOf(tokenId), a.recipient);
+        assertEq(ERC721TL(nftAddress).ownerOf(tokenId), l.recipient);
 
         // ensure listing and auction are cleared from storage
-        (l, a) = ah.getListing(nftAddress, tokenId);
+        l = ah.getListing(nftAddress, tokenId);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -1070,11 +1075,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
     }
 
     function test_eth_scheduledAuction_primarySale_royaltyLookup(
@@ -1139,8 +1144,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1150,8 +1155,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1227,8 +1232,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1238,8 +1243,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1312,8 +1317,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -1323,8 +1328,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1400,8 +1405,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -1411,8 +1416,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1485,8 +1490,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1496,8 +1501,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1573,8 +1578,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1584,8 +1589,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1658,8 +1663,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -1669,8 +1674,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1746,8 +1751,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -1757,8 +1762,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1831,8 +1836,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1842,8 +1847,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -1919,8 +1924,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -1930,8 +1935,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2004,8 +2009,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -2015,8 +2020,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2092,8 +2097,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_eth(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -2103,8 +2108,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2218,34 +2223,34 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         private
     {
         // get existing data
-        (Listing memory l, Auction memory a) = ah.getListing(nftAddress, tokenId);
+        Listing memory l = ah.getListing(nftAddress, tokenId);
 
         uint256 ahPrevBalance = coin.balanceOf(address(ah));
         uint256 senderPrevBalance = coin.balanceOf(sender);
-        uint256 prevBidderBalance = coin.balanceOf(a.highestBidder);
-        uint256 prevHighestBid = a.highestBid;
-        address prevBidder = a.highestBidder;
+        uint256 prevBidderBalance = coin.balanceOf(l.highestBidder);
+        uint256 prevHighestBid = l.highestBid;
+        address prevBidder = l.highestBidder;
 
         // adjust data
-        a.highestBidder = sender;
-        a.highestBid = amount;
-        a.recipient = recipient;
-        if (a.startTime == 0) {
-            a.startTime = block.timestamp;
+        l.highestBidder = sender;
+        l.highestBid = amount;
+        l.recipient = recipient;
+        if (l.startTime == 0) {
+            l.startTime = block.timestamp;
         }
-        uint256 timeLeft = a.startTime + a.duration - block.timestamp;
+        uint256 timeLeft = l.startTime + l.duration - block.timestamp;
         if (timeLeft < 300) {
-            a.duration += 300 - timeLeft;
+            l.duration += 300 - timeLeft;
         }
 
         // bid
         vm.prank(sender);
         vm.expectEmit(true, true, true, true);
-        emit AuctionBid(sender, nftAddress, tokenId, l, a);
+        emit AuctionBid(sender, nftAddress, tokenId, l);
         ah.bid(address(nft), tokenId, recipient, amount);
 
         // ensure auction values are correct
-        _check_auction_data(nftAddress, tokenId, l, a);
+        _check_auction_data(nftAddress, tokenId, l);
 
         // esnure funds transfer
         assertEq(coin.balanceOf(address(ah)) - ahPrevBalance, amount - prevHighestBid);
@@ -2254,13 +2259,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     }
 
     function _settle_auction_erc20(address nftAddress, uint256 tokenId) private {
-        (Listing memory l, Auction memory a) = ah.getListing(nftAddress, tokenId);
+        Listing memory l = ah.getListing(nftAddress, tokenId);
 
-        uint256 protocolFee = a.highestBid * ah.protocolFeeBps() / ah.BASIS();
+        uint256 protocolFee = l.highestBid * ah.protocolFeeBps() / ah.BASIS();
 
         bool primarySale = ah.getIfPrimarySale(nftAddress, tokenId);
         (address payable[] memory recipients, uint256[] memory amounts) =
-            ah.getRoyalty(nftAddress, tokenId, a.highestBid - protocolFee);
+            ah.getRoyalty(nftAddress, tokenId, l.highestBid - protocolFee);
 
         uint256[] memory prevValues = new uint256[](recipients.length);
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -2272,11 +2277,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 payoutReceiverPrevBalance = coin.balanceOf(l.payoutReceiver);
 
         vm.expectEmit(true, true, true, true);
-        emit AuctionSettled(address(this), address(nft), tokenId, l, a);
+        emit AuctionSettled(address(this), address(nft), tokenId, l);
         ah.settleAuction(address(nft), tokenId);
 
-        uint256 remainingValue = a.highestBid - protocolFee;
-        assertEq(ahPrevBalance - coin.balanceOf(address(ah)), a.highestBid);
+        uint256 remainingValue = l.highestBid - protocolFee;
+        assertEq(ahPrevBalance - coin.balanceOf(address(ah)), l.highestBid);
         assertEq(coin.balanceOf(tl) - tlPrevBalance, protocolFee);
         if (!primarySale) {
             for (uint256 i = 0; i < recipients.length; i++) {
@@ -2285,10 +2290,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             }
         }
         assertEq(coin.balanceOf(l.payoutReceiver) - payoutReceiverPrevBalance, remainingValue);
-        assertEq(ERC721TL(nftAddress).ownerOf(tokenId), a.recipient);
+        assertEq(ERC721TL(nftAddress).ownerOf(tokenId), l.recipient);
 
         // ensure listing and auction are cleared from storage
-        (l, a) = ah.getListing(nftAddress, tokenId);
+        l = ah.getListing(nftAddress, tokenId);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -2297,11 +2302,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
     }
 
     function test_erc20_scheduledAuction_primarySale_royaltyLookup(
@@ -2372,8 +2377,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -2383,8 +2388,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2466,8 +2471,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -2477,8 +2482,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2557,8 +2562,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -2568,8 +2573,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2651,8 +2656,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -2662,8 +2667,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2742,8 +2747,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -2753,8 +2758,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2836,8 +2841,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -2847,8 +2852,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -2927,8 +2932,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -2938,8 +2943,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3021,8 +3026,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -3032,8 +3037,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3112,8 +3117,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -3123,8 +3128,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3206,8 +3211,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 1, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
 
@@ -3217,8 +3222,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 1, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 1);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3297,8 +3302,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -3308,8 +3313,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3391,8 +3396,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         _bid_erc20(address(nft), 3, anon, david, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration - 10);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration - 10);
         address recipient = bidderSameAsRecipient ? bsy : anon;
         _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
 
@@ -3402,8 +3407,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid(address(nft), 3, david, 700 ether);
 
         // no one can beat the bid, go to end of auction
-        (, a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
@@ -3494,8 +3499,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
 
         // warp to end of auction
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // get previous balances
         uint256 ahPrevBalance = address(ah).balance;
@@ -3539,8 +3544,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
 
         // warp to end of auction
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // get previous balances
         uint256 ahPrevBalance = address(ah).balance;
@@ -3576,8 +3581,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
 
         // warp to end of auction
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // get previous balances
         uint256 ahPrevBalance = address(ah).balance;
@@ -3626,8 +3631,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
 
         // warp to end of auction
-        (, Auction memory a) = ah.getListing(address(nft), 3);
-        vm.warp(a.startTime + a.duration + 1);
+        Listing memory l = ah.getListing(address(nft), 3);
+        vm.warp(l.startTime + l.duration + 1);
 
         // get previous balances
         uint256 ahPrevBalance = address(ah).balance;
@@ -3811,7 +3816,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -3839,8 +3844,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -3849,11 +3854,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -3911,7 +3916,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -3939,8 +3944,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -3949,11 +3954,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4008,7 +4013,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4037,8 +4042,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4047,11 +4052,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4109,7 +4114,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4138,8 +4143,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4148,11 +4153,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4197,7 +4202,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4225,8 +4230,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4235,11 +4240,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4287,7 +4292,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4315,8 +4320,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4325,11 +4330,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4374,7 +4379,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4403,8 +4408,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4413,11 +4418,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4465,7 +4470,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = buyer.balance;
@@ -4494,8 +4499,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4504,11 +4509,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4721,7 +4726,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -4749,8 +4754,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4759,11 +4764,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4826,7 +4831,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -4854,8 +4859,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4864,11 +4869,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -4928,7 +4933,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -4957,8 +4962,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -4967,11 +4972,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -5034,7 +5039,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -5063,8 +5068,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -5073,11 +5078,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -5129,7 +5134,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -5157,8 +5162,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -5167,11 +5172,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -5226,7 +5231,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 1);
+        Listing memory l = ah.getListing(address(nft), 1);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -5254,8 +5259,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(1), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 1);
+        l = ah.getListing(address(nft), 1);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -5264,11 +5268,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -5320,7 +5324,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -5349,8 +5353,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -5359,11 +5362,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
@@ -5418,7 +5421,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         // get listing
-        (Listing memory l,) = ah.getListing(address(nft), 3);
+        Listing memory l = ah.getListing(address(nft), 3);
 
         // cache funds values
         uint256 prevBuyerBalance = coin.balanceOf(buyer);
@@ -5447,8 +5450,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nft.ownerOf(3), recipient);
 
         // ensure data is zeroed
-        Auction memory a;
-        (l, a) = ah.getListing(address(nft), 3);
+        l = ah.getListing(address(nft), 3);
         assert(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertEq(l.payoutReceiver, address(0));
@@ -5457,11 +5459,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.reservePrice, 0);
         assertEq(l.buyNowPrice, 0);
         assertEq(l.id, 0);
-        assertEq(a.highestBidder, address(0));
-        assertEq(a.highestBid, 0);
-        assertEq(a.recipient, address(0));
-        assertEq(a.duration, 0);
-        assertEq(a.startTime, 0);
+        assertEq(l.highestBidder, address(0));
+        assertEq(l.highestBid, 0);
+        assertEq(l.recipient, address(0));
+        assertEq(l.duration, 0);
+        assertEq(l.startTime, 0);
 
         // try bidding
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
