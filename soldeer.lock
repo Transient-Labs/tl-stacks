@@ -1,0 +1,13 @@
+[[dependencies]]
+name = "forge-std"
+version = "1.9.4"
+url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_9_4_25-10-2024_14:36:59_forge-std-1.9.zip"
+checksum = "b5be24beb5e4dab5e42221b2ad1288b64c826bee5ee71b6159ba93ffe86f14d4"
+integrity = "3874463846ab995a6a9a88412913cacec6144f7605daa1af57c2d8bf3f210b13"
+
+[[dependencies]]
+name = "tl-creator-contracts"
+version = "3.3.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/tl-creator-contracts/3_3_1_01-12-2024_22:40:58_tl-creator-contracts.zip"
+checksum = "721036c50b35f4f6871bdc031ab636412833805d185627bba25a7d040f880667"
+integrity = "25ac063a1b606e8ef7e69cb42e5f3cc729cb401bf237c8323ea3c35a8b2b176d"

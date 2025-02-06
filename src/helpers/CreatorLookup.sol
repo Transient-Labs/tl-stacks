@@ -2,7 +2,7 @@
 pragma solidity 0.8.22;
 
 import {ICreatorLookup} from "./ICreatorLookup.sol";
-import {Ownable} from "openzeppelin/access/Ownable.sol";
+import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
 
 /// @title CreatorLookup.sol
 /// @notice Contract to enable TLAuctionHouse to determine who the creator of the token is

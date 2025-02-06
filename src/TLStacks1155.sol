@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.22;
 
-import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {Pausable} from "openzeppelin/utils/Pausable.sol";
-import {ReentrancyGuard} from "openzeppelin/utils/ReentrancyGuard.sol";
-import {MerkleProof} from "openzeppelin/utils/cryptography/MerkleProof.sol";
-import {IERC1155TL} from "tl-creator-contracts/erc-1155/IERC1155TL.sol";
-import {TransferHelper} from "tl-sol-tools/payments/TransferHelper.sol";
-import {SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
-import {OwnableAccessControl} from "tl-sol-tools/access/OwnableAccessControl.sol";
+import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
+import {Pausable} from "@openzeppelin-contracts-5.0.2/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin-contracts-5.0.2/utils/ReentrancyGuard.sol";
+import {MerkleProof} from "@openzeppelin-contracts-5.0.2/utils/cryptography/MerkleProof.sol";
+import {IERC1155TL} from "tl-creator-contracts-3.3.1/erc-1155/IERC1155TL.sol";
+import {TransferHelper} from "tl-sol-tools-3.1.4/payments/TransferHelper.sol";
+import {SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
+import {OwnableAccessControl} from "tl-sol-tools-3.1.4/access/OwnableAccessControl.sol";
 import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
 import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
@@ -393,7 +393,7 @@ contract TLStacks1155 is
         if (numberToMint == 0) revert MintZeroTokens();
         if (dropPhase == DropPhase.PRESALE) {
             bytes32 hashedRecipient = keccak256(abi.encode(recipient));
-            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/OpenZeppelin/openzeppelin-contracts/issues/3091
+            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/@openzeppelin-contracts-5.0.2/@openzeppelin-contracts-5.0.2-contracts/issues/3091
             if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
             numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
         } else if (dropPhase == DropPhase.PUBLIC_SALE) {

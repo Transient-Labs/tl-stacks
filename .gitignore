@@ -7,3 +7,6 @@ broadcast/
 docs/
 lib/
 .venv/
+
+# Soldeer
+dependencies/

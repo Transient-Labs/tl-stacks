@@ -18,14 +18,10 @@ install-pre-commit:
 ### MODULES
 #####################################
 remove:
-	rm -rf lib
+	rm -rf dependencies
 
 install:
-	forge install foundry-rs/forge-std --no-git
-	forge install Transient-Labs/tl-creator-contracts@3.3.0 --no-git
-	forge install dmfxyz/murky --no-git
-
-update: remove install
+	forge soldeer install
 	
 #####################################
 ### BUILD

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.22;
 
-import {Test} from "forge-std/Test.sol";
-import {Merkle} from "murky/Merkle.sol";
-import {Strings} from "openzeppelin/utils/Strings.sol";
-import {IERC20Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
-import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
-import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
-import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {Test} from "forge-std-1.9.4/Test.sol";
+import {Merkle} from "test/utils/murky/Merkle.sol";
+import {Strings} from "@openzeppelin-contracts-5.0.2/utils/Strings.sol";
+import {IERC20Errors} from "@openzeppelin-contracts-5.0.2/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/utils/PausableUpgradeable.sol";
+import {ERC721TL} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
+import {WETH9} from "tl-sol-tools-3.1.4/../test/utils/WETH9.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
 import {TLStacks721} from "src/TLStacks721.sol";
 import {ITLStacks721Events, Drop} from "src/utils/TLStacks721Utils.sol";
 import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";

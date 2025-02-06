@@ -2,9 +2,9 @@
 pragma solidity 0.8.22;
 
 import {IRoyaltyLookup} from "./IRoyaltyLookup.sol";
-import {Ownable} from "openzeppelin/access/Ownable.sol";
-import {IRoyaltyEngineV1} from "royalty-registry-solidity/IRoyaltyEngineV1.sol";
-import {IEIP2981} from "tl-sol-tools/royalties/IEIP2981.sol";
+import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
+import {IRoyaltyEngineV1} from "royalty-registry-solidity-1.0.0/IRoyaltyEngineV1.sol";
+import {IEIP2981} from "tl-sol-tools-3.1.4/royalties/IEIP2981.sol";
 
 /// @title RoyaltyLookup.sol
 /// @notice Contract to enable TLAuctionHouse to determine royalties to payout on secondary sales
