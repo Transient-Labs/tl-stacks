@@ -95,7 +95,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     }
 
     /// @dev test constructor setup
-    function test_setUp() public {
+    function test_setUp() public view {
         assertEq(stacks.owner(), address(this));
         assertEq(stacks.weth(), wethAddress);
         assertEq(stacks.protocolFeeReceiver(), tl);
