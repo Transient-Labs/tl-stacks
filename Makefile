@@ -53,45 +53,43 @@ fuzz-tests: build
 	forge test --fuzz-runs 10000
 
 #####################################
+### CreatorLookup
+#####################################
+deploy_CreatorLookup_testnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "CreatorLookup.sol:CreatorLookup" true
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain arbitrum-sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+#####################################
+### RoyaltyLookup
+#####################################
+deploy_RoyaltyLookup_testnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "RoyaltyLookup.sol:RoyaltyLookup" true
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain arbitrum-sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+#####################################
 ### TLAuctionHouse
 #####################################
-deploy_TLAuctionHouse_sepolia: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url sepolia --ledger --sender ${SENDER} --broadcast
+deploy_TLAuctionHouse_testnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "TLAuctionHouse.sol:TLAuctionHouse" true
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_arbitrum_sepolia: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url arbitrum_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain arbitrum-sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_base_sepolia: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url base_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_shape_sepolia: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape_sepolia --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
-deploy_TLAuctionHouse_mainnet: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url mainnet --ledger --sender ${SENDER} --broadcast
+deploy_TLAuctionHouse_mainnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "TLAuctionHouse.sol:TLAuctionHouse" false
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_arbitrum_one: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url arbitrum --ledger --sender ${SENDER} --broadcast
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_base: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url base --ledger --sender ${SENDER} --broadcast
-	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base --watch --constructor-args ${CONSTRUCTOR_ARGS}
-	@bash print_and_clean.sh
-
-deploy_TLAuctionHouse_shape: build
-	forge script script/Deploy.s.sol:DeployTLAuctionHouse --evm-version paris --rpc-url shape --ledger --sender ${SENDER} --broadcast
+	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --chain base  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	forge verify-contract $$(cat out.txt) src/TLAuctionHouse.sol:TLAuctionHouse --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 

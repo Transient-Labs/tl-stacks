@@ -9,28 +9,147 @@ interface ICreate2Deployer {
     function computeAddress(bytes32 salt, bytes32 codeHash) external view returns (address);
 }
 
-// contract DeployTLAuctionHouse is Script {
-//     using Strings for address;
+contract Deploy is Script {
+    using Strings for address;
 
-//     function run() public {
-//         // get environment variables
-//         ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
-//         bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
-//         bytes32 salt = vm.envBytes32("SALT");
+    function run(string memory bytecodePath, bool isTestnet) public {
+        // get environment variables
+        ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
+        bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
+        bytes32 salt = vm.envBytes32("SALT");
 
-//         // get bytecode
-//         bytes memory bytecode = abi.encodePacked(vm.getCode("TLAuctionHouse.sol:TLAuctionHouse"), constructorArgs);
+        // get bytecode
+        bytes memory bytecode = abi.encodePacked(vm.getCode(bytecodePath), constructorArgs);
 
-//         // deploy
-//         address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
-//         console.logAddress(deployedContract);
-//         vm.broadcast();
-//         create2Deployer.deploy(0, salt, bytecode);
+        // create address
+        vm.createSelectFork("mainnet"); // use mainnet for computing address
+        address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
+        console.logAddress(deployedContract);
 
-//         // save deployed contract address
-//         vm.writeLine("out.txt", deployedContract.toHexString());
-//     }
-// }
+        if (isTestnet) {
+            // deploy to sepolia
+            vm.createSelectFork("sepolia");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to arbitrum sepolia
+            vm.createSelectFork("arbitrum_sepolia");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to base sepolia
+            vm.createSelectFork("base_sepolia");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to shape sepolia
+            vm.createSelectFork("shape_sepolia");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+        } else {
+            // deploy to eth
+            vm.createSelectFork("mainnet");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to arbitrum
+            vm.createSelectFork("arbitrum");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to base
+            vm.createSelectFork("base");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+
+            // deploy to shape
+            vm.createSelectFork("shape");
+            vm.broadcast();
+            create2Deployer.deploy(0, salt, bytecode);
+        }
+
+        // save deployed contract address
+        vm.writeLine("out.txt", deployedContract.toHexString());
+    }
+}
+
+contract DeployTLAuctionHouse is Script {
+    using Strings for address;
+
+    function testnet() public {
+        // get environment variables
+        ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
+        bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
+        bytes32 salt = vm.envBytes32("SALT");
+
+        // get bytecode
+        bytes memory bytecode = abi.encodePacked(vm.getCode("TLAuctionHouse.sol:TLAuctionHouse"), constructorArgs);
+
+        // create address
+        address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
+        console.logAddress(deployedContract);
+
+        // deploy to sepolia
+        vm.createSelectFork("sepolia");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to arbitrum sepolia
+        vm.createSelectFork("arbitrum_sepolia");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to base sepolia
+        vm.createSelectFork("base_sepolia");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to shape sepolia
+        vm.createSelectFork("shape_sepolia");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // save deployed contract address
+        vm.writeLine("out.txt", deployedContract.toHexString());
+    }
+
+    function mainnet() public {
+        // get environment variables
+        ICreate2Deployer create2Deployer = ICreate2Deployer(vm.envAddress("CREATE2_DEPLOYER"));
+        bytes memory constructorArgs = vm.envBytes("CONSTRUCTOR_ARGS");
+        bytes32 salt = vm.envBytes32("SALT");
+
+        // get bytecode
+        bytes memory bytecode = abi.encodePacked(vm.getCode("TLAuctionHouse.sol:TLAuctionHouse"), constructorArgs);
+
+        // create address
+        address deployedContract = create2Deployer.computeAddress(salt, keccak256(bytecode));
+        console.logAddress(deployedContract);
+
+        // deploy to eth
+        vm.createSelectFork("mainnet");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to arbitrum
+        vm.createSelectFork("arbitrum");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to base
+        vm.createSelectFork("base");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // deploy to shape
+        vm.createSelectFork("shape");
+        vm.broadcast();
+        create2Deployer.deploy(0, salt, bytecode);
+
+        // save deployed contract address
+        vm.writeLine("out.txt", deployedContract.toHexString());
+    }
+}
 
 contract DeployTLStacks721 is Script {
     using Strings for address;
