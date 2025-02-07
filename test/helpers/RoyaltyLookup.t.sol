@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.22;
 
-import "forge-std/Test.sol";
+import "forge-std-1.9.4/Test.sol";
 import {Ownable, RoyaltyLookup, IRoyaltyEngineV1} from "src/helpers/RoyaltyLookup.sol";
-import {ERC721TL, EIP2981TLUpgradeable} from "tl-creator-contracts/erc-721/ERC721TL.sol";
+import {ERC721TL, EIP2981TLUpgradeable} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
 
 contract RoyaltyLookupTest is Test {
     RoyaltyLookup rl;
@@ -93,8 +93,8 @@ contract RoyaltyLookupTest is Test {
         rl.setRoyaltyEngine(address(this));
 
         // reverting call
-        vm.mockCallRevert(address(this), IRoyaltyEngineV1.getRoyalty.selector, "revert");
-        vm.mockCallRevert(address(this), IRoyaltyEngineV1.getRoyaltyView.selector, "revert");
+        vm.mockCallRevert(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector), "revert");
+        vm.mockCallRevert(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector), "revert");
 
         (recipients, amounts) = rl.getRoyalty(address(nft), tokenId, 10_000);
         assertEq(recipients.length, 0);
@@ -112,8 +112,8 @@ contract RoyaltyLookupTest is Test {
         r[1] = payable(address(1));
         uint256[] memory a = new uint256[](1);
         a[0] = 1_000;
-        vm.mockCall(address(this), IRoyaltyEngineV1.getRoyalty.selector, abi.encode(r, a));
-        vm.mockCall(address(this), IRoyaltyEngineV1.getRoyaltyView.selector, abi.encode(r, a));
+        vm.mockCall(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector), abi.encode(r, a));
+        vm.mockCall(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector), abi.encode(r, a));
 
         (recipients, amounts) = rl.getRoyalty(address(nft), tokenId, 10_000);
         assertEq(recipients.length, 0);
@@ -132,8 +132,8 @@ contract RoyaltyLookupTest is Test {
         a = new uint256[](2);
         a[0] = 900;
         a[1] = 100;
-        vm.mockCall(address(this), IRoyaltyEngineV1.getRoyalty.selector, abi.encode(r, a));
-        vm.mockCall(address(this), IRoyaltyEngineV1.getRoyaltyView.selector, abi.encode(r, a));
+        vm.mockCall(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector), abi.encode(r, a));
+        vm.mockCall(address(this), abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector), abi.encode(r, a));
 
         (recipients, amounts) = rl.getRoyalty(address(nft), tokenId, 10_000);
         assertEq(recipients.length, 2);

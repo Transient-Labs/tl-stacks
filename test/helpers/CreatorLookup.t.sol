@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.22;
 
-import "forge-std/Test.sol";
+import "forge-std-1.9.4/Test.sol";
 import {CreatorLookup, Ownable} from "src/helpers/CreatorLookup.sol";
-import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
+import {ERC721TL} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
 
 contract CreatorLookupTest is Test {
     CreatorLookup cl;
@@ -25,7 +25,7 @@ contract CreatorLookupTest is Test {
         assertEq(fakeResult, address(0));
 
         // reverting contract
-        vm.mockCallRevert(fakeNft, Ownable.owner.selector, "revert");
+        vm.mockCallRevert(fakeNft, abi.encodeWithSelector(Ownable.owner.selector), "revert");
         fakeResult = cl.getCreator(fakeNft, tokenId);
         assertEq(fakeResult, address(0));
         vm.clearMockedCalls();

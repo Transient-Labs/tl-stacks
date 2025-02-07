@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.22;
 
-import "forge-std/Test.sol";
+import "forge-std-1.9.4/Test.sol";
 import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
 import {CreatorLookup} from "src/helpers/CreatorLookup.sol";
 import {RoyaltyLookup} from "src/helpers/RoyaltyLookup.sol";
-import {IERC20Errors, IERC721Errors} from "openzeppelin/interfaces/draft-IERC6093.sol";
-import {OwnableUpgradeable} from "openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "openzeppelin-upgradeable/utils/PausableUpgradeable.sol";
-import {ERC721TL} from "tl-creator-contracts/erc-721/ERC721TL.sol";
-import {WETH9} from "tl-sol-tools/../test/utils/WETH9.sol";
-import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools/payments/SanctionsCompliance.sol";
+import {IERC20Errors, IERC721Errors} from "@openzeppelin-contracts-5.0.2/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/utils/PausableUpgradeable.sol";
+import {ERC721TL} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
+import {WETH9} from "tl-sol-tools-3.1.4/../test/utils/WETH9.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
 import {ITLAuctionHouseEvents, ListingType, Listing} from "src/utils/TLAuctionHouseUtils.sol";
 import {Receiver, RevertingReceiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
@@ -181,7 +181,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // sanctioned protocol fee recipient
         ah.setSanctionsOracle(oracle);
-        vm.mockCall(oracle, IChainalysisSanctionsOracle.isSanctioned.selector, abi.encode(true));
+        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
         ah.setProtocolFeeSettings(address(1), 100);
         vm.clearMockedCalls();
@@ -3475,8 +3475,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
     function test_settleUp_royaltyLookupReverts() public {
         // mock royalty lookup
-        vm.mockCallRevert(address(rl), RoyaltyLookup.getRoyalty.selector, "revert");
-        vm.mockCallRevert(address(rl), RoyaltyLookup.getRoyaltyView.selector, "revert");
+        vm.mockCallRevert(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyalty.selector), "revert");
+        vm.mockCallRevert(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyaltyView.selector), "revert");
 
         // ensure 0 royalties returned
         (address payable[] memory r,) = ah.getRoyalty(address(nft), 3, 10_000);
@@ -3525,7 +3525,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256[] memory amts = new uint256[](2);
         amts[0] = 0;
         amts[1] = 1;
-        vm.mockCall(address(rl), RoyaltyLookup.getRoyalty.selector, abi.encode(r, amts));
+        vm.mockCall(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyalty.selector), abi.encode(r, amts));
 
         // list nft
         vm.startPrank(chris);
@@ -3612,7 +3612,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         r[0] = payable(address(1));
         uint256[] memory amts = new uint256[](1);
         amts[0] = 1 ether;
-        vm.mockCall(address(rl), RoyaltyLookup.getRoyalty.selector, abi.encode(r, amts));
+        vm.mockCall(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyalty.selector), abi.encode(r, amts));
 
         // list nft
         vm.startPrank(chris);
