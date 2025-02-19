@@ -639,13 +639,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             duration,
             buyNowPrice
         );
+        Listing memory l = ah.getListing(address(nft), 1);
         vm.expectEmit(true, true, true, true);
-        emit ListingCanceled(ben, address(nft), 1);
+        emit ListingCanceled(ben, address(nft), 1, l);
         ah.delist(address(nft), 1);
         vm.stopPrank();
 
         // check values
-        Listing memory l = ah.getListing(address(nft), 1);
+        l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -684,13 +685,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             duration,
             buyNowPrice
         );
+        Listing memory l = ah.getListing(address(nft), 1);
         vm.expectEmit(true, true, true, true);
-        emit ListingCanceled(ben, address(nft), 1);
+        emit ListingCanceled(ben, address(nft), 1, l);
         ah.delist(address(nft), 1);
         vm.stopPrank();
 
         // check values
-        Listing memory l = ah.getListing(address(nft), 1);
+        l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -729,13 +731,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             duration,
             buyNowPrice
         );
+        Listing memory l = ah.getListing(address(nft), 1);
         vm.expectEmit(true, true, true, true);
-        emit ListingCanceled(ben, address(nft), 1);
+        emit ListingCanceled(ben, address(nft), 1, l);
         ah.delist(address(nft), 1);
         vm.stopPrank();
 
         // check values
-        Listing memory l = ah.getListing(address(nft), 1);
+        l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);
@@ -774,13 +777,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             duration,
             buyNowPrice
         );
+        Listing memory l = ah.getListing(address(nft), 1);
         vm.expectEmit(true, true, true, true);
-        emit ListingCanceled(ben, address(nft), 1);
+        emit ListingCanceled(ben, address(nft), 1, l);
         ah.delist(address(nft), 1);
         vm.stopPrank();
 
         // check values
-        Listing memory l = ah.getListing(address(nft), 1);
+        l = ah.getListing(address(nft), 1);
         assertTrue(l.type_ == ListingType.NOT_CONFIGURED);
         assertEq(l.seller, address(0));
         assertFalse(l.zeroProtocolFee);

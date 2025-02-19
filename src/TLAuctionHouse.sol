@@ -14,7 +14,7 @@ import {IRoyaltyLookup} from "./helpers/IRoyaltyLookup.sol";
 /// @title TLAuctionHouse
 /// @notice Transient Labs Auction House for ERC-721 tokens
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.6.0
+/// @custom:version-last-updated 2.6.1
 contract TLAuctionHouse is
     Ownable,
     Pausable,
@@ -27,7 +27,7 @@ contract TLAuctionHouse is
     /// CONSTANTS
     ///////////////////////////////////////////////////////////////////////////
 
-    string public constant VERSION = "2.6.0";
+    string public constant VERSION = "2.6.1";
     uint256 public constant EXTENSION_TIME = 5 minutes;
     uint256 public constant BASIS = 10_000;
     uint256 public constant BID_INCREASE_BPS = 500; // 5% increase between bids
@@ -189,7 +189,7 @@ contract TLAuctionHouse is
         // transfer token back to seller
         nftContract.transferFrom(address(this), listing.seller, tokenId);
 
-        emit ListingCanceled(msg.sender, nftAddress, tokenId);
+        emit ListingCanceled(msg.sender, nftAddress, tokenId, listing);
     }
 
     /// @notice Function to bid on a token that has an auction configured
