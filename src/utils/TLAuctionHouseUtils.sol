@@ -37,7 +37,7 @@ interface ITLAuctionHouseEvents {
     event ListingConfigured(
         address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing
     );
-    event ListingCanceled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId);
+    event ListingCanceled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
 
     event AuctionBid(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
     event AuctionSettled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
