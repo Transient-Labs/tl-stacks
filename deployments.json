@@ -3,13 +3,15 @@
         "2.6.0": {
             "constructor_args": "0x",
             "salt": "0x0206000000000000000000000000000000000000000000000000000000000000",
-            "deployed_contract": "0x335e0df07b785f724bc783bccf0b3ec9e287d7c1"
+            "deployed_contract": "0x6a7f2be59953b8f1d165959cfc403737acd44cec"
         }
     },
     "RoyaltyLookup": {
-        "constructor_args": "0x00000000000000000000000077b35947d508012589a91ca4c9d168824376cc7d",
-        "salt": "0x0206000000000000000000000000000000000000000000000000000000000000",
-        "deployed_contract": "0x1b9f78dde52bc22c1162610e024e939e75a79039"
+        "2.6.0": {
+            "constructor_args": "0x00000000000000000000000077b35947d508012589a91ca4c9d168824376cc7d",
+            "salt": "0x0206000000000000000000000000000000000000000000000000000000000000",
+            "deployed_contract": "0x5c017afb12f1deb8a7baa274bdd38d0b81252ff5"
+        }
     },
     "TLAuctionHouse": {
         "2.3.0": {

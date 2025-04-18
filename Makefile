@@ -63,6 +63,14 @@ deploy_CreatorLookup_testnets: build
 	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
+deploy_CreatorLookup_mainnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "CreatorLookup.sol:CreatorLookup" false
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --chain base  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/CreatorLookup.sol:CreatorLookup --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
 #####################################
 ### RoyaltyLookup
 #####################################
@@ -72,6 +80,14 @@ deploy_RoyaltyLookup_testnets: build
 	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain arbitrum-sepolia --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain base-sepolia  --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --verifier blockscout --verifier-url https://explorer-sepolia.shape.network/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	@bash print_and_clean.sh
+
+deploy_RoyaltyLookup_mainnets: build
+	forge script --evm-version paris --ledger --sender ${SENDER} --broadcast --sig "run(string,bool)" script/Deploy.s.sol:Deploy "RoyaltyLookup.sol:RoyaltyLookup" false
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain mainnet --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain arbitrum --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --chain base  --watch --constructor-args ${CONSTRUCTOR_ARGS}
+	forge verify-contract $$(cat out.txt) src/helpers/RoyaltyLookup.sol:RoyaltyLookup --verifier blockscout --verifier-url https://shapescan.xyz/api --watch --constructor-args ${CONSTRUCTOR_ARGS}
 	@bash print_and_clean.sh
 
 #####################################
