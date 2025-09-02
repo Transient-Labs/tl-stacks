@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import "forge-std-1.9.4/Test.sol";
 import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
@@ -8,13 +8,13 @@ import {RoyaltyLookup} from "src/helpers/RoyaltyLookup.sol";
 import {IERC20Errors, IERC721Errors} from "@openzeppelin-contracts-5.0.2/interfaces/draft-IERC6093.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/utils/PausableUpgradeable.sol";
-import {ERC721TL} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
-import {WETH9} from "tl-sol-tools-3.1.4/../test/utils/WETH9.sol";
-import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
+import {ERC721TL} from "tl-creator-contracts-3.7.1/erc-721/ERC721TL.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "src/lib/SanctionsCompliance.sol";
 import {ITLAuctionHouseEvents, ListingType, Listing} from "src/utils/TLAuctionHouseUtils.sol";
 import {Receiver, RevertingReceiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
 import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
+import {WETH9} from "test/utils/WETH9.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     address weth;

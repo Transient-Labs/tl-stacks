@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
 import {Pausable} from "@openzeppelin-contracts-5.0.2/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin-contracts-5.0.2/utils/ReentrancyGuard.sol";
 import {MerkleProof} from "@openzeppelin-contracts-5.0.2/utils/cryptography/MerkleProof.sol";
-import {IERC1155TL} from "tl-creator-contracts-3.3.1/erc-1155/IERC1155TL.sol";
-import {TransferHelper} from "tl-sol-tools-3.1.4/payments/TransferHelper.sol";
-import {SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
-import {OwnableAccessControl} from "tl-sol-tools-3.1.4/access/OwnableAccessControl.sol";
+import {IERC1155TL} from "tl-creator-contracts-3.7.1/erc-1155/IERC1155TL.sol";
+import {OwnableAccessControlUpgradeable} from "tl-creator-contracts-3.7.1/lib/OwnableAccessControlUpgradeable.sol";
+import {TransferHelper} from "./lib/TransferHelper.sol";
+import {SanctionsCompliance} from "./lib/SanctionsCompliance.sol";
 import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
 import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
@@ -516,8 +516,8 @@ contract TLStacks1155 is
     /// @return bool Boolean indicating if msg.sender is the owner or an admin on the nft contract
     function _isDropAdmin(address nftAddress) internal view returns (bool) {
         return (
-            msg.sender == OwnableAccessControl(nftAddress).owner()
-                || OwnableAccessControl(nftAddress).hasRole(ADMIN_ROLE, msg.sender)
+            msg.sender == OwnableAccessControlUpgradeable(nftAddress).owner()
+                || OwnableAccessControlUpgradeable(nftAddress).hasRole(ADMIN_ROLE, msg.sender)
         );
     }
 
@@ -525,7 +525,7 @@ contract TLStacks1155 is
     /// @param nftAddress The nft contract address
     /// @return bool Boolean indicating if this contract is approved or not
     function _isApprovedMintContract(address nftAddress) internal view returns (bool) {
-        return OwnableAccessControl(nftAddress).hasRole(APPROVED_MINT_CONTRACT, address(this));
+        return OwnableAccessControlUpgradeable(nftAddress).hasRole(APPROVED_MINT_CONTRACT, address(this));
     }
 
     /// @notice Internal function to check if a payout address is a valid address

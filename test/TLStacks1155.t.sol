@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {Test} from "forge-std-1.9.4/Test.sol";
 import {Merkle} from "test/utils/murky/Merkle.sol";
 import {IERC20Errors} from "@openzeppelin-contracts-5.0.2/interfaces/draft-IERC6093.sol";
 import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/access/OwnableUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/utils/PausableUpgradeable.sol";
-import {ERC1155TL} from "tl-creator-contracts-3.3.1/erc-1155/ERC1155TL.sol";
-import {WETH9} from "tl-sol-tools-3.1.4/../test/utils/WETH9.sol";
-import {IChainalysisSanctionsOracle, SanctionsCompliance} from "tl-sol-tools-3.1.4/payments/SanctionsCompliance.sol";
+import {ERC1155TL} from "tl-creator-contracts-3.7.1/erc-1155/ERC1155TL.sol";
+import {IChainalysisSanctionsOracle, SanctionsCompliance} from "src/lib/SanctionsCompliance.sol";
 import {TLStacks1155} from "src/TLStacks1155.sol";
 import {ITLStacks1155Events, Drop} from "src/utils/TLStacks1155Utils.sol";
 import {DropPhase, DropType, DropErrors} from "src/utils/CommonUtils.sol";
 import {Receiver} from "test/utils/Receiver.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
+import {WETH9} from "test/utils/WETH9.sol";
 
 contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     uint256 constant BASIS = 10_000;

@@ -7,7 +7,7 @@ integrity = "3874463846ab995a6a9a88412913cacec6144f7605daa1af57c2d8bf3f210b13"
 
 [[dependencies]]
 name = "tl-creator-contracts"
-version = "3.3.1"
-url = "https://soldeer-revisions.s3.amazonaws.com/tl-creator-contracts/3_3_1_01-12-2024_22:40:58_tl-creator-contracts.zip"
-checksum = "721036c50b35f4f6871bdc031ab636412833805d185627bba25a7d040f880667"
-integrity = "25ac063a1b606e8ef7e69cb42e5f3cc729cb401bf237c8323ea3c35a8b2b176d"
+version = "3.7.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/tl-creator-contracts/3_7_1_18-08-2025_15:06:18_tl-creator-contracts.zip"
+checksum = "5f73b4d97d7bc3e100c6abe12a971186a4ba68dd7925a66648d1a7d64ccaf31b"
+integrity = "fe9ace8bd7874875820eef6dee5066945e427d652438a1f4b9e70cfa5af38168"

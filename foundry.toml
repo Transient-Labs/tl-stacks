@@ -37,4 +37,7 @@ recursive_deps=true
 
 [dependencies]
 forge-std = "1.9.4"
-tl-creator-contracts = "3.3.1"
+tl-creator-contracts = "3.7.1"
+"@openzeppelin-contracts" = "5.0.2"
+"@openzeppelin-contracts-upgradeable" = "5.0.2"
+royalty-registry-solidity = { version = "1.0.0", git = "https://github.com/manifoldxyz/royalty-registry-solidity.git", rev = "e5369fc79279ce2e4c6ea2eb5914df51e89e8bd8" }
