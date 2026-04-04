@@ -30,7 +30,7 @@ clean:
 	forge fmt && forge clean
 
 build:
-	forge build --evm-version paris
+	forge build
 
 clean_build: clean build
 
@@ -40,16 +40,16 @@ docs: clean_build
 #####################################
 ### TESTS
 #####################################
-tests: build
+test-std: build
 	forge test
 
-gas-tests: build
+test-gas: build
 	forge test --gas-report
 
-cov-tests: build
+test-cov: build
 	forge coverage --no-match-coverage "(script|test|Foo|Bar)"
 
-fuzz-tests: build
+test-fuzz: build
 	forge test --fuzz-runs 10000
 
 #####################################

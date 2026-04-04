@@ -32,8 +32,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     address tl = makeAddr("Build Different");
     uint256 fee = 0.00042 ether;
-    uint256 freeMintFeeSplit = 5000;
-    uint256 referralFeeSplit = 2000;
     address ben = address(0x0BEEF);
     address chris = address(0xC0FFEE);
     address david = address(0x1D1B);
@@ -46,7 +44,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 receiverEthBalance;
         uint256 receiverCoinBalance;
         uint256 tlEthBalance;
-        uint256 referralEthBalance;
         uint256 nftBalance;
     }
 
@@ -58,7 +55,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     function setUp() public {
         wethAddress = address(new WETH9());
-        stacks = new TLStacks1155(address(this), address(0), wethAddress, tl, fee, freeMintFeeSplit, referralFeeSplit);
+        stacks = new TLStacks1155(address(this), address(0), wethAddress, tl, fee);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
@@ -98,8 +95,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         assertEq(stacks.weth(), wethAddress);
         assertEq(stacks.protocolFeeReceiver(), tl);
         assertEq(stacks.protocolFee(), fee);
-        assertEq(stacks.freeMintFeeSplit(), freeMintFeeSplit);
-        assertEq(stacks.referralFeeSplit(), referralFeeSplit);
         assertFalse(stacks.paused());
         assertTrue(nft.hasRole(MINTER_ROLE, address(stacks)));
     }
@@ -110,40 +105,18 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         address initSanctionsOracle,
         address initWethAddress,
         address initProtocolFeeReceiver,
-        uint256 initProtocolFee,
-        uint256 initFreeMintSplit,
-        uint256 initReferralSplit
+        uint256 initProtocolFee
     ) public {
         vm.assume(initOwner != address(0));
-        if (initFreeMintSplit > BASIS) {
-            initFreeMintSplit = initFreeMintSplit % BASIS;
-        }
-        if (initReferralSplit > BASIS) {
-            initReferralSplit = initReferralSplit % BASIS;
-        }
-        // limit combo of splits
-        if (initFreeMintSplit + initReferralSplit > BASIS) {
-            initFreeMintSplit = initFreeMintSplit % (BASIS / 2);
-            initReferralSplit = initReferralSplit % (BASIS / 2);
-        }
 
-        stacks = new TLStacks1155(
-            initOwner,
-            initSanctionsOracle,
-            initWethAddress,
-            initProtocolFeeReceiver,
-            initProtocolFee,
-            initFreeMintSplit,
-            initReferralSplit
-        );
+        stacks =
+            new TLStacks1155(initOwner, initSanctionsOracle, initWethAddress, initProtocolFeeReceiver, initProtocolFee);
 
         assertEq(stacks.owner(), initOwner);
         assertEq(address(stacks.oracle()), initSanctionsOracle);
         assertEq(stacks.weth(), initWethAddress);
         assertEq(stacks.protocolFeeReceiver(), initProtocolFeeReceiver);
         assertEq(stacks.protocolFee(), initProtocolFee);
-        assertEq(stacks.freeMintFeeSplit(), initFreeMintSplit);
-        assertEq(stacks.referralFeeSplit(), initReferralSplit);
     }
 
     /// @dev test owner only access for owner functions
@@ -164,8 +137,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.setProtocolFeeSettings(sender, 1 ether);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
-        stacks.setProtocolFeeSplits(10_000, 0);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.withdrawFunds(address(0), 100);
         vm.stopPrank();
 
@@ -182,29 +153,12 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         stacks.setProtocolFeeSettings(address(0), 0);
         assertEq(stacks.protocolFeeReceiver(), address(0));
         assertEq(stacks.protocolFee(), 0);
-        vm.expectEmit(true, true, false, false);
-        emit ProtocolFeeSplitsUpdated(10_000, 0);
-        stacks.setProtocolFeeSplits(10_000, 0);
-        assertEq(stacks.freeMintFeeSplit(), 10_000);
-        assertEq(stacks.referralFeeSplit(), 0);
         vm.expectEmit(false, false, false, true);
         emit Paused(address(this));
         stacks.pause(true);
         vm.expectEmit(false, false, false, true);
         emit Unpaused(address(this));
         stacks.pause(false);
-    }
-
-    /// @dev test limits on protocol fee splits
-    function test_setProtocolFeeSplits_limits(uint128 freeMintSplitPerc, uint128 referralSplitPerc) public {
-        if (uint256(freeMintSplitPerc) + uint256(referralSplitPerc) > 10_000) {
-            vm.expectRevert(ProtocolFeeSplitsTooLarge.selector);
-            stacks.setProtocolFeeSplits(uint256(freeMintSplitPerc), uint256(referralSplitPerc));
-        } else {
-            stacks.setProtocolFeeSplits(uint256(freeMintSplitPerc), uint256(referralSplitPerc));
-            assertEq(stacks.freeMintFeeSplit(), freeMintSplitPerc);
-            assertEq(stacks.referralFeeSplit(), referralSplitPerc);
-        }
     }
 
     /// @dev test withdraw ETH sent to the contract
@@ -241,8 +195,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     function test_paused() public {
         stacks.pause(true);
 
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
 
         vm.startPrank(nftOwner);
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
@@ -267,8 +222,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.assume(notDropAdmin != nftOwner);
         vm.assume(dropAdmin != notDropAdmin);
 
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
 
         // test contract owner
         vm.startPrank(nftOwner);
@@ -483,8 +439,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop payout receiver functionality and errors
     function test_updateDropPayoutReceiver(address payoutReceiver) public {
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         // invalid payout receiver
@@ -513,8 +470,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop allowance
     function test_updateDropAllowance(uint256 allowance) public {
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         drop.allowance = allowance;
@@ -535,8 +493,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop prices
     function test_updateDropPrices(address currencyAddress, uint256 presaleCost, uint256 publicCost) public {
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         drop.currencyAddress = currencyAddress;
@@ -560,15 +519,14 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     }
 
     /// @dev test updating regular drop durations
-    function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
-        public
-    {
+    function test_updateDropDurationRegular(uint256 startTime, uint256 presaleDuration, uint256 publicDuration) public {
         if (startTime > type(uint64).max) startTime = startTime % type(uint64).max;
         if (presaleDuration > type(uint64).max) presaleDuration = presaleDuration % type(uint64).max;
         if (publicDuration > type(uint64).max) publicDuration = publicDuration % type(uint64).max;
 
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         // drop not configured
         vm.expectRevert(DropUpdateNotAllowed.selector);
@@ -682,8 +640,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     /// @dev test updating drop decay rate errors
     function test_updateDropDecayRateRegular(int256 decayRate) public {
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
@@ -723,8 +682,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test closing a drop
     function test_closeDrop() public {
         uint256 prevRound = stacks.getDropRound(address(nft), 1);
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
         vm.expectEmit(true, true, true, false);
@@ -751,8 +711,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     /// @dev test drop ended and re-configure
     function test_configureDrop_afterPrevDropEnds() public {
         // set drop
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.startPrank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -872,31 +833,31 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bytes32[] memory proof = m.getProof(data, 0);
         vm.expectRevert(MintZeroTokens.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, address(0), 0, 1, proof);
+        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, 0, 1, proof);
 
         // not on allowlist
         vm.expectRevert(NotOnAllowlist.selector);
         vm.prank(minter);
-        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, minter, address(0), 1, 1, emptyProof);
+        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, minter, 1, 1, emptyProof);
 
         // reached mint allowance
         vm.prank(ben);
-        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, address(0), 1, 1, proof);
+        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, 1, 1, proof);
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, address(0), 1, 1, proof);
+        stacks.purchase{value: fee + 0.1 ether}(address(nft), 1, ben, 1, 1, proof);
 
         // insufficent funds
         proof = m.getProof(data, 1);
         vm.expectRevert(IncorrectFunds.selector);
         vm.prank(chris);
-        stacks.purchase{value: 0.1 ether}(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase{value: 0.1 ether}(address(nft), 1, chris, 1, 3, proof);
 
         // too many funds
         proof = m.getProof(data, 1);
         vm.expectRevert(IncorrectFunds.selector);
         vm.prank(chris);
-        stacks.purchase{value: 1 ether}(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase{value: 1 ether}(address(nft), 1, chris, 1, 3, proof);
     }
 
     /// @dev test purchase with erc20 errors
@@ -911,8 +872,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bytes32 root = m.getRoot(data);
 
         // setup drop
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 2, 2, 1, address(coin), block.timestamp, 1000, 0.1 ether, root, 1000, 0, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 2, 2, 1, address(coin), block.timestamp, 1000, 0.1 ether, root, 1000, 0, 0
+        );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -920,40 +882,40 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bytes32[] memory proof = m.getProof(data, 0);
         vm.expectRevert(MintZeroTokens.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 0, 1, proof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 0, 1, proof);
 
         // not on allowlist
         vm.expectRevert(NotOnAllowlist.selector);
         vm.prank(minter);
-        stacks.purchase{value: fee}(address(nft), 1, minter, address(0), 1, 1, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, minter, 1, 1, emptyProof);
 
         // reached mint allowance
         vm.prank(ben);
         coin.approve(address(stacks), 1 ether);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 1, proof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 1, proof);
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 1, proof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 1, proof);
 
         // insufficent fee
         proof = m.getProof(data, 1);
         vm.expectRevert(IncorrectFunds.selector);
         vm.prank(chris);
-        stacks.purchase(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase(address(nft), 1, chris, 1, 3, proof);
 
         // too much fee
         proof = m.getProof(data, 1);
         vm.expectRevert(IncorrectFunds.selector);
         vm.prank(chris);
-        stacks.purchase{value: 1 ether}(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase{value: 1 ether}(address(nft), 1, chris, 1, 3, proof);
 
         // not enough erc20 allowance given
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether)
         );
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase{value: fee}(address(nft), 1, chris, 1, 3, proof);
 
         // not enough erc20 balance
         vm.prank(chris);
@@ -962,7 +924,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         coin.approve(address(stacks), 1 ether);
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether));
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), 1, chris, address(0), 1, 3, proof);
+        stacks.purchase{value: fee}(address(nft), 1, chris, 1, 3, proof);
     }
 
     /// @dev test purchase for another address eth
@@ -970,8 +932,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.assume(sender != address(0) && recipient != address(0));
         vm.assume(sender != nftOwner && sender != tl);
         vm.assume(recipient.code.length == 0);
-        Drop memory drop =
-            Drop(DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0);
+        Drop memory drop = Drop(
+            DropType.REGULAR, nftOwner, 10, 10, 1, address(0), block.timestamp, 0, 0, bytes32(0), 1000, 1 ether, 0
+        );
         vm.prank(nftOwner);
         stacks.configureDrop(address(nft), 1, drop);
 
@@ -982,7 +945,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 prevTLBalance = tl.balance;
 
         vm.prank(sender);
-        stacks.purchase{value: 1 ether + fee}(address(nft), 1, recipient, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: 1 ether + fee}(address(nft), 1, recipient, 1, 0, emptyProof);
         assert(prevSenderBalance - sender.balance == 1 ether + fee);
         assert(nftOwner.balance - prevNftOwnerBalance == 1 ether);
         assert(tl.balance - prevTLBalance == fee);
@@ -990,7 +953,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(sender);
-        stacks.purchase{value: 1 ether + fee}(address(nft), 1, recipient, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: 1 ether + fee}(address(nft), 1, recipient, 1, 0, emptyProof);
     }
 
     /// @dev test purchase for another address erc20
@@ -1016,7 +979,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 prevTLBalance = tl.balance;
 
         vm.prank(sender);
-        stacks.purchase{value: fee}(address(nft), 1, recipient, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, recipient, 1, 0, emptyProof);
         assert(prevSenderBalance - sender.balance == fee);
         assert(prevSenderCoinBalance - coin.balanceOf(sender) == 1 ether);
         assert(coin.balanceOf(nftOwner) - prevNftOwnerBalance == 1 ether);
@@ -1025,7 +988,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(sender);
-        stacks.purchase{value: fee}(address(nft), 1, recipient, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, recipient, 1, 0, emptyProof);
     }
 
     /// @dev test numberCanMint
@@ -1038,20 +1001,20 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // test mint one and then get limited to 1 more only
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(ben);
-        stacks.purchase{value: 2 * fee}(address(nft), 1, ben, address(0), 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), 1, ben, 2, 0, emptyProof);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
         assert(nft.balanceOf(ben, 1) == 2);
 
         // test mint two and get limited to remaining supply of 1
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(chris);
-        stacks.purchase{value: 2 * fee}(address(nft), 1, chris, address(0), 2, 0, emptyProof);
+        stacks.purchase{value: 2 * fee}(address(nft), 1, chris, 2, 0, emptyProof);
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), 1, chris, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, chris, 1, 0, emptyProof);
         assert(nft.balanceOf(chris, 1) == 1);
         assert(stacks.getDropPhase(address(nft), 1) == DropPhase.ENDED);
     }
@@ -1087,7 +1050,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // mint
         vm.prank(ben);
-        stacks.purchase{value: numberToMint * fee}(address(nft), 1, ben, address(0), numberToMint, 0, emptyProof);
+        stacks.purchase{value: numberToMint * fee}(address(nft), 1, ben, numberToMint, 0, emptyProof);
         assert(stacks.getNumberMinted(address(nft), 1, ben) == numberToMint);
 
         // close drop and reset
@@ -1098,7 +1061,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     function _purchaseEth(
         address sender,
-        address referralAddress,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
         bytes32[] memory proof,
@@ -1107,9 +1069,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         bool isPresale
     ) internal {
         vm.startPrank(sender);
-        Balances memory prevBalances = Balances(
-            sender.balance, 0, receiver.balance, 0, tl.balance, referralAddress.balance, nft.balanceOf(sender, 1)
-        );
+        Balances memory prevBalances =
+            Balances(sender.balance, 0, receiver.balance, 0, tl.balance, nft.balanceOf(sender, 1));
         Drop memory prevDrop = stacks.getDrop(address(nft), 1);
 
         if (prevDrop.publicDuration == 0 && !isPresale) {
@@ -1120,51 +1081,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), 1, sender, address(0), numberToMint, cost, decayRate, isPresale);
         stacks.purchase{value: numberToMint * (cost + fee)}(
-            address(nft), 1, sender, referralAddress, numberToMint, presaleNumberCanMint, proof
+            address(nft), 1, sender, numberToMint, presaleNumberCanMint, proof
         );
 
         Drop memory drop = stacks.getDrop(address(nft), 1);
-        if (referralAddress != address(0)) {
-            if (referralAddress == sender) {
-                assertEq(
-                    prevBalances.senderEthBalance - sender.balance,
-                    numberToMint * (cost + fee) - numberToMint * fee * referralFeeSplit / 10_000
-                );
-            } else {
-                assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee));
-                assertEq(
-                    referralAddress.balance - prevBalances.referralEthBalance,
-                    numberToMint * fee * referralFeeSplit / 10_000
-                );
-            }
-            if (cost == 0) {
-                assertEq(
-                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
-                );
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance,
-                    numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000
-                );
-            } else {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * cost);
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000
-                );
-            }
-        } else {
-            assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee));
-            if (cost == 0) {
-                assertEq(
-                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
-                );
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000
-                );
-            } else {
-                assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * cost);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
-            }
-        }
+        assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * (cost + fee));
+        assertEq(receiver.balance - prevBalances.receiverEthBalance, numberToMint * cost);
+        assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
         assertEq(nft.balanceOf(sender, 1) - prevBalances.nftBalance, numberToMint);
         assertEq(prevDrop.supply - drop.supply, numberToMint);
         assertEq(prevDrop.initialSupply, drop.initialSupply);
@@ -1183,12 +1106,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 presaleDuration,
         uint256 presaleCost,
         uint256 publicDuration,
-        uint256 publicCost,
-        address referralAddress
+        uint256 publicCost
     ) public {
-        // exclude fuzz variables
-        vm.assume(referralAddress.code.length == 0 && (referralAddress == address(0) || referralAddress > address(42)));
-
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
@@ -1217,10 +1136,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         if (publicCost > 30 ether) {
             publicCost = publicCost % 30 ether;
-        }
-
-        if (referralAddress > address(420)) {
-            referralAddress = address(0);
         }
 
         // setup drop
@@ -1250,7 +1165,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // expect revert when trying to mint
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: presaleCost + fee}(address(nft), 1, ben, address(0), 1, 1, proof);
+            stacks.purchase{value: presaleCost + fee}(address(nft), 1, ben, 1, 1, proof);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -1259,13 +1174,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test presale
         if (presaleDuration > 0) {
             // ben buys one token
-            _purchaseEth(ben, referralAddress, 1, 1, m.getProof(data, 0), drop.presaleCost, 0, true);
+            _purchaseEth(ben, 1, 1, m.getProof(data, 0), drop.presaleCost, 0, true);
 
             // chris buys 3 tokens
-            _purchaseEth(chris, referralAddress, 3, 3, m.getProof(data, 1), drop.presaleCost, 0, true);
+            _purchaseEth(chris, 3, 3, m.getProof(data, 1), drop.presaleCost, 0, true);
 
             // david buys 1 token
-            _purchaseEth(david, referralAddress, 1, 2, m.getProof(data, 2), drop.presaleCost, 0, true);
+            _purchaseEth(david, 1, 2, m.getProof(data, 2), drop.presaleCost, 0, true);
 
             // count tokens bought and warp time
             tokensBought += 5;
@@ -1275,16 +1190,16 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test public sale
         if (publicDuration > 0) {
             // ben buys another token
-            _purchaseEth(ben, referralAddress, 1, 1, m.getProof(data, 0), drop.publicCost, 0, false);
+            _purchaseEth(ben, 1, 1, m.getProof(data, 0), drop.publicCost, 0, false);
 
             // david buys another token
-            _purchaseEth(david, referralAddress, 1, 2, m.getProof(data, 2), drop.publicCost, 0, false);
+            _purchaseEth(david, 1, 2, m.getProof(data, 2), drop.publicCost, 0, false);
 
             // bsy buys two tokens
-            _purchaseEth(bsy, referralAddress, 2, 2, m.getProof(data, 3), drop.publicCost, 0, false);
+            _purchaseEth(bsy, 2, 2, m.getProof(data, 3), drop.publicCost, 0, false);
 
             // minter buys one token
-            _purchaseEth(minter, referralAddress, 1, 0, emptyProof, drop.publicCost, 0, false);
+            _purchaseEth(minter, 1, 0, emptyProof, drop.publicCost, 0, false);
 
             // count tokens bought and warp time
             tokensBought += 5;
@@ -1302,16 +1217,9 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
     }
 
     /// @dev test purchase functionality for eth, velocity mint
-    function test_purchaseEthVelocity(
-        uint256 startDelay,
-        uint256 publicDuration,
-        uint256 publicCost,
-        int256 decayRate,
-        address referralAddress
-    ) public {
-        // exclude referral addresses that are smart contracts for simplicity
-        vm.assume(referralAddress.code.length == 0 && (referralAddress == address(0) || referralAddress > address(42)));
-
+    function test_purchaseEthVelocity(uint256 startDelay, uint256 publicDuration, uint256 publicCost, int256 decayRate)
+        public
+    {
         // limit fuzz variables
         if (startDelay > 365 days) {
             startDelay = startDelay % 365 days;
@@ -1331,10 +1239,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         if (decayRate < -1 * 365 days) {
             decayRate = decayRate % (-1 * 365 days);
-        }
-
-        if (referralAddress > address(420)) {
-            referralAddress = address(0);
         }
 
         // setup drop
@@ -1361,7 +1265,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // expect revert when trying to mint
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: publicCost + fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+            stacks.purchase{value: publicCost + fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -1370,16 +1274,16 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test public sale
         if (publicDuration > 0) {
             // ben buys another token
-            _purchaseEth(ben, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseEth(ben, 1, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // david buys another token
-            _purchaseEth(david, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseEth(david, 1, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // bsy buys two tokens
-            _purchaseEth(bsy, referralAddress, 2, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseEth(bsy, 2, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // minter buys one token
-            _purchaseEth(minter, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseEth(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1393,7 +1297,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
     function _purchaseERC20(
         address sender,
-        address referralAddress,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
         bytes32[] memory proof,
@@ -1408,7 +1311,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             receiver.balance,
             coin.balanceOf(receiver),
             tl.balance,
-            referralAddress.balance,
             nft.balanceOf(sender, 1)
         );
         Drop memory prevDrop = stacks.getDrop(address(nft), 1);
@@ -1420,53 +1322,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), 1, sender, address(coin), numberToMint, cost, decayRate, isPresale);
-        stacks.purchase{value: numberToMint * fee}(
-            address(nft), 1, sender, referralAddress, numberToMint, presaleNumberCanMint, proof
-        );
+        stacks.purchase{value: numberToMint * fee}(address(nft), 1, sender, numberToMint, presaleNumberCanMint, proof);
 
         Drop memory drop = stacks.getDrop(address(nft), 1);
         assertEq(prevBalances.senderCoinBalance - coin.balanceOf(sender), numberToMint * cost);
-        if (referralAddress != address(0)) {
-            if (referralAddress == sender) {
-                assertEq(
-                    prevBalances.senderEthBalance - sender.balance,
-                    numberToMint * fee - numberToMint * fee * referralFeeSplit / 10_000
-                );
-            } else {
-                assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
-                assertEq(
-                    referralAddress.balance - prevBalances.referralEthBalance,
-                    numberToMint * fee * referralFeeSplit / 10_000
-                );
-            }
-            if (cost == 0) {
-                assertEq(
-                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
-                );
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance,
-                    numberToMint * fee * (10_000 - freeMintFeeSplit - referralFeeSplit) / 10_000
-                );
-            } else {
-                assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - referralFeeSplit) / 10_000
-                );
-            }
-        } else {
-            assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
-            if (cost == 0) {
-                assertEq(
-                    receiver.balance - prevBalances.receiverEthBalance, numberToMint * fee * freeMintFeeSplit / 10_000
-                );
-                assertEq(
-                    tl.balance - prevBalances.tlEthBalance, numberToMint * fee * (10_000 - freeMintFeeSplit) / 10_000
-                );
-            } else {
-                assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
-                assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
-            }
-        }
+        assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
+        assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
+        assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
         assertEq(nft.balanceOf(sender, 1) - prevBalances.nftBalance, numberToMint);
         assertEq(prevDrop.supply - drop.supply, numberToMint);
         assertEq(prevDrop.initialSupply, drop.initialSupply);
@@ -1485,12 +1347,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 presaleDuration,
         uint256 presaleCost,
         uint256 publicDuration,
-        uint256 publicCost,
-        address referralAddress
+        uint256 publicCost
     ) public {
-        // exclude smart contracts to simplify
-        vm.assume(referralAddress.code.length == 0 && (referralAddress == address(0) || referralAddress > address(42)));
-
         // merkle tree
         Merkle m = new Merkle();
         bytes32[] memory data = new bytes32[](4);
@@ -1519,10 +1377,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         if (publicCost > 30 ether) {
             publicCost = publicCost % 30 ether;
-        }
-
-        if (referralAddress > address(420)) {
-            referralAddress = address(0);
         }
 
         // approve erc20
@@ -1564,7 +1418,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // expect revert when trying to mint
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: presaleCost + fee}(address(nft), 1, ben, address(0), 1, 1, proof);
+            stacks.purchase{value: presaleCost + fee}(address(nft), 1, ben, 1, 1, proof);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -1573,13 +1427,13 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test presale
         if (presaleDuration > 0) {
             // ben buys one token
-            _purchaseERC20(ben, referralAddress, 1, 1, m.getProof(data, 0), drop.presaleCost, 0, true);
+            _purchaseERC20(ben, 1, 1, m.getProof(data, 0), drop.presaleCost, 0, true);
 
             // chris buys 3 tokens
-            _purchaseERC20(chris, referralAddress, 3, 3, m.getProof(data, 1), drop.presaleCost, 0, true);
+            _purchaseERC20(chris, 3, 3, m.getProof(data, 1), drop.presaleCost, 0, true);
 
             // david buys 1 token
-            _purchaseERC20(david, referralAddress, 1, 2, m.getProof(data, 2), drop.presaleCost, 0, true);
+            _purchaseERC20(david, 1, 2, m.getProof(data, 2), drop.presaleCost, 0, true);
 
             // count tokens bought and warp time
             tokensBought += 5;
@@ -1589,16 +1443,16 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test public sale
         if (publicDuration > 0) {
             // ben buys another token
-            _purchaseERC20(ben, referralAddress, 1, 1, m.getProof(data, 0), drop.publicCost, 0, false);
+            _purchaseERC20(ben, 1, 1, m.getProof(data, 0), drop.publicCost, 0, false);
 
             // david buys another token
-            _purchaseERC20(david, referralAddress, 1, 2, m.getProof(data, 2), drop.publicCost, 0, false);
+            _purchaseERC20(david, 1, 2, m.getProof(data, 2), drop.publicCost, 0, false);
 
             // bsy buys two tokens
-            _purchaseERC20(bsy, referralAddress, 2, 2, m.getProof(data, 3), drop.publicCost, 0, false);
+            _purchaseERC20(bsy, 2, 2, m.getProof(data, 3), drop.publicCost, 0, false);
 
             // minter buys one token
-            _purchaseERC20(minter, referralAddress, 1, 0, emptyProof, drop.publicCost, 0, false);
+            _purchaseERC20(minter, 1, 0, emptyProof, drop.publicCost, 0, false);
 
             // count tokens bought and warp time
             tokensBought += 5;
@@ -1620,12 +1474,8 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         uint256 startDelay,
         uint256 publicDuration,
         uint256 publicCost,
-        int256 decayRate,
-        address referralAddress
+        int256 decayRate
     ) public {
-        // exclude smart contracts for simplicity
-        vm.assume(referralAddress.code.length == 0 && (referralAddress == address(0) || referralAddress > address(42)));
-
         // limit fuzz variables
         if (startDelay > 365 days) {
             startDelay = startDelay % 365 days;
@@ -1645,10 +1495,6 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         if (decayRate < -1 * 365 days) {
             decayRate = decayRate % (-1 * 365 days);
-        }
-
-        if (referralAddress > address(420)) {
-            referralAddress = address(0);
         }
 
         // approve erc20
@@ -1687,7 +1533,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
             // expect revert when trying to mint
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: publicCost + fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+            stacks.purchase{value: publicCost + fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -1696,16 +1542,16 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // test public sale
         if (publicDuration > 0) {
             // ben buys another token
-            _purchaseERC20(ben, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseERC20(ben, 1, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // david buys another token
-            _purchaseERC20(david, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseERC20(david, 1, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // bsy buys two tokens
-            _purchaseERC20(bsy, referralAddress, 2, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseERC20(bsy, 2, 0, emptyProof, drop.publicCost, decayRate, false);
 
             // minter buys one token
-            _purchaseERC20(minter, referralAddress, 1, 0, emptyProof, drop.publicCost, decayRate, false);
+            _purchaseERC20(minter, 1, 0, emptyProof, drop.publicCost, decayRate, false);
         }
 
         // test drop ended (warp to end if hasn't minted out)
@@ -1731,7 +1577,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // mint from drop one and assure it doesn't affect drop two
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
         uint256[] memory tokenIds = new uint256[](2);
         tokenIds[0] = 1;
         tokenIds[1] = 2;
@@ -1743,7 +1589,7 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
 
         // mint from drop two and assure it doesn't affect drop one
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), 2, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 2, ben, 1, 0, emptyProof);
         dropOne = stacks.getDrop(address(nft), 1);
         dropTwo = stacks.getDrop(address(nft), 2);
         assertEq(dropOne.supply, 9);
@@ -1780,14 +1626,14 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         // can't buy msg.sender
         vm.prank(ben);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
         // can't buy recipient
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true)
         );
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        stacks.purchase{value: fee}(address(nft), 1, ben, address(0), 1, 0, emptyProof);
+        stacks.purchase{value: fee}(address(nft), 1, ben, 1, 0, emptyProof);
 
         vm.clearMockedCalls();
     }

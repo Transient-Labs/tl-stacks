@@ -18,8 +18,9 @@ import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
 /// @title TLStacks1155
 /// @notice Transient Labs mint contract for ERC1155TL contracts
+/// @dev Matches functionality of version 2.3.1
 /// @author transientlabs.xyz
-/// @custom:version-last-updated 2.4.0
+/// @custom:version-last-updated 2.7.0
 contract TLStacks1155 is
     Ownable,
     Pausable,
@@ -33,7 +34,7 @@ contract TLStacks1155 is
                                   Constants
     //////////////////////////////////////////////////////////////////////////*/
 
-    string public constant VERSION = "2.4.0";
+    string public constant VERSION = "2.7.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
     uint256 public constant BASIS = 10_000;
@@ -44,8 +45,6 @@ contract TLStacks1155 is
 
     address public protocolFeeReceiver; // the payout receiver for the protocol fee
     uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer
-    uint256 public freeMintFeeSplit; // the percent (in basis points) to split with the creator on free drops
-    uint256 public referralFeeSplit; // the percent (in basis points) to split when minted with a referral
     address public weth; // weth address
     mapping(address => mapping(uint256 => Drop)) internal _drops; // nft address -> token id -> Drop
     mapping(address => mapping(uint256 => mapping(uint256 => mapping(address => uint256)))) internal _numberMinted; // nft address -> token id -> round -> user -> number minted
@@ -60,13 +59,10 @@ contract TLStacks1155 is
         address initSanctionsOracle,
         address initWethAddress,
         address initProtocolFeeReceiver,
-        uint256 initProtocolFee,
-        uint256 initFreeMintSplit,
-        uint256 initReferralSplit
+        uint256 initProtocolFee
     ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
         _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
-        _setProtocolFeeSplits(initFreeMintSplit, initReferralSplit);
     }
 
     /*//////////////////////////////////////////////////////////////////////////
@@ -86,14 +82,6 @@ contract TLStacks1155 is
     /// @param newProtocolFee The new protocol fee in ETH
     function setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFee) external onlyOwner {
         _setProtocolFeeSettings(newProtocolFeeReceiver, newProtocolFee);
-    }
-
-    /// @notice Function to set the protocol fee splits
-    /// @dev Requires owner
-    /// @param newFreeMintFeeSplit The new fee split for free mints
-    /// @param newReferralFeeSplit The new fee split for referrals
-    function setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) external onlyOwner {
-        _setProtocolFeeSplits(newFreeMintFeeSplit, newReferralFeeSplit);
     }
 
     /// @notice Function to set the sanctions oracle
@@ -365,7 +353,6 @@ contract TLStacks1155 is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
-    /// @param referralAddress The referrer to the mint
     /// @param numberToMint The number of tokens to mint
     /// @param presaleNumberCanMint The number of tokens the recipient can mint during presale
     /// @param proof The merkle proof for the presale page
@@ -373,7 +360,6 @@ contract TLStacks1155 is
         address nftAddress,
         uint256 tokenId,
         address recipient,
-        address referralAddress,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
         bytes32[] calldata proof
@@ -410,7 +396,7 @@ contract TLStacks1155 is
         _updateDropState(nftAddress, tokenId, round, recipient, numberToMint, drop);
 
         // settle funds
-        _settleUp(numberToMint, cost, referralAddress, drop);
+        _settleUp(numberToMint, cost, drop);
 
         // mint
         _mintToken(nftAddress, tokenId, recipient, numberToMint);
@@ -500,25 +486,12 @@ contract TLStacks1155 is
         emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFee);
     }
 
-    /// @notice Internal function to update the protocol fee split settings
-    /// @param newFreeMintFeeSplit The new fee split for free mints
-    /// @param newReferralFeeSplit The new fee split for referrals
-    function _setProtocolFeeSplits(uint256 newFreeMintFeeSplit, uint256 newReferralFeeSplit) internal {
-        if (newFreeMintFeeSplit + newReferralFeeSplit > BASIS) revert ProtocolFeeSplitsTooLarge();
-        freeMintFeeSplit = newFreeMintFeeSplit;
-        referralFeeSplit = newReferralFeeSplit;
-
-        emit ProtocolFeeSplitsUpdated(newFreeMintFeeSplit, newReferralFeeSplit);
-    }
-
     /// @notice Internal function to check if msg.sender is the owner or an admin on the contract
     /// @param nftAddress The nft contract address
     /// @return bool Boolean indicating if msg.sender is the owner or an admin on the nft contract
     function _isDropAdmin(address nftAddress) internal view returns (bool) {
-        return (
-            msg.sender == OwnableAccessControlUpgradeable(nftAddress).owner()
-                || OwnableAccessControlUpgradeable(nftAddress).hasRole(ADMIN_ROLE, msg.sender)
-        );
+        return (msg.sender == OwnableAccessControlUpgradeable(nftAddress).owner()
+                || OwnableAccessControlUpgradeable(nftAddress).hasRole(ADMIN_ROLE, msg.sender));
     }
 
     /// @notice Intenral function to check if this contract is an approved mint contract
@@ -611,11 +584,12 @@ contract TLStacks1155 is
     /// @notice Internal function to distribute funds for a _purchase
     /// @param numberToMint The number of tokens that can be minted
     /// @param cost The cost per token
-    /// @param referralAddress The address that referred the mint
     /// @param drop The drop
-    function _settleUp(uint256 numberToMint, uint256 cost, address referralAddress, Drop memory drop) internal {
+    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal {
         uint256 totalProtocolFee = numberToMint * protocolFee;
         uint256 totalSale = numberToMint * cost;
+
+        // payout the mint
         if (drop.currencyAddress == address(0)) {
             uint256 totalCost = totalSale + totalProtocolFee;
             if (msg.value != totalCost) revert IncorrectFunds();
@@ -628,21 +602,9 @@ contract TLStacks1155 is
                 _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
             }
         }
-        uint256 protocolFeeRemaining = totalProtocolFee;
-        // split protocol fee if free mint
-        if (cost == 0) {
-            uint256 freeMintSplitAmount = totalProtocolFee * freeMintFeeSplit / BASIS;
-            _safeTransferETH(drop.payoutReceiver, freeMintSplitAmount, weth);
-            protocolFeeRemaining -= freeMintSplitAmount;
-        }
-        // split protoocl fee if referred
-        if (referralAddress != address(0)) {
-            uint256 referralSplitAmount = totalProtocolFee * referralFeeSplit / BASIS;
-            _safeTransferETH(referralAddress, referralSplitAmount, weth);
-            protocolFeeRemaining -= referralSplitAmount;
-        }
-        // payout rest of the protocol fee
-        _safeTransferETH(protocolFeeReceiver, protocolFeeRemaining, weth);
+
+        // payout the protocol fee
+        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
     }
 
     /// @notice Internal function to mint the token

@@ -20,7 +20,14 @@ contract CreatorLookup is ICreatorLookup {
     ///////////////////////////////////////////////////////////////////////////
 
     /// @inheritdoc ICreatorLookup
-    function getCreator(address nftAddress, uint256 /* tokenId */ ) external view returns (address) {
+    function getCreator(
+        address nftAddress,
+        uint256 /* tokenId */
+    )
+        external
+        view
+        returns (address)
+    {
         // first make sure nftAddress is a contract
         if (nftAddress.code.length == 0) return address(0);
 
