@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {ICreatorLookup} from "./ICreatorLookup.sol";
 import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
@@ -20,7 +20,14 @@ contract CreatorLookup is ICreatorLookup {
     ///////////////////////////////////////////////////////////////////////////
 
     /// @inheritdoc ICreatorLookup
-    function getCreator(address nftAddress, uint256 /* tokenId */ ) external view returns (address) {
+    function getCreator(
+        address nftAddress,
+        uint256 /* tokenId */
+    )
+        external
+        view
+        returns (address)
+    {
         // first make sure nftAddress is a contract
         if (nftAddress.code.length == 0) return address(0);
 

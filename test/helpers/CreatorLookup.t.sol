@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import "forge-std-1.9.4/Test.sol";
 import {CreatorLookup, Ownable} from "src/helpers/CreatorLookup.sol";
-import {ERC721TL} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
+import {ERC721TL} from "tl-creator-contracts-3.7.1/erc-721/ERC721TL.sol";
 
 contract CreatorLookupTest is Test {
     CreatorLookup cl;

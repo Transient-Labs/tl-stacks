@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 enum ListingType {
     NOT_CONFIGURED,
     SCHEDULED_AUCTION,
     RESERVE_AUCTION,
     RESERVE_AUCTION_PLUS_BUY_NOW,
-    BUY_NOW
+    BUY_NOW,
+    PRIVATE_SALE
 }
 
 /// @dev The Listing struct contains general information about the sale on the auction house,

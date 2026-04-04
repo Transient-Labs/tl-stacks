@@ -1,23 +1,48 @@
-on: [push]
+name: test
 
-name: Test
+on:
+  push:
+    branches-ignore:
+      - 'main' # All branches but main
+    tags-ignore:
+      - '**'  # This ignores all tags
+
+env:
+  FOUNDRY_PROFILE: ci
 
 jobs:
   check:
-    name: Transient Labs Stacks Protocol (sales mechanics)
+    name: Transient Stacks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: nightly
 
-      - name: Instal modules
-        run: make install
+      - name: Install dependencies
+        id: deps
+        run: |
+          make install
 
-      - name: Run unit tests
-        run: make tests
+      - name: Show Forge version
+        id: version
+        run: |
+          forge --version
+
+      - name: Run Forge fmt
+        id: fmt
+        run: |
+          make fmt
+
+      - name: Run Forge build
+        id: build
+        run: |
+          make build
+
+      - name: Run Forge tests
+        id: test
+        run: |
+          make test-std

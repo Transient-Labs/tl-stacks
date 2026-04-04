@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import "forge-std-1.9.4/Test.sol";
 import {Ownable, RoyaltyLookup, IRoyaltyEngineV1} from "src/helpers/RoyaltyLookup.sol";
-import {ERC721TL, EIP2981TLUpgradeable} from "tl-creator-contracts-3.3.1/erc-721/ERC721TL.sol";
+import {ERC721TL, ERC2981TLUpgradeable} from "tl-creator-contracts-3.7.1/erc-721/ERC721TL.sol";
 
 contract RoyaltyLookupTest is Test {
     RoyaltyLookup rl;
@@ -44,7 +44,7 @@ contract RoyaltyLookupTest is Test {
 
         // bad nft
         vm.mockCallRevert(
-            badNft, abi.encodeWithSelector(EIP2981TLUpgradeable.royaltyInfo.selector, tokenId, 10_000), "revert"
+            badNft, abi.encodeWithSelector(ERC2981TLUpgradeable.royaltyInfo.selector, tokenId, 10_000), "revert"
         );
         (recipients, amounts) = rl.getRoyalty(badNft, tokenId, 10_000);
         assertEq(recipients.length, 0);
@@ -52,7 +52,7 @@ contract RoyaltyLookupTest is Test {
         vm.clearMockedCalls();
 
         vm.mockCallRevert(
-            badNft, abi.encodeWithSelector(EIP2981TLUpgradeable.royaltyInfo.selector, tokenId, 10_000), "revert"
+            badNft, abi.encodeWithSelector(ERC2981TLUpgradeable.royaltyInfo.selector, tokenId, 10_000), "revert"
         );
         (recipients, amounts) = rl.getRoyaltyView(badNft, tokenId, 10_000);
         assertEq(recipients.length, 0);

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.22;
+pragma solidity 0.8.28;
 
 import {IRoyaltyLookup} from "./IRoyaltyLookup.sol";
 import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
 import {IRoyaltyEngineV1} from "royalty-registry-solidity-1.0.0/IRoyaltyEngineV1.sol";
-import {IEIP2981} from "tl-sol-tools-3.1.4/royalties/IEIP2981.sol";
+import {IERC2981} from "@openzeppelin-contracts-5.0.2/interfaces/IERC2981.sol";
 
 /// @title RoyaltyLookup.sol
 /// @notice Contract to enable TLAuctionHouse to determine royalties to payout on secondary sales
@@ -113,7 +113,7 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         if (nftAddress.code.length == 0) return (recipients, amounts);
 
         // try looking up royalty
-        try IEIP2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
+        try IERC2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
             // convert return value to arrays
             address payable[] memory r = new address payable[](1);
             r[0] = payable(r_);
