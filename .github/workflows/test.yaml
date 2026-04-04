@@ -20,4 +20,4 @@ jobs:
         run: make install
 
       - name: Run unit tests
-        run: make tests
+        run: make test-std
