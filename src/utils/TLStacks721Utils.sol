@@ -20,7 +20,8 @@ import {DropType} from "./CommonUtils.sol";
 ///        `baseUri + "/" + counter`. For an unnumbered edition, set this to the uri of a single metadata json
 ///        followed by a "#" (e.g. `ar://<id>#`). The counter then lands in the uri fragment, which isn't sent when
 ///        the uri is fetched, so every token resolves to the same metadata. This allows open ended supply, such as
-///        velocity drops, without needing a pre-generated metadata file per token.
+///        velocity drops, without needing a pre-generated metadata file per token. For selectable drops, the
+///        counter is replaced by the index the buyer selects (0 to `initialSupply - 1`).
 struct Drop {
     DropType dropType;
     address payoutReceiver;
@@ -58,5 +59,8 @@ interface ITLStacks721Events {
         uint256 price,
         int256 decayRate,
         bool isPresale
+    );
+    event IndicesMinted(
+        address indexed nftAddress, uint256 indexed round, address indexed nftReceiver, uint256[] indices
     );
 }

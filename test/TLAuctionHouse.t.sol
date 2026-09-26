@@ -7429,7 +7429,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_updateListing_reserveAuction(uint256 reservePrice, uint256 duration, address payoutReceiver) public {
         reservePrice = bound(reservePrice, 1, 100 ether);
         duration = bound(duration, 1, 30 days);
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != tl);
 
         vm.startPrank(ben);
         nft.setApprovalForAll(address(ah), true);

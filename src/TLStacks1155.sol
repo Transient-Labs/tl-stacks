@@ -154,7 +154,7 @@ contract TLStacks1155 is
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @dev Reverts if
     ///     - the payout receiver is the zero address or sanctioned
-    ///     - the `dropType` is `NOT_CONFIGURED`
+    ///     - the `dropType` is `NOT_CONFIGURED` or `SELECTABLE` (selectable drops are only supported for ERC-721)
     ///     - the currency is not on the allowlist (native currency is always allowed)
     ///     - a drop is already configured and live
     ///     - the `intiialSupply` does not equal the `supply`
@@ -176,7 +176,9 @@ contract TLStacks1155 is
         if (!_isCurrencyAllowed(drop.currencyAddress)) revert CurrencyNotAllowed();
         if (!_isApprovedMintContract(nftAddress)) revert NotApprovedMintContract();
         if (drop.initialSupply != drop.supply) revert InvalidDropSupply();
-        if (drop.dropType == DropType.NOT_CONFIGURED) revert InvalidDropType();
+        if (drop.dropType == DropType.NOT_CONFIGURED || drop.dropType == DropType.SELECTABLE) {
+            revert InvalidDropType();
+        }
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
         if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
 

@@ -14,7 +14,8 @@ enum DropPhase {
 enum DropType {
     NOT_CONFIGURED,
     REGULAR,
-    VELOCITY
+    VELOCITY,
+    SELECTABLE
 }
 
 /// @dev Errors for Drops
@@ -39,4 +40,8 @@ interface DropErrors {
     error DropRoundChanged();
     error InvalidProtocolFeeReceiver();
     error InvalidSellerFeeBps();
+    error NotAllowedForSelectableDrops();
+    error NotSelectableDrop();
+    error IndexOutOfRange();
+    error IndexAlreadyMinted();
 }

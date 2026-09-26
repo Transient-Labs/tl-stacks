@@ -16,6 +16,7 @@ The mint contracts are
 - configurable for any allowlisted ERC-20 token (the contract owner manages the allowlist; native currency is always allowed)
 - drop admins can decrease a live drop's total supply (never below the number already minted, and never above the configured supply)
 - velocity/marathon mint: the duration of the open edition decreases (velocity) or increases (marathon) with each mint
+- selectable mint (ERC-721 only): buyers pick which 0-based pieces of the drop they mint, and each piece can only be minted once per drop round
 - only the NFT contract owner or admins can configure/alter/cancel a mint
 - purchases specify the expected currency, max cost per token, and drop round, so buyers are protected if a drop's price, currency, or phase changes, or the drop is closed and reconfigured (e.g. with new art), while their transaction is pending
 

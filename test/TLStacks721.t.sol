@@ -2856,4 +2856,410 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         }
         assertTrue(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
     }
+
+    /////////////////////////////////////////////////////////////////////
+    // SELECTABLE DROPS
+    /////////////////////////////////////////////////////////////////////
+
+    /// @dev helper to build a selectable drop that is live in the public phase
+    function _selectableDrop(uint256 supply, uint256 allowance, address currencyAddress, uint256 publicCost)
+        internal
+        view
+        returns (Drop memory)
+    {
+        return Drop(
+            DropType.SELECTABLE,
+            receiver,
+            supply,
+            supply,
+            allowance,
+            currencyAddress,
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            publicCost,
+            0,
+            "https://arweave.net/abc"
+        );
+    }
+
+    /// @dev test configuring a selectable drop
+    function test_configureDropSelectable() public {
+        Drop memory drop = _selectableDrop(10, 2, address(0), 1 ether);
+
+        // decay rate not allowed
+        drop.decayRate = 1;
+        vm.prank(nftOwner);
+        vm.expectRevert(InvalidDropType.selector);
+        stacks.configureDrop(address(nft), drop);
+
+        drop.decayRate = 0;
+        vm.expectEmit(true, true, true, true);
+        emit DropConfigured(address(nft), drop);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        Drop memory rDrop = stacks.getDrop(address(nft));
+        assertTrue(rDrop.dropType == DropType.SELECTABLE);
+        assertTrue(stacks.getDropPhase(address(nft)) == DropPhase.PUBLIC_SALE);
+        for (uint256 i = 0; i < 10; i++) {
+            assertFalse(stacks.isIndexMinted(address(nft), i));
+        }
+        uint256[] memory words = stacks.getMintedIndices(address(nft));
+        assertEq(words.length, 1);
+        assertEq(words[0], 0);
+    }
+
+    /// @dev test the number of minted index words returned for a drop
+    function test_getMintedIndices_length() public {
+        // not configured
+        assertEq(stacks.getMintedIndices(address(nft)).length, 0);
+
+        uint256[4] memory supplies = [uint256(1), 256, 257, 1000];
+        uint256[4] memory numWords = [uint256(1), 1, 2, 4];
+        for (uint256 i = 0; i < supplies.length; i++) {
+            vm.prank(nftOwner);
+            stacks.configureDrop(address(nft), _selectableDrop(supplies[i], 1, address(0), 0));
+            assertEq(stacks.getMintedIndices(address(nft)).length, numWords[i]);
+            vm.prank(nftOwner);
+            stacks.closeDrop(address(nft));
+            assertEq(stacks.getMintedIndices(address(nft)).length, 0);
+        }
+    }
+
+    /// @dev test purchasing selected indices with eth
+    function test_purchaseSelectedEth() public {
+        Drop memory drop = _selectableDrop(300, 5, address(0), 1 ether);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        uint256[] memory indices = new uint256[](3);
+        indices[0] = 7;
+        indices[1] = 2;
+        indices[2] = 257;
+
+        uint256 receiverBalance = receiver.balance;
+        uint256 tlBalance = tl.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit Purchase(address(nft), chris, address(0), 3, 1 ether, 0, false);
+        vm.expectEmit(true, true, true, true);
+        emit IndicesMinted(address(nft), rid, chris, indices);
+        vm.prank(chris);
+        stacks.purchaseSelected{value: 3 * (1 ether + fee)}(
+            address(nft), chris, indices, 0, emptyProof, address(0), 1 ether, rid
+        );
+
+        // token ids are sequential, token uris follow the selected indices
+        assertEq(nft.balanceOf(chris), 3);
+        assertEq(nft.tokenURI(1), "https://arweave.net/abc/7");
+        assertEq(nft.tokenURI(2), "https://arweave.net/abc/2");
+        assertEq(nft.tokenURI(3), "https://arweave.net/abc/257");
+
+        // funds
+        assertEq(receiver.balance - receiverBalance, 3 ether);
+        assertEq(tl.balance - tlBalance, 3 * fee);
+
+        // drop state
+        Drop memory rDrop = stacks.getDrop(address(nft));
+        assertEq(rDrop.supply, 297);
+        (, uint256 publicMinted) = stacks.getNumberMinted(address(nft), chris);
+        assertEq(publicMinted, 3);
+        assertTrue(stacks.isIndexMinted(address(nft), 2));
+        assertTrue(stacks.isIndexMinted(address(nft), 7));
+        assertTrue(stacks.isIndexMinted(address(nft), 257));
+        assertFalse(stacks.isIndexMinted(address(nft), 0));
+        assertFalse(stacks.isIndexMinted(address(nft), 256));
+        uint256[] memory words = stacks.getMintedIndices(address(nft));
+        assertEq(words.length, 2);
+        assertEq(words[0], (1 << 2) | (1 << 7));
+        assertEq(words[1], 1 << 1);
+    }
+
+    /// @dev test purchasing selected indices with an erc20
+    function test_purchaseSelectedERC20() public {
+        Drop memory drop = _selectableDrop(10, 5, address(coin), 1 ether);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        uint256[] memory indices = new uint256[](2);
+        indices[0] = 9;
+        indices[1] = 0;
+
+        uint256 chrisCoinBalance = coin.balanceOf(chris);
+        uint256 receiverCoinBalance = coin.balanceOf(receiver);
+
+        vm.startPrank(chris);
+        coin.approve(address(stacks), 2 ether);
+        // no eth allowed on erc20 drops
+        vm.expectRevert(IncorrectFunds.selector);
+        stacks.purchaseSelected{value: 1}(address(nft), chris, indices, 0, emptyProof, address(coin), 1 ether, rid);
+        stacks.purchaseSelected(address(nft), chris, indices, 0, emptyProof, address(coin), 1 ether, rid);
+        vm.stopPrank();
+
+        assertEq(nft.tokenURI(1), "https://arweave.net/abc/9");
+        assertEq(nft.tokenURI(2), "https://arweave.net/abc/0");
+        assertEq(chrisCoinBalance - coin.balanceOf(chris), 2 ether);
+        assertEq(coin.balanceOf(receiver) - receiverCoinBalance, 2 ether);
+        assertEq(stacks.getDrop(address(nft)).supply, 8);
+    }
+
+    /// @dev test purchase selected reverting conditions
+    function test_purchaseSelectedErrors() public {
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 0;
+
+        // drop not configured
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        vm.expectRevert(YouShallNotMint.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        // regular drops can't be purchased with purchaseSelected
+        Drop memory drop = _selectableDrop(10, 3, address(0), 0);
+        drop.dropType = DropType.REGULAR;
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        vm.prank(chris);
+        vm.expectRevert(NotSelectableDrop.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+        vm.prank(nftOwner);
+        stacks.closeDrop(address(nft));
+
+        // configure selectable drop
+        drop.dropType = DropType.SELECTABLE;
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        vm.startPrank(chris);
+
+        // selectable drops can't be purchased with purchase
+        vm.expectRevert(NotAllowedForSelectableDrops.selector);
+        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(0), 0, rid);
+
+        // no indices
+        vm.expectRevert(MintZeroTokens.selector);
+        stacks.purchaseSelected(address(nft), chris, new uint256[](0), 0, emptyProof, address(0), 0, rid);
+
+        // index out of range
+        indices[0] = 10;
+        vm.expectRevert(IndexOutOfRange.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        // repeated index in one purchase
+        uint256[] memory dupIndices = new uint256[](2);
+        dupIndices[0] = 4;
+        dupIndices[1] = 4;
+        vm.expectRevert(IndexAlreadyMinted.selector);
+        stacks.purchaseSelected{value: 2 * fee}(address(nft), chris, dupIndices, 0, emptyProof, address(0), 0, rid);
+
+        // more than the allowance
+        uint256[] memory manyIndices = new uint256[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            manyIndices[i] = i;
+        }
+        vm.expectRevert(CannotMintMoreThanAllowed.selector);
+        stacks.purchaseSelected{value: 4 * fee}(address(nft), chris, manyIndices, 0, emptyProof, address(0), 0, rid);
+
+        // front run protection
+        indices[0] = 5;
+        vm.expectRevert(CurrencyMismatch.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(coin), 0, rid);
+        vm.expectRevert(DropRoundChanged.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid + 1);
+
+        // incorrect funds
+        vm.expectRevert(IncorrectFunds.selector);
+        stacks.purchaseSelected{value: 0}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        // mint index 5
+        stacks.purchaseSelected{value: fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+        vm.stopPrank();
+
+        // already minted, even as part of a batch with available indices
+        uint256[] memory takenIndices = new uint256[](2);
+        takenIndices[0] = 6;
+        takenIndices[1] = 5;
+        vm.prank(david);
+        vm.expectRevert(IndexAlreadyMinted.selector);
+        stacks.purchaseSelected{value: 2 * fee}(address(nft), david, takenIndices, 0, emptyProof, address(0), 0, rid);
+        assertFalse(stacks.isIndexMinted(address(nft), 6));
+
+        // price too high
+        vm.prank(nftOwner);
+        stacks.updateDropPrices(address(nft), address(0), 0, 1 ether);
+        indices[0] = 6;
+        vm.prank(david);
+        vm.expectRevert(PriceTooHigh.selector);
+        stacks.purchaseSelected{value: 1 ether + fee}(
+            address(nft), david, indices, 0, emptyProof, address(0), 0.5 ether, rid
+        );
+
+        // supply updates not allowed
+        vm.prank(nftOwner);
+        vm.expectRevert(NotAllowedForSelectableDrops.selector);
+        stacks.updateDropSupply(address(nft), 5);
+    }
+
+    /// @dev test presale purchases on a selectable drop
+    function test_purchaseSelectedPresale() public {
+        Merkle m = new Merkle();
+        bytes32[] memory data = new bytes32[](2);
+        data[0] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(ben)), uint256(2)))));
+        data[1] = keccak256(bytes.concat(keccak256(abi.encode(keccak256(abi.encode(chris)), uint256(1)))));
+        bytes32[] memory proof = m.getProof(data, 0);
+
+        Drop memory drop = _selectableDrop(10, 1, address(0), 1 ether);
+        drop.presaleDuration = 1000;
+        drop.presaleCost = 0.5 ether;
+        drop.presaleMerkleRoot = m.getRoot(data);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        uint256[] memory indices = new uint256[](2);
+        indices[0] = 3;
+        indices[1] = 8;
+
+        // not on allowlist
+        vm.prank(david);
+        vm.expectRevert(NotOnAllowlist.selector);
+        stacks.purchaseSelected{value: 2 * (0.5 ether + fee)}(
+            address(nft), david, indices, 2, proof, address(0), 0.5 ether, rid
+        );
+
+        // ben mints his presale allocation at the presale price
+        vm.expectEmit(true, true, true, true);
+        emit Purchase(address(nft), ben, address(0), 2, 0.5 ether, 0, true);
+        vm.prank(ben);
+        stacks.purchaseSelected{value: 2 * (0.5 ether + fee)}(
+            address(nft), ben, indices, 2, proof, address(0), 0.5 ether, rid
+        );
+        (uint256 presaleMinted,) = stacks.getNumberMinted(address(nft), ben);
+        assertEq(presaleMinted, 2);
+
+        // no more presale mints for ben
+        uint256[] memory oneIndex = new uint256[](1);
+        oneIndex[0] = 0;
+        vm.prank(ben);
+        vm.expectRevert(CannotMintMoreThanAllowed.selector);
+        stacks.purchaseSelected{value: 0.5 ether + fee}(
+            address(nft), ben, oneIndex, 2, proof, address(0), 0.5 ether, rid
+        );
+
+        // public sale uses the public allowance and price
+        vm.warp(drop.startTime + drop.presaleDuration);
+        vm.prank(ben);
+        stacks.purchaseSelected{value: 1 ether + fee}(address(nft), ben, oneIndex, 0, emptyProof, address(0), 1 ether, rid);
+        assertEq(nft.tokenURI(3), "https://arweave.net/abc/0");
+        assertEq(stacks.getDrop(address(nft)).supply, 7);
+    }
+
+    /// @dev test minted indices reset when the drop is closed and reconfigured
+    function test_purchaseSelected_roundReset() public {
+        Drop memory drop = _selectableDrop(10, 5, address(0), 0);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        uint256[] memory indices = new uint256[](2);
+        indices[0] = 0;
+        indices[1] = 1;
+        vm.prank(chris);
+        stacks.purchaseSelected{value: 2 * fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+        assertTrue(stacks.isIndexMinted(address(nft), 0));
+
+        vm.prank(nftOwner);
+        stacks.closeDrop(address(nft));
+        drop.baseUri = "https://arweave.net/def";
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        uint256 newRid = stacks.getDropRound(address(nft));
+        assertEq(newRid, rid + 1);
+        assertFalse(stacks.isIndexMinted(address(nft), 0));
+        uint256[] memory words = stacks.getMintedIndices(address(nft));
+        assertEq(words.length, 1);
+        assertEq(words[0], 0);
+
+        // a transaction signed against the old round reverts
+        vm.prank(chris);
+        vm.expectRevert(DropRoundChanged.selector);
+        stacks.purchaseSelected{value: 2 * fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        vm.prank(chris);
+        stacks.purchaseSelected{value: 2 * fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, newRid);
+        assertEq(nft.tokenURI(3), "https://arweave.net/def/0");
+        assertEq(nft.tokenURI(4), "https://arweave.net/def/1");
+    }
+
+    /// @dev test selling out a selectable drop
+    function test_purchaseSelected_sellOut() public {
+        Drop memory drop = _selectableDrop(5, 5, address(0), 0);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        uint256[] memory indices = new uint256[](5);
+        for (uint256 i = 0; i < 5; i++) {
+            indices[i] = 4 - i;
+        }
+        vm.prank(chris);
+        stacks.purchaseSelected{value: 5 * fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        assertTrue(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
+        uint256[] memory words = stacks.getMintedIndices(address(nft));
+        assertEq(words.length, 1);
+        assertEq(words[0], 0x1f);
+        for (uint256 i = 1; i <= 5; i++) {
+            assertEq(nft.tokenURI(i), string(abi.encodePacked("https://arweave.net/abc/", (5 - i).toString())));
+        }
+
+        uint256[] memory oneIndex = new uint256[](1);
+        vm.prank(david);
+        vm.expectRevert(YouShallNotMint.selector);
+        stacks.purchaseSelected{value: fee}(address(nft), david, oneIndex, 0, emptyProof, address(0), 0, rid);
+    }
+
+    /// @dev fuzz selected indices across two bitmap words
+    function test_purchaseSelected_fuzz(uint32 lowMask, uint32 highMask) public {
+        Drop memory drop = _selectableDrop(300, 300, address(0), 0);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        rid = stacks.getDropRound(address(nft));
+
+        // build indices from the set bits of each mask (word 0 and word 1)
+        uint256[] memory indices = new uint256[](64);
+        uint256 count;
+        for (uint256 i = 0; i < 32; i++) {
+            if ((lowMask >> i) & 1 == 1) indices[count++] = i;
+            if ((highMask >> i) & 1 == 1) indices[count++] = 256 + i;
+        }
+        assembly {
+            mstore(indices, count)
+        }
+
+        vm.prank(chris);
+        if (count == 0) {
+            vm.expectRevert(MintZeroTokens.selector);
+            stacks.purchaseSelected(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+            return;
+        }
+        stacks.purchaseSelected{value: count * fee}(address(nft), chris, indices, 0, emptyProof, address(0), 0, rid);
+
+        uint256[] memory words = stacks.getMintedIndices(address(nft));
+        assertEq(words.length, 2);
+        assertEq(words[0], uint256(lowMask));
+        assertEq(words[1], uint256(highMask));
+        assertEq(stacks.getDrop(address(nft)).supply, 300 - count);
+        assertEq(nft.balanceOf(chris), count);
+        for (uint256 i = 0; i < count; i++) {
+            assertTrue(stacks.isIndexMinted(address(nft), indices[i]));
+            assertEq(nft.tokenURI(i + 1), string(abi.encodePacked("https://arweave.net/abc/", indices[i].toString())));
+        }
+    }
 }

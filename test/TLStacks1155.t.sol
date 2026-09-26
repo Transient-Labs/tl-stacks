@@ -358,6 +358,10 @@ contract TLStacks1155Test is Test, ITLStacks1155Events, DropErrors {
         drop.dropType = DropType.NOT_CONFIGURED;
         vm.expectRevert(InvalidDropType.selector);
         stacks.configureDrop(address(nft), 1, drop);
+        // selectable drops are only supported for ERC-721
+        drop.dropType = DropType.SELECTABLE;
+        vm.expectRevert(InvalidDropType.selector);
+        stacks.configureDrop(address(nft), 1, drop);
         // not allowed for velocity mint (velocity)
         drop.decayRate = -1;
         drop.dropType = DropType.VELOCITY;
