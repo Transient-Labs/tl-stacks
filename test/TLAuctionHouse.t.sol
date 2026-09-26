@@ -20,6 +20,34 @@ import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
 import {BadERC721} from "test/utils/BadERC721.sol";
 import {BlocklistERC20} from "test/utils/BlocklistERC20.sol";
 import {FeeOnTransferERC20} from "test/utils/FeeOnTransferERC20.sol";
+import {ERC721} from "@openzeppelin-contracts-5.6.1/token/ERC721/ERC721.sol";
+import {IERC721} from "@openzeppelin-contracts-5.6.1/token/ERC721/IERC721.sol";
+
+contract OwnerRoyaltyERC721 is ERC721 {
+    constructor() ERC721("Owner Royalty", "OWN") {}
+
+    function mint(address to) external {
+        _mint(to, 1);
+    }
+
+    function royaltyInfo(uint256 tokenId, uint256 value) external view returns (address, uint256) {
+        return (ownerOf(tokenId), value / 10);
+    }
+}
+
+contract TransferCheckedReceiver {
+    IERC721 private immutable _nft;
+    address private immutable _buyer;
+
+    constructor(IERC721 nft_, address buyer_) {
+        _nft = nft_;
+        _buyer = buyer_;
+    }
+
+    receive() external payable {
+        require(_nft.ownerOf(1) == _buyer, "NFT not delivered");
+    }
+}
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     TLAuctionHouse ah;
@@ -3852,6 +3880,59 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     // TEST SETTLE UP FUNCTION
     /////////////////////////////////////////////////////////////////////
 
+    function test_settleAuction_ownerRoyaltySkippedAndPayoutAfterTransfer() public {
+        OwnerRoyaltyERC721 ownerRoyaltyNft = new OwnerRoyaltyERC721();
+        TransferCheckedReceiver payoutReceiver = new TransferCheckedReceiver(IERC721(address(ownerRoyaltyNft)), david);
+        ownerRoyaltyNft.mint(ben);
+
+        vm.startPrank(ben);
+        ownerRoyaltyNft.approve(address(ah), 1);
+        ah.list(
+            _cfg(
+                address(ownerRoyaltyNft),
+                1,
+                ListingType.SCHEDULED_AUCTION,
+                address(payoutReceiver),
+                address(0),
+                block.timestamp,
+                1 ether,
+                24 hours,
+                0
+            )
+        );
+        vm.stopPrank();
+
+        uint256 listingId = ah.getListing(address(ownerRoyaltyNft), 1).id;
+        vm.prank(david);
+        ah.bid{value: 1 ether}(address(ownerRoyaltyNft), 1, address(0), 1 ether, listingId);
+
+        Listing memory listing = ah.getListing(address(ownerRoyaltyNft), 1);
+        vm.warp(listing.startTime + listing.duration + 1);
+
+        assertEq(ownerRoyaltyNft.ownerOf(1), address(ah));
+        (address escrowRoyaltyRecipient, uint256 royaltyAmount) = ownerRoyaltyNft.royaltyInfo(1, 1 ether);
+        assertEq(escrowRoyaltyRecipient, address(ah));
+        assertEq(royaltyAmount, 0.1 ether);
+        (address payable[] memory quotedRecipients, uint256[] memory quotedAmounts) =
+            ah.getRoyalty(address(ownerRoyaltyNft), 1, 1 ether);
+        assertEq(quotedRecipients.length, 1);
+        assertEq(quotedRecipients[0], address(0));
+        assertEq(quotedAmounts[0], 0);
+
+        uint256 sellerBalanceBefore = ben.balance;
+        uint256 payoutBalanceBefore = address(payoutReceiver).balance;
+        uint256 buyerBalanceBefore = david.balance;
+        uint256 feeBalanceBefore = tl.balance;
+        ah.settleAuction(address(ownerRoyaltyNft), 1);
+
+        assertEq(ownerRoyaltyNft.ownerOf(1), david);
+        assertEq(ben.balance, sellerBalanceBefore);
+        assertEq(address(payoutReceiver).balance - payoutBalanceBefore, 0.99 ether);
+        assertEq(david.balance, buyerBalanceBefore);
+        assertEq(tl.balance - feeBalanceBefore, 0.01 ether);
+        assertEq(address(ah).balance, 0);
+    }
+
     function test_settleUp_royaltyLookupReverts() public {
         // mock royalty lookup
         vm.mockCallRevert(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyalty.selector), "revert");
@@ -6442,6 +6523,35 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // zero address share stays with the seller instead of getting stuck
         assertEq(address(1).balance, 0.05 ether);
         assertEq(chris.balance - chrisPrevBalance, 0.94 ether);
+        assertEq(address(ah).balance, 0);
+        vm.clearMockedCalls();
+    }
+
+    function test_settleUp_escrowRoyaltyDoesNotConsumeCap() public {
+        address payable[] memory recipients = new address payable[](2);
+        recipients[0] = payable(address(ah));
+        recipients[1] = payable(ben);
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 0.1 ether;
+        amounts[1] = 0.1 ether;
+        _mockRoyalties(recipients, amounts);
+        vm.mockCall(
+            address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyaltyView.selector), abi.encode(recipients, amounts)
+        );
+
+        _listBidAndEnd(address(nft), 3, chris, anon, david, 1 ether);
+        (recipients, amounts) = ah.getRoyalty(address(nft), 3, 1 ether);
+        assertEq(recipients[0], address(0));
+        assertEq(amounts[0], 0);
+        assertEq(recipients[1], ben);
+        assertEq(amounts[1], 0.1 ether);
+
+        uint256 royaltyBalanceBefore = ben.balance;
+        uint256 payoutBalanceBefore = anon.balance;
+        ah.settleAuction(address(nft), 3);
+
+        assertEq(ben.balance - royaltyBalanceBefore, 0.1 ether);
+        assertEq(anon.balance - payoutBalanceBefore, 0.89 ether);
         assertEq(address(ah).balance, 0);
         vm.clearMockedCalls();
     }

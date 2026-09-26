@@ -31,6 +31,7 @@ The auction house contract is `TLAuctionHouse.sol`
 - listings can be scheduled ahead of time
 - configurable for any allowlisted ERC-20 token (the contract owner manages the allowlist; native currency is always allowed)
 - respects royalties on secondary sales (if configured on the token)
+- royalty recipients and amounts are determined before the NFT leaves escrow, but the NFT is delivered before any payout; any royalty naming the auction house is skipped, leaving that share with the seller's chosen payout receiver
 - listing types
     - Scheduled auction
     - Reserve auction
@@ -52,6 +53,8 @@ The auction house contract is `TLAuctionHouse.sol`
 ### Trust Assumptions & Known Limitations
 - **ERC-20 allowlist:** only standard ERC-20 tokens should be allowed. Rebasing, fee-on-transfer, and other tokens whose balances can change outside of transfers are not supported. Incoming transfers are checked for the full amount, but escrow and payouts assume balances held by the contract never change on their own (a negative rebase would leave escrowed bids and `claimableFunds` underfunded) and don't account for fees on outgoing transfers. Low-decimal tokens should also be avoided so that bid increments stay meaningful.
 - **Primary vs. secondary sales:** a sale is treated as primary (no royalties) when the seller matches the address returned by the `creatorLookup` helper. The default `CreatorLookup` returns the collection's current `owner`, which fits single-creator collections like Transient Labs creator contracts. For multi-creator collections, collections whose ownership has changed hands, or royalties paid to someone other than the collection owner (e.g. a collaborator split), a sale by the collection owner skips royalties. If the lookup is unset or fails, the sale is treated as secondary.
+- **Sanctions during auctions:** bids and top ups can still be placed after a seller becomes sanctioned, but settlement rechecks both the seller and winning bidder and cannot complete while either is sanctioned. If sanctions continue to block settlement, the winning bid can remain escrowed until the auction ends and the seven-day settlement grace period passes. The seller or highest bidder can then cancel the unsettled auction, crediting the bidder's refund to `claimableFunds`; a sanctioned claimant cannot withdraw until no longer sanctioned. There is no immediate refund on a sanctions change.
+- **Unsettled auction cancellation:** after the grace period, either party can cancel an auction that remains unsettled, even if settlement would succeed. Anyone can settle an ended auction before cancellation; an operator keeper can settle promptly to reduce this window.
 
 ## Deployments
 Contracts are deployed to the same address cross-chain using CREATE2. In doing such, constructor args have to be set to default values and then changed after deployment. Contracts are initially deployed with an EOA as the owner until initializations are made, then subsequently contract ownership is transferred to multi-sigs. Ownership transfers are two-step (`Ownable2Step`), so the multi-sig must call `acceptOwnership` to complete the transfer.

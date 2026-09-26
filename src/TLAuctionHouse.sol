@@ -672,7 +672,8 @@ contract TLAuctionHouse is
     }
 
     /// @notice Function to get the royalty amounts that will be paid on a secondary sale
-    /// @dev Capped the same way as royalties paid out on a sale (see `_capRoyalties`)
+    /// @dev Capped the same way as royalties paid out on a sale (see `_capRoyalties`). A royalty payable to this
+    ///      contract is omitted because it owns listed NFTs only while they are in escrow.
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param value The value to check against
@@ -867,11 +868,11 @@ contract TLAuctionHouse is
     /// @notice Internal function to cap royalties to what is paid out on a sale
     /// @dev Keeps at most `MAX_ROYALTY_RECIPIENTS` recipients and at most `MAX_ROYALTY_BPS` of `value` in total.
     ///      Recipients are paid in order, and once the cap is reached the remaining amounts are reduced to fit.
-    /// @dev The zero address gets nothing, leaving its share with the seller rather than getting stuck
+    /// @dev The zero address and this escrow contract get nothing, leaving their shares with the payout receiver
     /// @dev Returns empty arrays if the array lengths don't match
     function _capRoyalties(address payable[] memory recipients, uint256[] memory amounts, uint256 value)
         private
-        pure
+        view
         returns (address payable[] memory cappedRecipients, uint256[] memory cappedAmounts)
     {
         if (recipients.length != amounts.length) return (cappedRecipients, cappedAmounts);
@@ -880,37 +881,32 @@ contract TLAuctionHouse is
         cappedAmounts = new uint256[](numRecipients);
         uint256 royaltyBudget = value * MAX_ROYALTY_BPS / BASIS;
         for (uint256 i = 0; i < numRecipients; ++i) {
+            if (recipients[i] == address(0) || recipients[i] == address(this)) continue;
             cappedRecipients[i] = recipients[i];
-            if (recipients[i] == address(0)) continue;
             cappedAmounts[i] = Math.min(amounts[i], royaltyBudget);
             royaltyBudget -= cappedAmounts[i];
         }
     }
 
-    /// @notice Internal function to pay out royalties on a secondary sale
-    /// @dev Royalties are capped by `_capRoyalties`
-    /// @dev Sanctioned recipients have their share frozen in `claimableFunds` by `_payout`
-    /// @return royaltiesPaid The total amount paid out in royalties
-    function _payoutRoyalties(address nftAddress, uint256 tokenId, address currencyAddress, uint256 value)
+    /// @notice Internal function to determine royalties before transferring the NFT
+    /// @dev Royalties are capped by `_capRoyalties`; lookup failures leave the full sale value with the seller
+    function _quoteRoyalties(address nftAddress, uint256 tokenId, uint256 value)
         private
-        returns (uint256 royaltiesPaid)
+        returns (address payable[] memory recipients, uint256[] memory amounts)
     {
-        if (address(royaltyLookup).code.length == 0) return 0;
+        if (address(royaltyLookup).code.length == 0) return (recipients, amounts);
         try royaltyLookup.getRoyalty(nftAddress, tokenId, value) returns (
-            address payable[] memory recipients, uint256[] memory amounts
+            address payable[] memory r, uint256[] memory a
         ) {
-            (recipients, amounts) = _capRoyalties(recipients, amounts, value);
-            for (uint256 i = 0; i < recipients.length; ++i) {
-                royaltiesPaid += amounts[i];
-                _payout(recipients[i], currencyAddress, amounts[i]);
-            }
+            return _capRoyalties(r, a, value);
         } catch {
             // do nothing if royalty lookup call fails
         }
     }
 
     /// @notice Internal function to complete a sale/auction, delivering the nft and then distributing `value`
-    /// @dev The listing must already be deleted. The nft is delivered before any funds are released.
+    /// @dev The listing must already be deleted. Royalties are quoted before the NFT moves, but the NFT is delivered
+    ///      before any funds are released. A royalty payable to the escrow owner is omitted.
     function _completeSale(
         address nftAddress,
         uint256 tokenId,
@@ -918,6 +914,12 @@ contract TLAuctionHouse is
         address recipient,
         uint256 value
     ) private {
+        address payable[] memory royaltyRecipients = new address payable[](0);
+        uint256[] memory royaltyAmounts = new uint256[](0);
+        if (!_isPrimarySale(nftAddress, tokenId, listing.seller)) {
+            (royaltyRecipients, royaltyAmounts) = _quoteRoyalties(nftAddress, tokenId, value);
+        }
+
         _transferNft(nftAddress, tokenId, address(this), recipient);
 
         uint256 remainingValue = value;
@@ -929,10 +931,11 @@ contract TLAuctionHouse is
             _payout(protocolFeeReceiver, listing.currencyAddress, protocolFee);
         }
 
-        // if secondary sale, payout royalties based on the full sale value (seller is not the creator)
+        // pay the royalties quoted before transfer, based on the full sale value
         // can't underflow since `MAX_PROTOCOL_FEE_BPS` + `MAX_ROYALTY_BPS` is less than `BASIS`
-        if (!_isPrimarySale(nftAddress, tokenId, listing.seller)) {
-            remainingValue -= _payoutRoyalties(nftAddress, tokenId, listing.currencyAddress, value);
+        for (uint256 i = 0; i < royaltyRecipients.length; ++i) {
+            remainingValue -= royaltyAmounts[i];
+            _payout(royaltyRecipients[i], listing.currencyAddress, royaltyAmounts[i]);
         }
 
         // pay remaining amount to payout receiver (set by the seller)
