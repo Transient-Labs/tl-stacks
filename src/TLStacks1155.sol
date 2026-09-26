@@ -138,8 +138,8 @@ contract TLStacks1155 is
     /// @param drop The drop to configure
     function configureDrop(address nftAddress, uint256 tokenId, Drop calldata drop)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -179,8 +179,8 @@ contract TLStacks1155 is
     /// @param payoutReceiver The recipient of the funds from the mint
     function updateDropPayoutReceiver(address nftAddress, uint256 tokenId, address payoutReceiver)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -206,8 +206,8 @@ contract TLStacks1155 is
     /// @param allowance The number of tokens each wallet can mint during the public phase (separate from presale mints)
     function updateDropAllowance(address nftAddress, uint256 tokenId, uint256 allowance)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -240,7 +240,7 @@ contract TLStacks1155 is
         address currencyAddress,
         uint256 presaleCost,
         uint256 publicCost
-    ) external whenNotPaused nonReentrant {
+    ) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -275,7 +275,7 @@ contract TLStacks1155 is
         uint256 startTime,
         uint256 presaleDuration,
         uint256 publicDuration
-    ) external whenNotPaused nonReentrant {
+    ) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -304,8 +304,8 @@ contract TLStacks1155 is
     /// @param presaleMerkleRoot The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
     function updateDropPresaleMerkleRoot(address nftAddress, uint256 tokenId, bytes32 presaleMerkleRoot)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -331,8 +331,8 @@ contract TLStacks1155 is
     /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
     function updateDropDecayRate(address nftAddress, uint256 tokenId, int256 decayRate)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -400,7 +400,7 @@ contract TLStacks1155 is
         address currencyAddress,
         uint256 maxCostPerToken,
         uint256 expectedRound
-    ) external payable whenNotPaused nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
         if (_isSanctioned(recipient)) revert SanctionedAddress();
 

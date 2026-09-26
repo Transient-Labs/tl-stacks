@@ -134,7 +134,7 @@ contract TLStacks721 is
     ///     - the `decayRate` is non-zero and there is a presale configured
     /// @param nftAddress The nft contract address
     /// @param drop The drop to configure
-    function configureDrop(address nftAddress, Drop calldata drop) external whenNotPaused nonReentrant {
+    function configureDrop(address nftAddress, Drop calldata drop) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -170,7 +170,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param payoutReceiver The recipient of the funds from the mint
-    function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external whenNotPaused nonReentrant {
+    function updateDropPayoutReceiver(address nftAddress, address payoutReceiver) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -192,7 +192,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param allowance The number of tokens each wallet can mint during the public phase (separate from presale mints)
-    function updateDropAllowance(address nftAddress, uint256 allowance) external whenNotPaused nonReentrant {
+    function updateDropAllowance(address nftAddress, uint256 allowance) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -219,8 +219,8 @@ contract TLStacks721 is
     /// @param publicCost The cost of each token during the public phase
     function updateDropPrices(address nftAddress, address currencyAddress, uint256 presaleCost, uint256 publicCost)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -251,8 +251,8 @@ contract TLStacks721 is
     /// @param publicDuration The duration of the public phase
     function updateDropDuration(address nftAddress, uint256 startTime, uint256 presaleDuration, uint256 publicDuration)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -281,8 +281,8 @@ contract TLStacks721 is
     /// @param presaleMerkleRoot The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
     function updateDropPresaleMerkleRoot(address nftAddress, bytes32 presaleMerkleRoot)
         external
-        whenNotPaused
         nonReentrant
+        whenNotPaused
     {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -305,7 +305,7 @@ contract TLStacks721 is
     /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
-    function updateDropDecayRate(address nftAddress, int256 decayRate) external whenNotPaused nonReentrant {
+    function updateDropDecayRate(address nftAddress, int256 decayRate) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -369,7 +369,7 @@ contract TLStacks721 is
         address currencyAddress,
         uint256 maxCostPerToken,
         uint256 expectedRound
-    ) external payable whenNotPaused nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
         if (_isSanctioned(recipient)) revert SanctionedAddress();
 

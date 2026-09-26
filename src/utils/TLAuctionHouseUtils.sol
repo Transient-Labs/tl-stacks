@@ -12,6 +12,7 @@ enum ListingType {
 
 /// @dev The Listing struct contains general information about the sale on the auction house,
 /// such as the type of sale, seller, currency, when the listing opens, and the pricing mechanics (based on type)
+/// @dev `recipient` is the highest bidder for auctions and the designated nft recipient for private sales
 struct Listing {
     ListingType type_;
     bool zeroProtocolFee;
@@ -29,6 +30,21 @@ struct Listing {
     uint256 id;
 }
 
+/// @dev The ListingConfig struct contains the seller-provided parameters used to create or update a listing
+/// @dev `recipient` is only used for private sales, where it is the address that will receive the nft
+struct ListingConfig {
+    address nftAddress;
+    uint256 tokenId;
+    ListingType type_;
+    address payoutReceiver;
+    address currencyAddress;
+    uint256 openTime;
+    uint256 reservePrice;
+    uint256 auctionDuration;
+    uint256 buyNowPrice;
+    address recipient;
+}
+
 interface ITLAuctionHouseEvents {
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
     event ProtocolFeeRemoved(address indexed nftAddress, uint256 indexed tokenId);
@@ -39,8 +55,12 @@ interface ITLAuctionHouseEvents {
         address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing
     );
     event ListingCanceled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
+    event ListingUpdated(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
 
     event AuctionBid(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
+    event AuctionBidToppedUp(
+        address indexed sender, address indexed nftAddress, uint256 indexed tokenId, uint256 amount, Listing listing
+    );
     event AuctionSettled(address indexed sender, address indexed nftAddress, uint256 indexed tokenId, Listing listing);
 
     event BuyNowFulfilled(

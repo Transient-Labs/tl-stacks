@@ -32,7 +32,12 @@ The auction house contract is `TLAuctionHouse.sol`
     - Reserve auction
     - Reserve auction + buy now
     - Buy now
+    - Private sale (fixed price, and the NFT is always delivered to the recipient set by the seller, though anyone can pay)
+- multiple NFTs can be listed in one transaction via `batchList` (if any listing fails, the whole batch reverts)
 - only the NFT owner can configure or cancel an listing
+- sellers can update a listing via `updateListing` instead of canceling and relisting, which changes everything except the listing type and currency. Updates aren't allowed once an auction has been bid on, and each update gets a new listing id so pending bids and buys signed against the old terms revert
+- sellers can change the payout receiver at any time before settlement via `updatePayoutReceiver`, which keeps the listing id since bidders' terms don't change
+- the highest bidder can add to their bid via `topUpBid`; top ups never extend the auction, so the highest bidder can't keep an auction open indefinitely
 - the NFT is always delivered to the buyer before funds are released to the seller; settlement either fully completes or reverts, and anyone can settle an ended auction
 - if an auction can't be settled (e.g. a broken NFT contract or a sanctioned party), the seller or highest bidder can cancel it via `cancelUnsettledAuction` once the settlement grace period (7 days after the auction ends) has passed, which credits the bid to the bidder (`claimableFunds`) and holds the NFT for the seller (`claimableNft`)
 - payouts that fail (reverting receivers, ERC-20 blocklists, sanctioned addresses) are credited and can be pulled to any address via `claimFunds`

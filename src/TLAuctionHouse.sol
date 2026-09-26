@@ -9,7 +9,7 @@ import {Math} from "@openzeppelin-contracts-5.6.1/utils/math/Math.sol";
 import {TransferHelper} from "./lib/TransferHelper.sol";
 import {SanctionsCompliance} from "./lib/SanctionsCompliance.sol";
 import {CurrencyAllowlist} from "./lib/CurrencyAllowlist.sol";
-import {ListingType, Listing, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
+import {ListingType, Listing, ListingConfig, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
 import {ICreatorLookup} from "./helpers/ICreatorLookup.sol";
 import {IRoyaltyLookup} from "./helpers/IRoyaltyLookup.sol";
 
@@ -83,6 +83,7 @@ contract TLAuctionHouse is
     error NothingToClaim();
     error NotSellerOrBidder();
     error SettlementGracePeriodNotOver();
+    error NotHighestBidder();
 
     /////////////////////////////////////////////////////////////////////
     // CONSTRUCTOR
@@ -106,84 +107,83 @@ contract TLAuctionHouse is
     ///      - the payout receiver cannot be the zero address or sanctioned
     ///      - the currency must be on the allowlist (ETH is always allowed)
     ///      - the auction duration cannot exceed `MAX_AUCTION_DURATION`
+    ///      - private sales must specify a recipient that isn't the zero address or sanctioned
     ///      - the token is escrowed upon listing
     ///      - if the auction house isn't approved for the token, escrowing will fail, so no need to check for that explicitly
+    /// @param config The listing configuration (see `ListingConfig`)
+    function list(ListingConfig calldata config) external nonReentrant whenNotPaused {
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+        _list(config);
+    }
+
+    /// @notice Function to list multiple NFTs for sale in a single transaction
+    /// @dev Each listing has the same requirements as `list`, and if any listing fails, the whole batch reverts
+    /// @param configs The listing configurations (see `ListingConfig`)
+    function batchList(ListingConfig[] calldata configs) external nonReentrant whenNotPaused {
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+        for (uint256 i = 0; i < configs.length; ++i) {
+            _list(configs[i]);
+        }
+    }
+
+    /// @notice Function to update a listing without having to cancel and relist
+    /// @dev Requirements
+    ///      - only the seller of the listing can update
+    ///      - the seller cannot be sanctioned
+    ///      - the auction cannot have been bid on (use `updatePayoutReceiver` to change the payout receiver after bids)
+    ///      - the listing type and currency cannot change
+    ///      - the new configuration has the same requirements as `list`
+    ///      - the listing gets a new id, so pending bids and buys signed against the previous terms revert
+    ///      - a protocol fee removed by the contract owner stays removed
+    /// @param config The new listing configuration (see `ListingConfig`)
+    function updateListing(ListingConfig calldata config) external nonReentrant whenNotPaused {
+        // cache data
+        Listing memory listing = _listings[config.nftAddress][config.tokenId];
+
+        // revert if caller is not seller
+        // this also catches if the nft is not listed, as the seller is the zero address
+        if (msg.sender != listing.seller) revert NotSeller();
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
+        // terms can't change once the auction has been bid on
+        if (listing.highestBidder != address(0)) revert AuctionStarted();
+
+        // listing type and currency are fixed
+        if (config.type_ != listing.type_) revert InvalidListingType();
+        if (config.currencyAddress != listing.currencyAddress) revert CurrencyMismatch();
+
+        // build and save the updated listing
+        listing = _buildListing(config, listing.seller, listing.zeroProtocolFee);
+        _listings[config.nftAddress][config.tokenId] = listing;
+
+        emit ListingUpdated(msg.sender, config.nftAddress, config.tokenId, listing);
+    }
+
+    /// @notice Function to update the payout receiver for a listing
+    /// @dev Requirements
+    ///      - only the seller of the listing can update
+    ///      - the seller cannot be sanctioned
+    ///      - the new payout receiver cannot be the zero address or sanctioned
+    ///      - can be called at any point before the listing is settled or canceled, including after bids
+    ///      - the listing id does not change, as the terms for buyers and bidders are unaffected
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    /// @param type_ The ListingType
-    /// @param payoutReceiver The address that will receive payout for the sale
-    /// @param currencyAddress The address of the currency to use (zero address == ETH)
-    /// @param openTime The time at which the listing will open (if in the past, defaults to current block timestamp)
-    /// @param reservePrice The reserve price for the auction (if part of the listing type)
-    /// @param auctionDuration The duration of the auction
-    /// @param buyNowPrice The price at which the token can be instantly bought if the listing if properly configured for this
-    function list(
-        address nftAddress,
-        uint256 tokenId,
-        ListingType type_,
-        address payoutReceiver,
-        address currencyAddress,
-        uint256 openTime,
-        uint256 reservePrice,
-        uint256 auctionDuration,
-        uint256 buyNowPrice
-    ) external whenNotPaused nonReentrant {
-        // check for sanctioned addresses
+    /// @param newPayoutReceiver The new address that will receive payout for the sale
+    function updatePayoutReceiver(address nftAddress, uint256 tokenId, address newPayoutReceiver)
+        external
+        whenNotPaused
+    {
+        Listing storage listing = _listings[nftAddress][tokenId];
+
+        // revert if caller is not seller
+        // this also catches if the nft is not listed, as the seller is the zero address
+        if (msg.sender != listing.seller) revert NotSeller();
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
-        if (!_isValidRecipient(payoutReceiver)) revert InvalidPayoutReceiver();
-        if (!_isCurrencyAllowed(currencyAddress)) revert CurrencyNotAllowed();
+        if (!_isValidRecipient(newPayoutReceiver)) revert InvalidPayoutReceiver();
 
-        // explicitly block relisting, since a non-standard nft could report the wrong owner and overwrite a live listing
-        if (_listings[nftAddress][tokenId].type_ != ListingType.NOT_CONFIGURED) revert AlreadyListed();
+        listing.payoutReceiver = newPayoutReceiver;
 
-        // check that the sender owns the token
-        if (IERC721(nftAddress).ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
-
-        // if openTime is in a previous block, set to the current block timestamp
-        if (openTime < block.timestamp) {
-            openTime = block.timestamp;
-        }
-
-        // create listing
-        uint256 id = ++_id;
-        Listing memory listing = Listing({
-            type_: type_,
-            zeroProtocolFee: false,
-            seller: msg.sender,
-            payoutReceiver: payoutReceiver,
-            currencyAddress: currencyAddress,
-            openTime: openTime,
-            reservePrice: reservePrice,
-            buyNowPrice: buyNowPrice,
-            startTime: 0,
-            duration: auctionDuration,
-            recipient: address(0),
-            highestBidder: address(0),
-            highestBid: 0,
-            id: id
-        });
-
-        // adjust listing based on listing type
-        if (type_ == ListingType.SCHEDULED_AUCTION) {
-            listing.startTime = openTime;
-            listing.buyNowPrice = 0;
-        } else if (type_ == ListingType.RESERVE_AUCTION) {
-            listing.buyNowPrice = 0;
-        } else if (type_ == ListingType.BUY_NOW) {
-            listing.reservePrice = 0;
-            listing.duration = 0;
-        } else if (type_ != ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
-            revert InvalidListingType();
-        }
-        if (listing.duration > MAX_AUCTION_DURATION) revert InvalidDuration();
-
-        // set listing
-        _listings[nftAddress][tokenId] = listing;
-
-        // escrow token, should revert if contract isn't approved
-        _transferNft(nftAddress, tokenId, msg.sender, address(this));
-
-        emit ListingConfigured(msg.sender, nftAddress, tokenId, listing);
+        emit ListingUpdated(msg.sender, nftAddress, tokenId, listing);
     }
 
     /// @notice Function to cancel a listing
@@ -244,7 +244,7 @@ contract TLAuctionHouse is
         address currencyAddress,
         uint256 amount,
         uint256 expectedListingId
-    ) external payable whenNotPaused nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         // check sender
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
@@ -312,6 +312,59 @@ contract TLAuctionHouse is
         emit AuctionBid(msg.sender, nftAddress, tokenId, listing);
     }
 
+    /// @notice Function for the highest bidder to add to their bid
+    /// @dev Requirements
+    ///      - msg.sender can't be a sanctioned address
+    ///      - a listing must be configured as an auction
+    ///      - the listing id must match `expectedListingId`, so a top up signed against a previous listing of the
+    ///        token can't land on a new listing where msg.sender is also the highest bidder (e.g. smart accounts
+    ///        whose transactions can execute out of order)
+    ///      - msg.sender must be the highest bidder
+    ///      - the auction can't have ended
+    ///      - `amount` must be non-zero and the funds sent must match `amount` exactly
+    ///      - if topping up with ERC-20 tokens, no ETH is allowed to be sent
+    ///      - topping up never extends the auction, so the highest bidder can't hold an auction open indefinitely
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param amount The amount to add to the current bid
+    /// @param expectedListingId The listing id the bidder expects to top up their bid on
+    function topUpBid(address nftAddress, uint256 tokenId, uint256 amount, uint256 expectedListingId)
+        external
+        payable
+        nonReentrant
+        whenNotPaused
+    {
+        // check sender
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
+        // cache data
+        Listing memory listing = _listings[nftAddress][tokenId];
+
+        // check the listing type
+        if (!_isAuction(listing.type_)) revert InvalidListingType();
+
+        // protect the bidder from the listing changing between signing and execution
+        if (listing.id != expectedListingId) revert ListingChanged();
+
+        // only the highest bidder can top up (this also catches auctions without bids)
+        if (msg.sender != listing.highestBidder) revert NotHighestBidder();
+
+        // cannot top up after auction is ended
+        if (block.timestamp > listing.startTime + listing.duration) revert AuctionEnded();
+
+        // top up must be non-zero
+        if (amount == 0) revert BidTooLow();
+
+        // update and save the bid
+        listing.highestBid += amount;
+        _listings[nftAddress][tokenId].highestBid = listing.highestBid;
+
+        // escrow the additional funds
+        _escrowFunds(listing.currencyAddress, amount);
+
+        emit AuctionBidToppedUp(msg.sender, nftAddress, tokenId, amount, listing);
+    }
+
     /// @notice Function to settle an auction
     /// @dev Requirements
     ///      - can be called by anyone on the blockchain
@@ -324,7 +377,7 @@ contract TLAuctionHouse is
     ///      can cancel it after `SETTLEMENT_GRACE_PERIOD` via `cancelUnsettledAuction`.
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function settleAuction(address nftAddress, uint256 tokenId) external whenNotPaused nonReentrant {
+    function settleAuction(address nftAddress, uint256 tokenId) external nonReentrant whenNotPaused {
         // cache data
         Listing memory listing = _listings[nftAddress][tokenId];
 
@@ -394,7 +447,8 @@ contract TLAuctionHouse is
     /// @dev Requirements
     ///      - msg.sender and recipient cannot be sanctioned
     ///      - recipient cannot be the zero address
-    ///      - listing must be configured as a reserve auction with a buy now price or just a buy now
+    ///      - listing must be configured as a reserve auction with a buy now price, a buy now, or a private sale
+    ///      - for private sales, `recipient` must be the recipient set by the seller (anyone can pay)
     ///      - the listing id must match `expectedListingId`, so a delisted and relisted token can't be bought with a
     ///        transaction signed against the previous listing
     ///      - the listing currency must match `currencyAddress` and the buy now price cannot exceed `maxPrice`
@@ -415,7 +469,7 @@ contract TLAuctionHouse is
         address currencyAddress,
         uint256 maxPrice,
         uint256 expectedListingId
-    ) external payable whenNotPaused nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         // check sender & recipient
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
         if (!_isValidRecipient(recipient)) revert InvalidRecipient();
@@ -425,6 +479,9 @@ contract TLAuctionHouse is
 
         // check the listing type
         if (!_hasBuyNow(listing.type_)) revert InvalidListingType();
+
+        // private sales can only be delivered to the recipient chosen by the seller
+        if (listing.type_ == ListingType.PRIVATE_SALE && recipient != listing.recipient) revert InvalidRecipient();
 
         // can't buy from sanctioned sellers
         if (_isSanctioned(listing.seller)) revert SanctionedAddress();
@@ -654,7 +711,84 @@ contract TLAuctionHouse is
 
     /// @notice Internal function to check if a listing type can be bought at a fixed price
     function _hasBuyNow(ListingType type_) private pure returns (bool) {
-        return type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW || type_ == ListingType.BUY_NOW;
+        return type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW || type_ == ListingType.BUY_NOW
+            || type_ == ListingType.PRIVATE_SALE;
+    }
+
+    /// @notice Internal function to list an nft for sale
+    /// @dev See `list` for requirements. The caller must check that msg.sender isn't sanctioned.
+    function _list(ListingConfig calldata config) private {
+        if (!_isCurrencyAllowed(config.currencyAddress)) revert CurrencyNotAllowed();
+
+        // explicitly block relisting, since a non-standard nft could report the wrong owner and overwrite a live listing
+        if (_listings[config.nftAddress][config.tokenId].type_ != ListingType.NOT_CONFIGURED) revert AlreadyListed();
+
+        // check that the sender owns the token
+        if (IERC721(config.nftAddress).ownerOf(config.tokenId) != msg.sender) revert NotTokenOwner();
+
+        // build and set listing
+        Listing memory listing = _buildListing(config, msg.sender, false);
+        _listings[config.nftAddress][config.tokenId] = listing;
+
+        // escrow token, should revert if contract isn't approved
+        _transferNft(config.nftAddress, config.tokenId, msg.sender, address(this));
+
+        emit ListingConfigured(msg.sender, config.nftAddress, config.tokenId, listing);
+    }
+
+    /// @notice Internal function to validate a listing configuration and build a listing with a new id
+    /// @dev Fields that don't apply to the listing type are zeroed out
+    /// @param config The listing configuration
+    /// @param seller The seller of the listing
+    /// @param zeroProtocolFee Whether the protocol fee is removed for the listing
+    function _buildListing(ListingConfig calldata config, address seller, bool zeroProtocolFee)
+        private
+        returns (Listing memory listing)
+    {
+        if (!_isValidRecipient(config.payoutReceiver)) revert InvalidPayoutReceiver();
+
+        // if openTime is in a previous block, set to the current block timestamp
+        uint256 openTime = config.openTime < block.timestamp ? block.timestamp : config.openTime;
+
+        listing = Listing({
+            type_: config.type_,
+            zeroProtocolFee: zeroProtocolFee,
+            seller: seller,
+            payoutReceiver: config.payoutReceiver,
+            currencyAddress: config.currencyAddress,
+            openTime: openTime,
+            reservePrice: config.reservePrice,
+            buyNowPrice: config.buyNowPrice,
+            startTime: 0,
+            duration: config.auctionDuration,
+            recipient: address(0),
+            highestBidder: address(0),
+            highestBid: 0,
+            id: ++_id
+        });
+
+        // adjust listing based on listing type
+        ListingType type_ = config.type_;
+        if (type_ == ListingType.SCHEDULED_AUCTION) {
+            listing.startTime = openTime;
+            listing.buyNowPrice = 0;
+        } else if (type_ == ListingType.RESERVE_AUCTION) {
+            listing.buyNowPrice = 0;
+        } else if (type_ == ListingType.BUY_NOW) {
+            listing.reservePrice = 0;
+            listing.duration = 0;
+        } else if (type_ == ListingType.PRIVATE_SALE) {
+            if (!_isValidRecipient(config.recipient)) revert InvalidRecipient();
+            listing.reservePrice = 0;
+            listing.duration = 0;
+            listing.recipient = config.recipient;
+        } else if (type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
+            // uses every pricing field, so nothing to adjust
+            // note: forge coverage reports this branch as missed since the block has no statements, but it is tested
+        } else {
+            revert InvalidListingType();
+        }
+        if (listing.duration > MAX_AUCTION_DURATION) revert InvalidDuration();
     }
 
     /// @notice Internal function to calculate the next bid price
