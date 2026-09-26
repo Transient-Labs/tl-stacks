@@ -33,7 +33,13 @@ struct Drop {
 }
 
 interface ITLStacks1155Events {
-    event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
+    event ProtocolFeeUpdated(
+        address indexed newProtocolFeeReceiver,
+        uint256 newProtocolFee,
+        uint256 newEthSellerFeeBps,
+        uint256 newErc20SellerFeeBps
+    );
+    event SellerFeeWaived(address indexed nftAddress, uint256 indexed tokenId, uint256 indexed round);
     event ProtocolFeeSplitsUpdated(uint256 indexed freeMintFeeSplit, uint256 indexed referralFeeSplit);
     event DropConfigured(address indexed nftAddress, uint256 indexed tokenId, Drop drop);
     event DropUpdated(address indexed nftAddress, uint256 indexed tokenId, Drop drop);

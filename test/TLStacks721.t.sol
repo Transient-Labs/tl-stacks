@@ -16,6 +16,7 @@ import {Receiver, RevertingReceiver} from "test/utils/Receiver.sol";
 import {TransferHelper} from "src/lib/TransferHelper.sol";
 import {CurrencyAllowlist} from "src/lib/CurrencyAllowlist.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
+import {BlocklistERC20} from "test/utils/BlocklistERC20.sol";
 
 contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     uint256 rid; // drop round to purchase from, fetched ahead of any pranks or expected reverts
@@ -61,7 +62,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
     receive() external payable {}
 
     function setUp() public {
-        stacks = new TLStacks721(address(this), address(0), tl, fee);
+        stacks = new TLStacks721(address(this), address(0), tl, fee, 0, 0);
 
         address[] memory empty = new address[](0);
         address[] memory mintAddrs = new address[](1);
@@ -108,10 +109,17 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         address initOwner,
         address initSanctionsOracle,
         address initProtocolFeeReceiver,
-        uint256 initProtocolFee
+        uint256 initProtocolFee,
+        uint256 initEthSellerFeeBps,
+        uint256 initErc20SellerFeeBps
     ) public {
+        initEthSellerFeeBps = bound(initEthSellerFeeBps, 0, 500);
+        initErc20SellerFeeBps = bound(initErc20SellerFeeBps, 0, 500);
         vm.assume(initOwner != address(0));
-        vm.assume(initProtocolFeeReceiver != address(0) || initProtocolFee == 0);
+        vm.assume(
+            initProtocolFeeReceiver != address(0)
+                || (initProtocolFee == 0 && initEthSellerFeeBps == 0 && initErc20SellerFeeBps == 0)
+        );
         assumeNotPrecompile(initSanctionsOracle);
         assumeNotForgeAddress(initSanctionsOracle);
         vm.mockCall(
@@ -120,12 +128,21 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             abi.encode(false)
         );
 
-        stacks = new TLStacks721(initOwner, initSanctionsOracle, initProtocolFeeReceiver, initProtocolFee);
+        stacks = new TLStacks721(
+            initOwner,
+            initSanctionsOracle,
+            initProtocolFeeReceiver,
+            initProtocolFee,
+            initEthSellerFeeBps,
+            initErc20SellerFeeBps
+        );
 
         assertEq(stacks.owner(), initOwner);
         assertEq(address(stacks.oracle()), initSanctionsOracle);
         assertEq(stacks.protocolFeeReceiver(), initProtocolFeeReceiver);
         assertEq(stacks.protocolFee(), initProtocolFee);
+        assertEq(stacks.ethSellerFeeBps(), initEthSellerFeeBps);
+        assertEq(stacks.erc20SellerFeeBps(), initErc20SellerFeeBps);
     }
 
     /// @dev test owner only access for owner functions
@@ -142,9 +159,11 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.transferOwnership(sender);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
-        stacks.setProtocolFeeSettings(sender, 1 ether);
+        stacks.setProtocolFeeSettings(sender, 1 ether, 0, 0);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         stacks.withdrawFunds(address(0), 100);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
+        stacks.waiveSellerFee(address(nft));
         vm.stopPrank();
 
         // pass for owner
@@ -157,10 +176,14 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.acceptOwnership();
         assertEq(stacks.pendingOwner(), address(0));
         vm.expectEmit(true, true, false, false);
-        emit ProtocolFeeUpdated(address(0), 0);
+        emit ProtocolFeeUpdated(address(0), 0, 0, 0);
         vm.expectRevert(InvalidProtocolFeeReceiver.selector);
-        stacks.setProtocolFeeSettings(address(0), 1);
-        stacks.setProtocolFeeSettings(address(0), 0);
+        stacks.setProtocolFeeSettings(address(0), 1, 0, 0);
+        vm.expectRevert(InvalidProtocolFeeReceiver.selector);
+        stacks.setProtocolFeeSettings(address(0), 0, 1, 0);
+        vm.expectRevert(InvalidProtocolFeeReceiver.selector);
+        stacks.setProtocolFeeSettings(address(0), 0, 0, 1);
+        stacks.setProtocolFeeSettings(address(0), 0, 0, 0);
         assertEq(stacks.protocolFeeReceiver(), address(0));
         assertEq(stacks.protocolFee(), 0);
         vm.expectEmit(false, false, false, true);
@@ -235,6 +258,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         stacks.updateDropDecayRate(address(nft), -1);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        stacks.updateDropSupply(address(nft), 5);
         vm.stopPrank();
     }
 
@@ -271,6 +296,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
         stacks.updateDropDecayRate(address(nft), -1);
+        stacks.updateDropSupply(address(nft), 10);
         stacks.closeDrop(address(nft));
         address[] memory admins = new address[](1);
         admins[0] = dropAdmin;
@@ -286,6 +312,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
         vm.expectRevert(NotAllowedForVelocityDrops.selector);
         stacks.updateDropDecayRate(address(nft), -1);
+        stacks.updateDropSupply(address(nft), 10);
         stacks.closeDrop(address(nft));
         nft.renounceRole(ADMIN_ROLE);
         vm.stopPrank();
@@ -305,6 +332,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.expectRevert(NotDropAdmin.selector);
         stacks.updateDropDecayRate(address(nft), -1);
         vm.expectRevert(NotDropAdmin.selector);
+        stacks.updateDropSupply(address(nft), 10);
+        vm.expectRevert(NotDropAdmin.selector);
         stacks.closeDrop(address(nft));
         vm.stopPrank();
     }
@@ -322,6 +351,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(0));
         vm.expectRevert(DropUpdateNotAllowed.selector);
         stacks.updateDropDecayRate(address(nft), -1);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropSupply(address(nft), 5);
         vm.stopPrank();
     }
 
@@ -1138,31 +1169,31 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(MintZeroTokens.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), ben, 0, 1, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), ben, 0, 1, proof, address(coin), type(uint256).max, rid);
 
         // not on allowlist
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(NotOnAllowlist.selector);
         vm.prank(minter);
-        stacks.purchase{value: fee}(address(nft), minter, 1, 1, emptyProof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), minter, 1, 1, emptyProof, address(coin), type(uint256).max, rid);
 
         // reached mint allowance
         vm.prank(ben);
         coin.approve(address(stacks), 1 ether);
         rid = stacks.getDropRound(address(nft));
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid);
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(ben);
-        stacks.purchase{value: fee}(address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid);
 
-        // insufficent fee
+        // protocol fee isn't charged in eth on erc20 drops
         proof = m.getProof(data, 1);
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(IncorrectFunds.selector);
         vm.prank(chris);
-        stacks.purchase(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase{value: fee}(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
 
         // too much fee
         proof = m.getProof(data, 1);
@@ -1177,7 +1208,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(stacks), 0, 0.1 ether)
         );
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
 
         // not enough erc20 balance
         vm.prank(chris);
@@ -1187,7 +1218,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether));
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), chris, 1, 3, proof, address(coin), type(uint256).max, rid);
     }
 
     /// @dev test purchase for another address eth
@@ -1273,17 +1304,17 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         rid = stacks.getDropRound(address(nft));
         vm.prank(sender);
-        stacks.purchase{value: fee}(address(nft), recipient, 1, 0, emptyProof, address(coin), type(uint256).max, rid);
-        assert(prevSenderBalance - sender.balance == fee);
+        stacks.purchase(address(nft), recipient, 1, 0, emptyProof, address(coin), type(uint256).max, rid);
+        assert(prevSenderBalance == sender.balance);
         assert(prevSenderCoinBalance - coin.balanceOf(sender) == 1 ether);
         assert(coin.balanceOf(nftOwner) - prevNftOwnerBalance == 1 ether);
-        assert(tl.balance - prevTLBalance == fee);
+        assert(tl.balance == prevTLBalance);
         assert(nft.ownerOf(1) == recipient);
 
         rid = stacks.getDropRound(address(nft));
         vm.expectRevert(CannotMintMoreThanAllowed.selector);
         vm.prank(sender);
-        stacks.purchase{value: fee}(address(nft), recipient, 1, 0, emptyProof, address(coin), type(uint256).max, rid);
+        stacks.purchase(address(nft), recipient, 1, 0, emptyProof, address(coin), type(uint256).max, rid);
     }
 
     /// @dev test numberCanMint
@@ -1717,15 +1748,15 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         rid = stacks.getDropRound(address(nft));
         vm.expectEmit(true, true, true, true);
         emit Purchase(address(nft), sender, address(coin), numberToMint, cost, decayRate, isPresale);
-        stacks.purchase{value: numberToMint * fee}(
+        stacks.purchase(
             address(nft), sender, numberToMint, presaleNumberCanMint, proof, address(coin), type(uint256).max, rid
         );
 
         Drop memory drop = stacks.getDrop(address(nft));
         assertEq(prevBalances.senderCoinBalance - coin.balanceOf(sender), numberToMint * cost);
-        assertEq(prevBalances.senderEthBalance - sender.balance, numberToMint * fee);
+        assertEq(prevBalances.senderEthBalance, sender.balance);
         assertEq(coin.balanceOf(receiver) - prevBalances.receiverCoinBalance, numberToMint * cost);
-        assertEq(tl.balance - prevBalances.tlEthBalance, numberToMint * fee);
+        assertEq(tl.balance, prevBalances.tlEthBalance);
         assertEq(nft.balanceOf(sender) - prevBalances.nftBalance, numberToMint);
         assertEq(prevDrop.supply - drop.supply, numberToMint);
         assertEq(prevDrop.initialSupply, drop.initialSupply);
@@ -1817,9 +1848,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             rid = stacks.getDropRound(address(nft));
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: presaleCost + fee}(
-                address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid
-            );
+            stacks.purchase(address(nft), ben, 1, 1, proof, address(coin), type(uint256).max, rid);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -1943,9 +1972,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
             rid = stacks.getDropRound(address(nft));
             vm.expectRevert(YouShallNotMint.selector);
             vm.prank(ben);
-            stacks.purchase{value: publicCost + fee}(
-                address(nft), ben, 1, 0, emptyProof, address(coin), type(uint256).max, rid
-            );
+            stacks.purchase(address(nft), ben, 1, 0, emptyProof, address(coin), type(uint256).max, rid);
 
             // warp to start time
             vm.warp(drop.startTime);
@@ -2079,16 +2106,16 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
 
         // sanctioned receiver is rejected, even with a zero fee
         vm.expectRevert(InvalidProtocolFeeReceiver.selector);
-        stacks.setProtocolFeeSettings(ben, 1 ether);
+        stacks.setProtocolFeeSettings(ben, 1 ether, 0, 0);
         vm.expectRevert(InvalidProtocolFeeReceiver.selector);
-        stacks.setProtocolFeeSettings(ben, 0);
+        stacks.setProtocolFeeSettings(ben, 0, 0, 0);
 
         // and at deployment
         vm.expectRevert(InvalidProtocolFeeReceiver.selector);
-        new TLStacks721(address(this), oracle, ben, 1 ether);
+        new TLStacks721(address(this), oracle, ben, 1 ether, 0, 0);
 
         // unsanctioned receiver is fine
-        stacks.setProtocolFeeSettings(chris, 1 ether);
+        stacks.setProtocolFeeSettings(chris, 1 ether, 0, 0);
         assertEq(stacks.protocolFeeReceiver(), chris);
         vm.clearMockedCalls();
     }
@@ -2192,6 +2219,8 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         stacks.updateDropPresaleMerkleRoot(address(nft), bytes32(uint256(1)));
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.updateDropDecayRate(address(nft), 1);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        stacks.updateDropSupply(address(nft), 5);
         stacks.closeDrop(address(nft));
         vm.stopPrank();
 
@@ -2235,7 +2264,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         rid = stacks.getDropRound(address(nft));
         vm.prank(chris);
         vm.expectRevert(PriceTooHigh.selector);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
 
         // admin switches the currency in place
         vm.prank(nftOwner);
@@ -2243,7 +2272,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         rid = stacks.getDropRound(address(nft));
         vm.prank(chris);
         vm.expectRevert(CurrencyMismatch.selector);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
 
         // admin closes and reconfigures the drop at a higher price
         drop.publicCost = 100 ether;
@@ -2254,7 +2283,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.stopPrank();
         vm.prank(chris);
         vm.expectRevert(PriceTooHigh.selector);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
 
         assertEq(coin.balanceOf(chris), prevChrisBalance);
 
@@ -2268,13 +2297,13 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.stopPrank();
         vm.prank(chris);
         vm.expectRevert(DropRoundChanged.selector);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, oldRound);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, oldRound);
         assertEq(coin.balanceOf(chris), prevChrisBalance);
 
         // purchase against the current round succeeds
         rid = stacks.getDropRound(address(nft));
         vm.prank(chris);
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
         assertEq(coin.balanceOf(chris), prevChrisBalance - 1 ether);
     }
 
@@ -2342,7 +2371,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         // reverting protocol fee receiver
         vm.prank(nftOwner);
         stacks.updateDropPayoutReceiver(address(nft), nftOwner);
-        stacks.setProtocolFeeSettings(reverting, fee);
+        stacks.setProtocolFeeSettings(reverting, fee, 0, 0);
         rid = stacks.getDropRound(address(nft));
         vm.prank(chris);
         vm.expectRevert(TransferHelper.ETHTransferFailed.selector);
@@ -2394,7 +2423,7 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.startPrank(chris);
         other.approve(address(stacks), 1 ether);
         rid = stacks.getDropRound(address(nft));
-        stacks.purchase{value: fee}(address(nft), chris, 1, 0, emptyProof, address(other), 1 ether, rid);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(other), 1 ether, rid);
         vm.stopPrank();
         assertEq(other.balanceOf(nftOwner), 1 ether);
 
@@ -2445,5 +2474,386 @@ contract TLStacks721Test is Test, ITLStacks721Events, DropErrors {
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         stacks.purchase{value: 1 ether + fee}(address(nft), chris, 1, 0, emptyProof, address(0), 1 ether, rid);
         vm.clearMockedCalls();
+    }
+
+    /////////////////////////////////////////////////////////////////////
+    // SELLER FEES
+    /////////////////////////////////////////////////////////////////////
+
+    /// @dev test setting the seller fees
+    function test_setProtocolFeeSettings_sellerFees(uint256 ethBps, uint256 erc20Bps) public {
+        ethBps = bound(ethBps, 0, stacks.MAX_SELLER_FEE_BPS());
+        erc20Bps = bound(erc20Bps, 0, stacks.MAX_SELLER_FEE_BPS());
+
+        vm.expectEmit(true, true, true, true);
+        emit ProtocolFeeUpdated(chris, fee, ethBps, erc20Bps);
+        stacks.setProtocolFeeSettings(chris, fee, ethBps, erc20Bps);
+        assertEq(stacks.protocolFeeReceiver(), chris);
+        assertEq(stacks.protocolFee(), fee);
+        assertEq(stacks.ethSellerFeeBps(), ethBps);
+        assertEq(stacks.erc20SellerFeeBps(), erc20Bps);
+
+        // seller fees are capped
+        vm.expectRevert(InvalidSellerFeeBps.selector);
+        stacks.setProtocolFeeSettings(chris, fee, 501, erc20Bps);
+        vm.expectRevert(InvalidSellerFeeBps.selector);
+        stacks.setProtocolFeeSettings(chris, fee, ethBps, 501);
+        vm.expectRevert(InvalidSellerFeeBps.selector);
+        new TLStacks721(address(this), address(0), tl, fee, 501, 0);
+    }
+
+    /// @dev test the seller fee on eth drops, on top of the flat protocol fee
+    function test_purchase_sellerFeeEth(uint256 cost, uint256 numberToMint, uint256 bps) public {
+        cost = bound(cost, 0, 10 ether);
+        numberToMint = bound(numberToMint, 1, 10);
+        bps = bound(bps, 0, 500);
+        stacks.setProtocolFeeSettings(tl, fee, bps, 0);
+
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            cost,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        uint256 totalSale = numberToMint * cost;
+        uint256 sellerFee = totalSale * bps / BASIS;
+        vm.deal(chris, totalSale + numberToMint * fee);
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        stacks.purchase{value: totalSale + numberToMint * fee}(
+            address(nft), chris, numberToMint, 0, emptyProof, address(0), cost, rid
+        );
+
+        assertEq(chris.balance, 0);
+        assertEq(nftOwner.balance, totalSale - sellerFee);
+        assertEq(tl.balance, numberToMint * fee + sellerFee);
+        assertEq(address(stacks).balance, 0);
+    }
+
+    /// @dev test the seller fee on erc20 drops, with no protocol fee charged in eth
+    function test_purchase_sellerFeeERC20(uint256 cost, uint256 numberToMint, uint256 bps) public {
+        cost = bound(cost, 0, 10 ether);
+        numberToMint = bound(numberToMint, 1, 10);
+        bps = bound(bps, 0, 500);
+        stacks.setProtocolFeeSettings(tl, fee, 0, bps);
+
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(coin),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            cost,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        uint256 totalSale = numberToMint * cost;
+        uint256 sellerFee = totalSale * bps / BASIS;
+        vm.startPrank(chris);
+        coin.approve(address(stacks), totalSale);
+        rid = stacks.getDropRound(address(nft));
+        stacks.purchase(address(nft), chris, numberToMint, 0, emptyProof, address(coin), cost, rid);
+        vm.stopPrank();
+
+        assertEq(coin.balanceOf(chris), 100 ether - totalSale);
+        assertEq(chris.balance, 100 ether);
+        assertEq(coin.balanceOf(nftOwner), totalSale - sellerFee);
+        assertEq(coin.balanceOf(tl), sellerFee);
+        assertEq(tl.balance, 0);
+        assertEq(coin.balanceOf(address(stacks)), 0);
+    }
+
+    /// @dev test waiving the seller fee for a drop round
+    function test_waiveSellerFee() public {
+        stacks.setProtocolFeeSettings(tl, fee, 500, 500);
+
+        // waive before the drop is configured
+        assertFalse(stacks.isSellerFeeWaived(address(nft)));
+        vm.expectEmit(true, true, true, true);
+        emit SellerFeeWaived(address(nft), 0);
+        stacks.waiveSellerFee(address(nft));
+        assertTrue(stacks.isSellerFeeWaived(address(nft)));
+        assertFalse(stacks.isSellerFeeWaived(address(nftTwo)));
+
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            1 ether,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        // no seller fee while waived
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        stacks.purchase{value: 1 ether + fee}(address(nft), chris, 1, 0, emptyProof, address(0), 1 ether, rid);
+        assertEq(nftOwner.balance, 1 ether);
+        assertEq(tl.balance, fee);
+
+        // closing the drop starts a new round, which resets the waiver
+        vm.startPrank(nftOwner);
+        stacks.closeDrop(address(nft));
+        stacks.configureDrop(address(nft), drop);
+        vm.stopPrank();
+        assertFalse(stacks.isSellerFeeWaived(address(nft)));
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        stacks.purchase{value: 1 ether + fee}(address(nft), chris, 1, 0, emptyProof, address(0), 1 ether, rid);
+        assertEq(nftOwner.balance, 1.95 ether);
+        assertEq(tl.balance, 2 * fee + 0.05 ether);
+
+        // waive a live erc20 drop
+        drop.currencyAddress = address(coin);
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nftTwo), drop);
+        stacks.waiveSellerFee(address(nftTwo));
+        vm.startPrank(chris);
+        coin.approve(address(stacks), 2 ether);
+        rid = stacks.getDropRound(address(nftTwo));
+        stacks.purchase(address(nftTwo), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        vm.stopPrank();
+        assertEq(coin.balanceOf(nftOwner), 1 ether);
+        assertEq(coin.balanceOf(tl), 0);
+
+        // reconfiguring after the drop ends starts a new round, which resets the waiver
+        vm.warp(block.timestamp + 1000);
+        drop.startTime = block.timestamp;
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nftTwo), drop);
+        assertFalse(stacks.isSellerFeeWaived(address(nftTwo)));
+        rid = stacks.getDropRound(address(nftTwo));
+        vm.prank(chris);
+        stacks.purchase(address(nftTwo), chris, 1, 0, emptyProof, address(coin), 1 ether, rid);
+        assertEq(coin.balanceOf(nftOwner), 1.95 ether);
+        assertEq(coin.balanceOf(tl), 0.05 ether);
+    }
+
+    /// @dev test that a blocklisted protocol fee receiver blocks erc20 purchases until the owner rotates it
+    function test_purchase_sellerFeeBlocklistedReceiver() public {
+        BlocklistERC20 blockCoin = new BlocklistERC20(address(this));
+        stacks.setCurrencyAllowed(address(blockCoin), true);
+        stacks.setProtocolFeeSettings(tl, fee, 0, 500);
+        blockCoin.transfer(chris, 10 ether);
+        blockCoin.setBlocked(tl, true);
+
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(blockCoin),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            1 ether,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        vm.prank(chris);
+        blockCoin.approve(address(stacks), 1 ether);
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        vm.expectRevert("blocked");
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(blockCoin), 1 ether, rid);
+
+        // rotating the receiver unblocks purchases
+        stacks.setProtocolFeeSettings(david, fee, 0, 500);
+        vm.prank(chris);
+        stacks.purchase(address(nft), chris, 1, 0, emptyProof, address(blockCoin), 1 ether, rid);
+        assertEq(blockCoin.balanceOf(nftOwner), 0.95 ether);
+        assertEq(blockCoin.balanceOf(david), 0.05 ether);
+    }
+
+    /////////////////////////////////////////////////////////////////////
+    // SUPPLY
+    /////////////////////////////////////////////////////////////////////
+
+    /// @dev test decreasing the drop supply
+    function test_updateDropSupply() public {
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            0,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        // mint 3
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        stacks.purchase{value: 3 * fee}(address(nft), chris, 3, 0, emptyProof, address(0), 0, rid);
+
+        // can't increase supply or decrease below the number minted
+        vm.startPrank(nftOwner);
+        vm.expectRevert(InvalidDropSupply.selector);
+        stacks.updateDropSupply(address(nft), 11);
+        vm.expectRevert(InvalidDropSupply.selector);
+        stacks.updateDropSupply(address(nft), 2);
+
+        // decrease the total supply
+        drop.initialSupply = 8;
+        drop.supply = 5;
+        vm.expectEmit(true, true, true, true);
+        emit DropUpdated(address(nft), drop);
+        stacks.updateDropSupply(address(nft), 8);
+        vm.stopPrank();
+        Drop memory rDrop = stacks.getDrop(address(nft));
+        assertEq(rDrop.initialSupply, 8);
+        assertEq(rDrop.supply, 5);
+
+        // can't mint past the new supply
+        vm.prank(chris);
+        vm.expectRevert(CannotMintMoreThanAllowed.selector);
+        stacks.purchase{value: 6 * fee}(address(nft), chris, 6, 0, emptyProof, address(0), 0, rid);
+
+        // a purchase landing before the update doesn't change the new total
+        vm.prank(david);
+        stacks.purchase{value: 2 * fee}(address(nft), david, 2, 0, emptyProof, address(0), 0, rid);
+        vm.prank(nftOwner);
+        stacks.updateDropSupply(address(nft), 6);
+        rDrop = stacks.getDrop(address(nft));
+        assertEq(rDrop.initialSupply, 6);
+        assertEq(rDrop.supply, 1);
+
+        // decreasing to the number minted ends the drop
+        vm.prank(nftOwner);
+        stacks.updateDropSupply(address(nft), 5);
+        rDrop = stacks.getDrop(address(nft));
+        assertEq(rDrop.initialSupply, 5);
+        assertEq(rDrop.supply, 0);
+        assertTrue(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
+        vm.prank(nftOwner);
+        vm.expectRevert(DropUpdateNotAllowed.selector);
+        stacks.updateDropSupply(address(nft), 5);
+        assertEq(nft.balanceOf(chris) + nft.balanceOf(david), 5);
+    }
+
+    /// @dev fuzz decreasing the drop supply
+    function test_updateDropSupply_fuzz(uint256 numberMinted, uint256 newInitialSupply) public {
+        numberMinted = bound(numberMinted, 0, 9);
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            0,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+        if (numberMinted > 0) {
+            rid = stacks.getDropRound(address(nft));
+            vm.prank(chris);
+            stacks.purchase{value: numberMinted * fee}(
+                address(nft), chris, numberMinted, 0, emptyProof, address(0), 0, rid
+            );
+        }
+
+        vm.prank(nftOwner);
+        if (newInitialSupply > 10 || newInitialSupply < numberMinted) {
+            vm.expectRevert(InvalidDropSupply.selector);
+            stacks.updateDropSupply(address(nft), newInitialSupply);
+        } else {
+            stacks.updateDropSupply(address(nft), newInitialSupply);
+            Drop memory rDrop = stacks.getDrop(address(nft));
+            assertEq(rDrop.initialSupply, newInitialSupply);
+            assertEq(rDrop.supply, newInitialSupply - numberMinted);
+            assertEq(rDrop.initialSupply - rDrop.supply, numberMinted);
+        }
+    }
+
+    /// @dev test that token uris continue in order after the supply is decreased
+    function test_updateDropSupply_tokenUris() public {
+        Drop memory drop = Drop(
+            DropType.REGULAR,
+            nftOwner,
+            10,
+            10,
+            10,
+            address(0),
+            block.timestamp,
+            0,
+            0,
+            bytes32(0),
+            1000,
+            0,
+            0,
+            "https://arweave.net/abc"
+        );
+        vm.prank(nftOwner);
+        stacks.configureDrop(address(nft), drop);
+
+        rid = stacks.getDropRound(address(nft));
+        vm.prank(chris);
+        stacks.purchase{value: 3 * fee}(address(nft), chris, 3, 0, emptyProof, address(0), 0, rid);
+
+        vm.prank(nftOwner);
+        stacks.updateDropSupply(address(nft), 5);
+
+        vm.prank(david);
+        stacks.purchase{value: 2 * fee}(address(nft), david, 2, 0, emptyProof, address(0), 0, rid);
+
+        for (uint256 i = 1; i <= 5; i++) {
+            assertEq(nft.tokenURI(i), string(abi.encodePacked("https://arweave.net/abc/", (i - 1).toString())));
+        }
+        assertTrue(stacks.getDropPhase(address(nft)) == DropPhase.ENDED);
     }
 }

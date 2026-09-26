@@ -39,13 +39,16 @@ contract TLStacks1155 is
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
     uint256 public constant BASIS = 10_000;
+    uint256 public constant MAX_SELLER_FEE_BPS = 500; // 5% max seller fee
 
     /////////////////////////////////////////////////////////////////////
     // STORAGE
     /////////////////////////////////////////////////////////////////////
 
     address public protocolFeeReceiver; // the payout receiver for the protocol fee
-    uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer
+    uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer per token on ETH drops
+    uint256 public ethSellerFeeBps; // the seller fee, in basis points, taken from the sale on ETH drops
+    uint256 public erc20SellerFeeBps; // the seller fee, in basis points, taken from the sale on ERC-20 drops
     mapping(address nftAddress => mapping(uint256 tokenId => Drop)) internal _drops; // nft address -> token id -> Drop
     mapping(
         address nftAddress
@@ -54,6 +57,7 @@ contract TLStacks1155 is
         )
     ) internal _numberMinted; // nft address -> token id -> round -> user -> phase -> number minted
     mapping(address nftAddress => mapping(uint256 tokenId => uint256)) internal _rounds; // nft address -> token id -> round
+    mapping(address nftAddress => mapping(uint256 tokenId => mapping(uint256 round => bool))) internal _sellerFeeWaived; // nft address -> token id -> round -> seller fee waived
 
     /////////////////////////////////////////////////////////////////////
     // CONSTRUCTOR
@@ -63,9 +67,11 @@ contract TLStacks1155 is
         address initOwner,
         address initSanctionsOracle,
         address initProtocolFeeReceiver,
-        uint256 initProtocolFee
+        uint256 initProtocolFee,
+        uint256 initEthSellerFeeBps,
+        uint256 initErc20SellerFeeBps
     ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
-        _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
+        _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee, initEthSellerFeeBps, initErc20SellerFeeBps);
     }
 
     /////////////////////////////////////////////////////////////////////
@@ -75,9 +81,29 @@ contract TLStacks1155 is
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
     /// @param newProtocolFeeReceiver The new protocol fee receiver
-    /// @param newProtocolFee The new protocol fee in ETH
-    function setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFee) external onlyOwner {
-        _setProtocolFeeSettings(newProtocolFeeReceiver, newProtocolFee);
+    /// @param newProtocolFee The new protocol fee in ETH, charged to the buyer per token on ETH drops
+    /// @param newEthSellerFeeBps The new seller fee in basis points for ETH drops
+    /// @param newErc20SellerFeeBps The new seller fee in basis points for ERC-20 drops
+    function setProtocolFeeSettings(
+        address newProtocolFeeReceiver,
+        uint256 newProtocolFee,
+        uint256 newEthSellerFeeBps,
+        uint256 newErc20SellerFeeBps
+    ) external onlyOwner {
+        _setProtocolFeeSettings(newProtocolFeeReceiver, newProtocolFee, newEthSellerFeeBps, newErc20SellerFeeBps);
+    }
+
+    /// @notice Function to waive the seller fee for the current round of a drop
+    /// @dev Requires owner
+    /// @dev Can be called before the drop is configured, and a waived seller fee stays waived for the round. The
+    ///      waiver resets when the drop is closed or reconfigured, since that starts a new round.
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The token id of the ERC-1155 token
+    function waiveSellerFee(address nftAddress, uint256 tokenId) external onlyOwner {
+        uint256 round = _rounds[nftAddress][tokenId];
+        _sellerFeeWaived[nftAddress][tokenId][round] = true;
+
+        emit SellerFeeWaived(nftAddress, tokenId, round);
     }
 
     /// @notice Function to set the sanctions oracle
@@ -351,6 +377,38 @@ contract TLStacks1155 is
         emit DropUpdated(nftAddress, tokenId, drop);
     }
 
+    /// @notice Function to decrease the total supply of a drop
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
+    /// @dev The new total supply is set rather than the remaining supply, so purchases landing before this
+    ///      transaction can't change the final total. Setting it to the number already minted ends the drop.
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The token id of the ERC-1155 token
+    /// @param newInitialSupply The new total supply of the drop (between the number minted and the current total)
+    function updateDropSupply(address nftAddress, uint256 tokenId, uint256 newInitialSupply)
+        external
+        nonReentrant
+        whenNotPaused
+    {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
+        // check pre-conditions
+        if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
+        Drop memory drop = _drops[nftAddress][tokenId];
+        DropPhase mPhase = _getDropPhase(drop);
+        if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
+        uint256 numberMinted = drop.initialSupply - drop.supply;
+        if (newInitialSupply > drop.initialSupply || newInitialSupply < numberMinted) revert InvalidDropSupply();
+
+        // update supply
+        drop.initialSupply = newInitialSupply;
+        drop.supply = newInitialSupply - numberMinted;
+        _drops[nftAddress][tokenId].initialSupply = drop.initialSupply;
+        _drops[nftAddress][tokenId].supply = drop.supply;
+
+        emit DropUpdated(nftAddress, tokenId, drop);
+    }
+
     function closeDrop(address nftAddress, uint256 tokenId) external nonReentrant {
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
 
@@ -372,8 +430,8 @@ contract TLStacks1155 is
     ///     - Drop isn't active or configured
     ///     - numberToMint is 0
     ///     - Invalid merkle proof during the presale phase
-    ///     - Insufficent protocol fee
-    ///     - Insufficient funds
+    ///     - Incorrect ETH sent (price plus protocol fee for ETH drops, zero for ERC-20 drops)
+    ///     - Insufficient ERC-20 funds or allowance
     ///     - Already minted the allowance for the recipient in the current phase (the presale merkle leaf during
     ///       presale, or `allowance` during the public sale, which are tracked separately)
     ///     - Receiver is a contract that doesn't implement proper ERC-1155 receiving functions
@@ -447,7 +505,7 @@ contract TLStacks1155 is
         _updateDropState(nftAddress, tokenId, expectedRound, recipient, dropPhase, numberToMint, drop);
 
         // settle funds
-        _settleUp(numberToMint, cost, drop);
+        _settleUp(nftAddress, tokenId, expectedRound, numberToMint, cost, drop);
 
         // mint
         _mintToken(nftAddress, tokenId, recipient, numberToMint);
@@ -520,23 +578,47 @@ contract TLStacks1155 is
         return _rounds[nftAddress][tokenId];
     }
 
+    /// @notice Function to check if the seller fee is waived for the current round of a drop
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @return bool Boolean indicating if the seller fee is waived
+    function isSellerFeeWaived(address nftAddress, uint256 tokenId) external view returns (bool) {
+        return _sellerFeeWaived[nftAddress][tokenId][_rounds[nftAddress][tokenId]];
+    }
+
     /////////////////////////////////////////////////////////////////////
     // INTERNAL HELPER FUNCTIONS
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to set the protocol fee settings
-    /// @dev The receiver can only be the zero address if the fee is zero, so fees are never burned
+    /// @dev The receiver can only be the zero address if all fees are zero, so fees are never burned
     /// @dev The receiver cannot be sanctioned. This isn't re-checked on purchase, since the receiver is owner controlled.
+    /// @dev Seller fees cannot exceed `MAX_SELLER_FEE_BPS`
     /// @param newProtocolFeeReceiver The new protocol fee receiver
-    /// @param newProtocolFee The new protocol fee in ETH
-    function _setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFee) internal {
-        if (newProtocolFeeReceiver == address(0) && newProtocolFee != 0) revert InvalidProtocolFeeReceiver();
+    /// @param newProtocolFee The new protocol fee in ETH, charged to the buyer per token on ETH drops
+    /// @param newEthSellerFeeBps The new seller fee in basis points for ETH drops
+    /// @param newErc20SellerFeeBps The new seller fee in basis points for ERC-20 drops
+    function _setProtocolFeeSettings(
+        address newProtocolFeeReceiver,
+        uint256 newProtocolFee,
+        uint256 newEthSellerFeeBps,
+        uint256 newErc20SellerFeeBps
+    ) internal {
+        if (
+            newProtocolFeeReceiver == address(0)
+                && (newProtocolFee != 0 || newEthSellerFeeBps != 0 || newErc20SellerFeeBps != 0)
+        ) revert InvalidProtocolFeeReceiver();
         if (_isSanctioned(newProtocolFeeReceiver)) revert InvalidProtocolFeeReceiver();
+        if (newEthSellerFeeBps > MAX_SELLER_FEE_BPS || newErc20SellerFeeBps > MAX_SELLER_FEE_BPS) {
+            revert InvalidSellerFeeBps();
+        }
 
         protocolFeeReceiver = newProtocolFeeReceiver;
         protocolFee = newProtocolFee;
+        ethSellerFeeBps = newEthSellerFeeBps;
+        erc20SellerFeeBps = newErc20SellerFeeBps;
 
-        emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFee);
+        emit ProtocolFeeUpdated(newProtocolFeeReceiver, newProtocolFee, newEthSellerFeeBps, newErc20SellerFeeBps);
     }
 
     /// @notice Internal function to check if msg.sender is the owner or an admin on the contract
@@ -637,29 +719,41 @@ contract TLStacks1155 is
     }
 
     /// @notice Internal function to distribute funds for a _purchase
+    /// @param nftAddress The nft contract address
+    /// @param tokenId The nft token id
+    /// @param round The drop round, used to check if the seller fee is waived
     /// @param numberToMint The number of tokens that can be minted
     /// @param cost The cost per token
     /// @param drop The drop
-    function _settleUp(uint256 numberToMint, uint256 cost, Drop memory drop) internal {
-        uint256 totalProtocolFee = numberToMint * protocolFee;
+    function _settleUp(
+        address nftAddress,
+        uint256 tokenId,
+        uint256 round,
+        uint256 numberToMint,
+        uint256 cost,
+        Drop memory drop
+    ) internal {
         uint256 totalSale = numberToMint * cost;
+        bool isEth = drop.currencyAddress == address(0);
 
-        // payout the mint
-        if (drop.currencyAddress == address(0)) {
-            uint256 totalCost = totalSale + totalProtocolFee;
-            if (msg.value != totalCost) revert IncorrectFunds();
-            if (totalSale > 0) {
-                _safeTransferETH(drop.payoutReceiver, totalSale);
-            }
-        } else {
-            if (msg.value != totalProtocolFee) revert IncorrectFunds();
-            if (totalSale > 0) {
-                _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, totalSale);
-            }
+        // calculate the seller fee (rounds down in favor of the seller)
+        uint256 sellerFee;
+        if (!_sellerFeeWaived[nftAddress][tokenId][round]) {
+            sellerFee = totalSale * (isEth ? ethSellerFeeBps : erc20SellerFeeBps) / BASIS;
         }
+        uint256 sellerProceeds = totalSale - sellerFee;
 
-        // payout the protocol fee
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee);
+        // payout the mint and protocol fees
+        if (isEth) {
+            uint256 totalProtocolFee = numberToMint * protocolFee;
+            if (msg.value != totalSale + totalProtocolFee) revert IncorrectFunds();
+            _safeTransferETH(drop.payoutReceiver, sellerProceeds);
+            _safeTransferETH(protocolFeeReceiver, totalProtocolFee + sellerFee);
+        } else {
+            if (msg.value != 0) revert IncorrectFunds();
+            _safeTransferFromERC20(msg.sender, drop.payoutReceiver, drop.currencyAddress, sellerProceeds);
+            _safeTransferFromERC20(msg.sender, protocolFeeReceiver, drop.currencyAddress, sellerFee);
+        }
     }
 
     /// @notice Internal function to mint the token

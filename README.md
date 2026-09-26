@@ -10,8 +10,11 @@ The mint contracts are
 
 ### Features
 - multi-tenant sales which keeps NFT contracts lighter weight with less code
-- implements a flat buyers fee in ETH per NFT minted
+- implements a flat buyers fee in ETH per NFT minted on ETH drops. ERC-20 drops charge no ETH, so a purchase only needs the drop currency (friendly to cross-chain fillers).
+- seller fee as a percentage of the sale, with separate rates for ETH and ERC-20 drops, each capped at 5% (`MAX_SELLER_FEE_BPS`)
+- the contract owner can waive the seller fee for a drop. The waiver is tied to the drop round, so it resets when the drop is closed or reconfigured.
 - configurable for any allowlisted ERC-20 token (the contract owner manages the allowlist; native currency is always allowed)
+- drop admins can decrease a live drop's total supply (never below the number already minted, and never above the configured supply)
 - velocity/marathon mint: the duration of the open edition decreases (velocity) or increases (marathon) with each mint
 - only the NFT contract owner or admins can configure/alter/cancel a mint
 - purchases specify the expected currency, max cost per token, and drop round, so buyers are protected if a drop's price, currency, or phase changes, or the drop is closed and reconfigured (e.g. with new art), while their transaction is pending

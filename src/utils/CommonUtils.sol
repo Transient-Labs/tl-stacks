@@ -38,4 +38,5 @@ interface DropErrors {
     error PriceTooHigh();
     error DropRoundChanged();
     error InvalidProtocolFeeReceiver();
+    error InvalidSellerFeeBps();
 }
