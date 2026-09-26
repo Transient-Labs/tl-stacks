@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 /// @title ICreatorLookup.sol
 /// @notice Interface for the creator lookup helper contracts that help the TLAuctionHouse determine a primary from secondary sale
-/// @author transientlabs.xyz
+/// @author Transient Labs, Inc.
 interface ICreatorLookup {
     /// @notice Function to lookup the creator address for a given token
     /// @dev Should return the null address if the creator can't be determined

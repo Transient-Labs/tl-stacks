@@ -1,80 +1,76 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
-import {Ownable} from "@openzeppelin-contracts-5.0.2/access/Ownable.sol";
-import {Pausable} from "@openzeppelin-contracts-5.0.2/utils/Pausable.sol";
-import {ReentrancyGuard} from "@openzeppelin-contracts-5.0.2/utils/ReentrancyGuard.sol";
-import {MerkleProof} from "@openzeppelin-contracts-5.0.2/utils/cryptography/MerkleProof.sol";
-import {IERC1155TL} from "tl-creator-contracts-3.7.1/erc-1155/IERC1155TL.sol";
-import {OwnableAccessControlUpgradeable} from "tl-creator-contracts-3.7.1/lib/OwnableAccessControlUpgradeable.sol";
+import {Ownable, Ownable2Step} from "@openzeppelin-contracts-5.6.1/access/Ownable2Step.sol";
+import {Pausable} from "@openzeppelin-contracts-5.6.1/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol";
+import {MerkleProof} from "@openzeppelin-contracts-5.6.1/utils/cryptography/MerkleProof.sol";
+import {IERC1155TL} from "tl-creator-contracts-4.1.1/erc-1155/IERC1155TL.sol";
+import {OwnableAccessControlUpgradeable} from "tl-creator-contracts-4.1.1/lib/OwnableAccessControlUpgradeable.sol";
 import {TransferHelper} from "./lib/TransferHelper.sol";
 import {SanctionsCompliance} from "./lib/SanctionsCompliance.sol";
+import {CurrencyAllowlist} from "./lib/CurrencyAllowlist.sol";
 import {DropPhase, DropType, DropErrors} from "./utils/CommonUtils.sol";
 import {Drop, ITLStacks1155Events} from "./utils/TLStacks1155Utils.sol";
 
-/*//////////////////////////////////////////////////////////////////////////
-                            TL Stacks 1155
-//////////////////////////////////////////////////////////////////////////*/
+/////////////////////////////////////////////////////////////////////
+// TL STACKS 1155
+/////////////////////////////////////////////////////////////////////
 
 /// @title TLStacks1155
 /// @notice Transient Labs mint contract for ERC1155TL contracts
-/// @dev Matches functionality of version 2.3.1
-/// @author transientlabs.xyz
-/// @custom:version-last-updated 2.7.0
+/// @author Transient Labs, Inc.
+/// @custom:version-last-updated 2.8.0
 contract TLStacks1155 is
-    Ownable,
+    Ownable2Step,
     Pausable,
     ReentrancyGuard,
     TransferHelper,
     SanctionsCompliance,
+    CurrencyAllowlist,
     ITLStacks1155Events,
     DropErrors
 {
-    /*//////////////////////////////////////////////////////////////////////////
-                                  Constants
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // CONSTANTS
+    /////////////////////////////////////////////////////////////////////
 
-    string public constant VERSION = "2.7.0";
+    string public constant VERSION = "2.8.0";
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant APPROVED_MINT_CONTRACT = keccak256("APPROVED_MINT_CONTRACT");
     uint256 public constant BASIS = 10_000;
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                State Variables
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // STORAGE
+    /////////////////////////////////////////////////////////////////////
 
     address public protocolFeeReceiver; // the payout receiver for the protocol fee
     uint256 public protocolFee; // the protocol fee, in eth, to charge the buyer
-    address public weth; // weth address
-    mapping(address => mapping(uint256 => Drop)) internal _drops; // nft address -> token id -> Drop
-    mapping(address => mapping(uint256 => mapping(uint256 => mapping(address => uint256)))) internal _numberMinted; // nft address -> token id -> round -> user -> number minted
-    mapping(address => mapping(uint256 => uint256)) internal _rounds; // nft address -> token id -> round
+    mapping(address nftAddress => mapping(uint256 tokenId => Drop)) internal _drops; // nft address -> token id -> Drop
+    mapping(
+        address nftAddress
+            => mapping(
+            uint256 tokenId => mapping(uint256 round => mapping(address user => mapping(DropPhase => uint256)))
+        )
+    ) internal _numberMinted; // nft address -> token id -> round -> user -> phase -> number minted
+    mapping(address nftAddress => mapping(uint256 tokenId => uint256)) internal _rounds; // nft address -> token id -> round
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Constructor
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // CONSTRUCTOR
+    /////////////////////////////////////////////////////////////////////
 
     constructor(
         address initOwner,
         address initSanctionsOracle,
-        address initWethAddress,
         address initProtocolFeeReceiver,
         uint256 initProtocolFee
     ) Ownable(initOwner) Pausable() ReentrancyGuard() SanctionsCompliance(initSanctionsOracle) {
-        _setWethAddress(initWethAddress);
         _setProtocolFeeSettings(initProtocolFeeReceiver, initProtocolFee);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Owner Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Function to set a new weth address
-    /// @dev Requires owner
-    /// @param newWethAddress The new weth address
-    function setWethAddress(address newWethAddress) external onlyOwner {
-        _setWethAddress(newWethAddress);
-    }
+    /////////////////////////////////////////////////////////////////////
+    // OWNER FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
@@ -91,6 +87,15 @@ contract TLStacks1155 is
         _updateSanctionsOracle(newOracle);
     }
 
+    /// @notice Function to add or remove an ERC-20 currency from the allowlist
+    /// @dev Requires owner
+    /// @dev Removing a currency only blocks new sales from using it, existing sales are unaffected
+    /// @param currencyAddress The ERC-20 currency address
+    /// @param allowed Boolean indicating if the currency is allowed
+    function setCurrencyAllowed(address currencyAddress, bool allowed) external onlyOwner {
+        _setCurrencyAllowed(currencyAddress, allowed);
+    }
+
     /// @notice Function to withdraw funds in case any are sent to this address on accident
     /// @dev Since this contract doesn't escrow funds, this is a safe addition
     /// @dev Requires owner
@@ -98,7 +103,7 @@ contract TLStacks1155 is
     /// @param amount The amount to transfer in base units
     function withdrawFunds(address currencyAddress, uint256 amount) external onlyOwner {
         if (currencyAddress == address(0)) {
-            _safeTransferETH(msg.sender, amount, weth);
+            _safeTransferETH(msg.sender, amount);
         } else {
             _safeTransferERC20(msg.sender, currencyAddress, amount);
         }
@@ -115,14 +120,16 @@ contract TLStacks1155 is
         }
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                            Drop Configuration Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // DROP CONFIGURATION FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to configure a drop
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @dev Reverts if
-    ///     - the payout receiver is the zero address
+    ///     - the payout receiver is the zero address or sanctioned
+    ///     - the `dropType` is `NOT_CONFIGURED`
+    ///     - the currency is not on the allowlist (native currency is always allowed)
     ///     - a drop is already configured and live
     ///     - the `intiialSupply` does not equal the `supply`
     ///     - the `decayRate` is non-zero and there is a presale configured
@@ -135,14 +142,15 @@ contract TLStacks1155 is
         nonReentrant
     {
         // sanctions
-        _isSanctioned(msg.sender, true);
-        _isSanctioned(drop.payoutReceiver, true);
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         if (!_checkPayoutReceiver(drop.payoutReceiver)) revert InvalidPayoutReceiver();
+        if (!_isCurrencyAllowed(drop.currencyAddress)) revert CurrencyNotAllowed();
         if (!_isApprovedMintContract(nftAddress)) revert NotApprovedMintContract();
         if (drop.initialSupply != drop.supply) revert InvalidDropSupply();
+        if (drop.dropType == DropType.NOT_CONFIGURED) revert InvalidDropType();
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
         if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
 
@@ -165,7 +173,7 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to update the payout receiver of a drop
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param payoutReceiver The recipient of the funds from the mint
@@ -175,7 +183,7 @@ contract TLStacks1155 is
         nonReentrant
     {
         // sanctions
-        _isSanctioned(payoutReceiver, true);
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
 
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
@@ -192,15 +200,18 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to update the drop public allowance
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
-    /// @param allowance The number of tokens allowed to be minted per wallet during the public phase of the drop
+    /// @param allowance The number of tokens each wallet can mint during the public phase (separate from presale mints)
     function updateDropAllowance(address nftAddress, uint256 tokenId, uint256 allowance)
         external
         whenNotPaused
         nonReentrant
     {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -215,12 +226,14 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to update the drop prices and currency
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
+    /// @dev The currency must be on the allowlist. Buyers are protected from changes made while their purchase is
+    ///      pending by the `currencyAddress` and `maxCostPerToken` arguments of `purchase`.
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param currencyAddress The currency address (zero address represents ETH)
     /// @param presaleCost The cost of each token during the presale phase
-    /// @param publicCost The cost of each token during the presale phase
+    /// @param publicCost The cost of each token during the public phase
     function updateDropPrices(
         address nftAddress,
         uint256 tokenId,
@@ -228,11 +241,15 @@ contract TLStacks1155 is
         uint256 presaleCost,
         uint256 publicCost
     ) external whenNotPaused nonReentrant {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
         DropPhase mPhase = _getDropPhase(drop);
         if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
+        if (!_isCurrencyAllowed(currencyAddress)) revert CurrencyNotAllowed();
 
         // set currency address and prices
         drop.currencyAddress = currencyAddress;
@@ -246,7 +263,7 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to adjust drop durations
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param startTime The timestamp at which the drop starts
@@ -259,6 +276,9 @@ contract TLStacks1155 is
         uint256 presaleDuration,
         uint256 publicDuration
     ) external whenNotPaused nonReentrant {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -278,7 +298,7 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to adjust the drop merkle root
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param presaleMerkleRoot The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
@@ -287,6 +307,9 @@ contract TLStacks1155 is
         whenNotPaused
         nonReentrant
     {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -302,7 +325,7 @@ contract TLStacks1155 is
     }
 
     /// @notice Function to adjust the drop decay rate
-    /// @dev Caller must be the nft contract owner or an admin on the contract
+    /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
     /// @param tokenId The token id of the ERC-1155 token
     /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
@@ -311,6 +334,9 @@ contract TLStacks1155 is
         whenNotPaused
         nonReentrant
     {
+        // sanctions
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+
         // check pre-conditions
         if (!_isDropAdmin(nftAddress)) revert NotDropAdmin();
         Drop memory drop = _drops[nftAddress][tokenId];
@@ -337,9 +363,9 @@ contract TLStacks1155 is
         emit DropClosed(nftAddress, tokenId);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Purchase Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // PURCHASE FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to purchase a single token via a drop
     /// @dev Reverts on any of the following conditions
@@ -348,52 +374,77 @@ contract TLStacks1155 is
     ///     - Invalid merkle proof during the presale phase
     ///     - Insufficent protocol fee
     ///     - Insufficient funds
-    ///     - Already minted the allowance for the recipient
+    ///     - Already minted the allowance for the recipient in the current phase (the presale merkle leaf during
+    ///       presale, or `allowance` during the public sale, which are tracked separately)
     ///     - Receiver is a contract that doesn't implement proper ERC-1155 receiving functions
+    ///     - The drop currency doesn't match `currencyAddress`
+    ///     - The current cost per token is greater than `maxCostPerToken`
+    ///     - The drop round doesn't match `expectedRound`, so a drop that is closed and reconfigured (e.g. with a new
+    ///       base uri) can't be minted with a transaction signed against the previous drop
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
     /// @param numberToMint The number of tokens to mint
     /// @param presaleNumberCanMint The number of tokens the recipient can mint during presale
     /// @param proof The merkle proof for the presale page
+    /// @param currencyAddress The currency the buyer expects to pay in (zero address represents ETH)
+    /// @param maxCostPerToken The maximum cost per token the buyer is willing to pay (excluding protocol fee)
+    /// @param expectedRound The drop round the buyer expects to mint from
     function purchase(
         address nftAddress,
         uint256 tokenId,
         address recipient,
         uint256 numberToMint,
         uint256 presaleNumberCanMint,
-        bytes32[] calldata proof
+        bytes32[] calldata proof,
+        address currencyAddress,
+        uint256 maxCostPerToken,
+        uint256 expectedRound
     ) external payable whenNotPaused nonReentrant {
-        _isSanctioned(msg.sender, true);
-        _isSanctioned(recipient, true);
+        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+        if (_isSanctioned(recipient)) revert SanctionedAddress();
 
         // cache drop
         Drop memory drop = _drops[nftAddress][tokenId];
         DropPhase dropPhase = _getDropPhase(drop);
-        uint256 round = _rounds[nftAddress][tokenId];
-        uint256 numberMinted = _numberMinted[nftAddress][tokenId][round][recipient];
-        uint256 numberCanMint = numberToMint; // cache and then update depending on phase
+
+        // don't send funds to a payout receiver that has been sanctioned since the drop was configured
+        if (_isSanctioned(drop.payoutReceiver)) revert SanctionedAddress();
+
+        // protect the buyer from the drop being closed and reconfigured between signing and execution
+        // after this check, `expectedRound` is the current round
+        if (_rounds[nftAddress][tokenId] != expectedRound) revert DropRoundChanged();
+
         uint256 cost = drop.presaleCost;
 
         // pre-conditions - revert for safety and expected behavior from users - UX for batch purchases needs to be smart in order to avoid reverting conditions
         if (numberToMint == 0) revert MintZeroTokens();
-        if (dropPhase == DropPhase.PRESALE) {
-            bytes32 hashedRecipient = keccak256(abi.encode(recipient));
-            bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/@openzeppelin-contracts-5.0.2/@openzeppelin-contracts-5.0.2-contracts/issues/3091
-            if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
-            numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
-        } else if (dropPhase == DropPhase.PUBLIC_SALE) {
-            numberCanMint = _getNumberCanMint(drop.allowance, numberMinted, drop.supply);
-            cost = drop.publicCost;
-        } else {
-            revert YouShallNotMint();
+        {
+            // scoped to avoid stack too deep
+            uint256 numberMinted = _numberMinted[nftAddress][tokenId][expectedRound][recipient][dropPhase];
+            uint256 numberCanMint;
+            if (dropPhase == DropPhase.PRESALE) {
+                bytes32 hashedRecipient = keccak256(abi.encode(recipient));
+                bytes32 leaf = keccak256(bytes.concat(keccak256(abi.encode(hashedRecipient, presaleNumberCanMint)))); // double hash to prevent second preimage attack: https://github.com/@openzeppelin-contracts-5.6.1/@openzeppelin-contracts-5.6.1-contracts/issues/3091
+                if (!MerkleProof.verify(proof, drop.presaleMerkleRoot, leaf)) revert NotOnAllowlist();
+                numberCanMint = _getNumberCanMint(presaleNumberCanMint, numberMinted, drop.supply);
+            } else if (dropPhase == DropPhase.PUBLIC_SALE) {
+                numberCanMint = _getNumberCanMint(drop.allowance, numberMinted, drop.supply);
+                cost = drop.publicCost;
+            } else {
+                revert YouShallNotMint();
+            }
+
+            // revert if minting more than allowed
+            if (numberToMint > numberCanMint) revert CannotMintMoreThanAllowed();
         }
 
-        // revert if minting more than allowed
-        if (numberToMint > numberCanMint) revert CannotMintMoreThanAllowed();
+        // protect the buyer from drop changes between signing and execution
+        if (drop.currencyAddress != currencyAddress) revert CurrencyMismatch();
+        if (cost > maxCostPerToken) revert PriceTooHigh();
 
         // adjust drop state
-        _updateDropState(nftAddress, tokenId, round, recipient, numberToMint, drop);
+        _updateDropState(nftAddress, tokenId, expectedRound, recipient, dropPhase, numberToMint, drop);
 
         // settle funds
         _settleUp(numberToMint, cost, drop);
@@ -413,9 +464,9 @@ contract TLStacks1155 is
         );
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                            External View Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // EXTERNAL VIEW FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to get a drop
     /// @param nftAddress The nft contract address
@@ -436,14 +487,20 @@ contract TLStacks1155 is
         }
     }
 
-    /// @notice Function to get number minted on a drop for an address
+    /// @notice Function to get number minted on a drop for an address, in each phase
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param recipient The recipient of the nft
-    /// @return uint256 The number of tokens minted
-    function getNumberMinted(address nftAddress, uint256 tokenId, address recipient) external view returns (uint256) {
+    /// @return presaleNumberMinted The number of tokens minted during the presale
+    /// @return publicNumberMinted The number of tokens minted during the public sale
+    function getNumberMinted(address nftAddress, uint256 tokenId, address recipient)
+        external
+        view
+        returns (uint256 presaleNumberMinted, uint256 publicNumberMinted)
+    {
         uint256 round = _rounds[nftAddress][tokenId];
-        return _numberMinted[nftAddress][tokenId][round][recipient];
+        presaleNumberMinted = _numberMinted[nftAddress][tokenId][round][recipient][DropPhase.PRESALE];
+        publicNumberMinted = _numberMinted[nftAddress][tokenId][round][recipient][DropPhase.PUBLIC_SALE];
     }
 
     /// @notice Function to get the drop phase
@@ -463,23 +520,19 @@ contract TLStacks1155 is
         return _rounds[nftAddress][tokenId];
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                            Internal Helper Functions
-    //////////////////////////////////////////////////////////////////////////*/
-
-    /// @notice Internal function to set the weth address
-    /// @param newWethAddress The new weth address
-    function _setWethAddress(address newWethAddress) internal {
-        address prevWethAddress = weth;
-        weth = newWethAddress;
-
-        emit WethUpdated(prevWethAddress, newWethAddress);
-    }
+    /////////////////////////////////////////////////////////////////////
+    // INTERNAL HELPER FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to set the protocol fee settings
+    /// @dev The receiver can only be the zero address if the fee is zero, so fees are never burned
+    /// @dev The receiver cannot be sanctioned. This isn't re-checked on purchase, since the receiver is owner controlled.
     /// @param newProtocolFeeReceiver The new protocol fee receiver
     /// @param newProtocolFee The new protocol fee in ETH
     function _setProtocolFeeSettings(address newProtocolFeeReceiver, uint256 newProtocolFee) internal {
+        if (newProtocolFeeReceiver == address(0) && newProtocolFee != 0) revert InvalidProtocolFeeReceiver();
+        if (_isSanctioned(newProtocolFeeReceiver)) revert InvalidProtocolFeeReceiver();
+
         protocolFeeReceiver = newProtocolFeeReceiver;
         protocolFee = newProtocolFee;
 
@@ -503,9 +556,9 @@ contract TLStacks1155 is
 
     /// @notice Internal function to check if a payout address is a valid address
     /// @param payoutReceiver The payout address to check
-    /// @return bool Indication of if the payout address is not the zero address
-    function _checkPayoutReceiver(address payoutReceiver) internal pure returns (bool) {
-        return payoutReceiver != address(0);
+    /// @return bool Indication of if the payout address is not the zero address and not sanctioned
+    function _checkPayoutReceiver(address payoutReceiver) internal view returns (bool) {
+        return payoutReceiver != address(0) && !_isSanctioned(payoutReceiver);
     }
 
     /// @notice Internal function to get the drop phase
@@ -550,6 +603,7 @@ contract TLStacks1155 is
     /// @param tokenId The nft token id
     /// @param round The drop round for number minted
     /// @param recipient The receiver of the nft (msg.sender is the payer but this allows delegation)
+    /// @param phase The drop phase the tokens are minted in
     /// @param numberToMint The number of tokens to mint
     /// @param drop The Drop cached in memory
     function _updateDropState(
@@ -557,6 +611,7 @@ contract TLStacks1155 is
         uint256 tokenId,
         uint256 round,
         address recipient,
+        DropPhase phase,
         uint256 numberToMint,
         Drop memory drop
     ) internal {
@@ -578,7 +633,7 @@ contract TLStacks1155 is
 
         // regular state (applicable to all types of drops)
         _drops[nftAddress][tokenId].supply -= numberToMint;
-        _numberMinted[nftAddress][tokenId][round][recipient] += numberToMint;
+        _numberMinted[nftAddress][tokenId][round][recipient][phase] += numberToMint;
     }
 
     /// @notice Internal function to distribute funds for a _purchase
@@ -594,7 +649,7 @@ contract TLStacks1155 is
             uint256 totalCost = totalSale + totalProtocolFee;
             if (msg.value != totalCost) revert IncorrectFunds();
             if (totalSale > 0) {
-                _safeTransferETH(drop.payoutReceiver, totalSale, weth);
+                _safeTransferETH(drop.payoutReceiver, totalSale);
             }
         } else {
             if (msg.value != totalProtocolFee) revert IncorrectFunds();
@@ -604,7 +659,7 @@ contract TLStacks1155 is
         }
 
         // payout the protocol fee
-        _safeTransferETH(protocolFeeReceiver, totalProtocolFee, weth);
+        _safeTransferETH(protocolFeeReceiver, totalProtocolFee);
     }
 
     /// @notice Internal function to mint the token

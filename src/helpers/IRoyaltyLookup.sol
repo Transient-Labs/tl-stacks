@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 /// @title IRoyaltyLookup.sol
 /// @notice Interface for royalty lookup helper contracts that help the TLAuctionHouse determine the royalty to pay
-/// @author transientlabs.xyz
+/// @author Transient Labs, Inc.
 interface IRoyaltyLookup {
     /// @notice Function to lookup the creator address for a given token
     /// @dev Should attempt to use the royalty registry under the hood where possible

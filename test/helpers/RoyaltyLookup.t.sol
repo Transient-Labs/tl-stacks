@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import "forge-std-1.9.4/Test.sol";
 import {Ownable, RoyaltyLookup, IRoyaltyEngineV1} from "src/helpers/RoyaltyLookup.sol";
-import {ERC721TL, ERC2981TLUpgradeable} from "tl-creator-contracts-3.7.1/erc-721/ERC721TL.sol";
+import {ERC721TL, ERC2981TLUpgradeable} from "tl-creator-contracts-4.1.1/erc-721/ERC721TL.sol";
 
 contract RoyaltyLookupTest is Test {
     RoyaltyLookup rl;
@@ -16,7 +16,7 @@ contract RoyaltyLookupTest is Test {
 
         address[] memory empty = new address[](0);
         nft = new ERC721TL(false);
-        nft.initialize("LFG Bro", "LFG", "", address(this), 1_000, address(this), empty, false, address(0), address(0));
+        nft.initialize("LFG Bro", "LFG", address(this), 1_000, address(this), empty, false, address(0), 0, address(0));
     }
 
     function test_setRoyaltyEngine_accessControl(address hacker) public {

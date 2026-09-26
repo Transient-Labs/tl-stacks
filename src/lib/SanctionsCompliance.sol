@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {IChainalysisSanctionsOracle} from "./IChainalysisSanctionsOracle.sol";
 
@@ -7,38 +7,37 @@ import {IChainalysisSanctionsOracle} from "./IChainalysisSanctionsOracle.sol";
 /// @notice Abstract contract to comply with U.S. sanctioned addresses
 /// @dev Uses the Chainalysis Sanctions Oracle for checking sanctions
 /// @author Transient Labs, Inc.
-/// @custom:version 2.7.0
 contract SanctionsCompliance {
-    /*//////////////////////////////////////////////////////////////////////////
-                                State Variables
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // STORAGE
+    /////////////////////////////////////////////////////////////////////
 
     IChainalysisSanctionsOracle public oracle;
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Errors
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // ERRORS
+    /////////////////////////////////////////////////////////////////////
 
     /// @dev Sanctioned address by OFAC
     error SanctionedAddress();
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Events
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // EVENTS
+    /////////////////////////////////////////////////////////////////////
 
     event SanctionsOracleUpdated(address indexed prevOracle, address indexed newOracle);
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Constructor
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // CONSTRUCTOR
+    /////////////////////////////////////////////////////////////////////
 
     constructor(address initOracle) {
         _updateSanctionsOracle(initOracle);
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                Internal Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // INTERNAL FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to change the sanctions oracle
     /// @param newOracle The new sanctions oracle address
@@ -51,15 +50,10 @@ contract SanctionsCompliance {
 
     /// @notice Internal function to check the sanctions oracle for an address
     /// @dev Disable sanction checking by setting the oracle to the zero address
-    /// @param sender The address that is trying to send money
-    /// @param shouldRevertIfSanctioned A flag indicating if the call should revert if the sender is sanctioned. Set to false if wanting to get a result.
-    /// @return isSanctioned Boolean indicating if the sender is sanctioned
-    function _isSanctioned(address sender, bool shouldRevertIfSanctioned) internal view returns (bool isSanctioned) {
-        if (address(oracle) == address(0)) {
-            return false;
-        }
-        isSanctioned = oracle.isSanctioned(sender);
-        if (shouldRevertIfSanctioned && isSanctioned) revert SanctionedAddress();
-        return isSanctioned;
+    /// @param account The address to check
+    /// @return bool Boolean indicating if the address is sanctioned
+    function _isSanctioned(address account) internal view returns (bool) {
+        if (address(oracle) == address(0)) return false;
+        return oracle.isSanctioned(account);
     }
 }

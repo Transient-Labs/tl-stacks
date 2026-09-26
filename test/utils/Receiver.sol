@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
 
@@ -29,7 +29,13 @@ contract RevertingBidder {
     }
 
     function bid(address nftAddress, uint256 tokenId, uint256 bid_) external payable {
-        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, address(this), bid_);
+        TLAuctionHouse(ah).bid{value: msg.value}(
+            nftAddress, tokenId, address(0), bid_, TLAuctionHouse(ah).getListing(nftAddress, tokenId).id
+        );
+    }
+
+    function claimFunds(address currencyAddress, address to) external {
+        TLAuctionHouse(ah).claimFunds(currencyAddress, to);
     }
 }
 
@@ -49,6 +55,12 @@ contract GriefingBidder {
     }
 
     function bid(address nftAddress, uint256 tokenId, uint256 bid_) external payable {
-        TLAuctionHouse(ah).bid{value: msg.value}(nftAddress, tokenId, address(this), bid_);
+        TLAuctionHouse(ah).bid{value: msg.value}(
+            nftAddress, tokenId, address(0), bid_, TLAuctionHouse(ah).getListing(nftAddress, tokenId).id
+        );
+    }
+
+    function claimFunds(address currencyAddress, address to) external {
+        TLAuctionHouse(ah).claimFunds(currencyAddress, to);
     }
 }

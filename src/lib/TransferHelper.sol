@@ -1,24 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity 0.8.30;
 
-import {SafeERC20} from "@openzeppelin-contracts-5.0.2/token/ERC20/utils/SafeERC20.sol";
-import {IWETH, IERC20} from "./IWETH.sol";
+import {IERC20} from "@openzeppelin-contracts-5.6.1/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin-contracts-5.6.1/token/ERC20/utils/SafeERC20.sol";
 
 /// @title Transfer Helper
 /// @notice Abstract contract that has helper function for sending ETH and ERC20's safely
-/// @author transientlabs.xyz
-/// @custom:version 3.0.0
+/// @author Transient Labs, Inc.
 abstract contract TransferHelper {
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Types
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // TYPES
+    /////////////////////////////////////////////////////////////////////
 
     using SafeERC20 for IERC20;
-    using SafeERC20 for IWETH;
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                    Errors
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // ERRORS
+    /////////////////////////////////////////////////////////////////////
 
     /// @dev ETH transfer failed
     error ETHTransferFailed();
@@ -26,41 +24,35 @@ abstract contract TransferHelper {
     /// @dev Transferred too few ERC-20 tokens
     error InsufficentERC20Transfer();
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                   ETH Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /////////////////////////////////////////////////////////////////////
+    // ETH FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
-    /// @notice Function to force transfer ETH, defaulting to forwarding 100k gas
-    /// @dev On failure to send the ETH, the ETH is converted to WETH and sent
-    /// @dev Care should be taken to always pass the proper WETH address that adheres to IWETH
-    /// @param recipient The recipient of the ETH
-    /// @param amount The amount of ETH to send
-    /// @param weth The WETH token address
-    function _safeTransferETH(address recipient, uint256 amount, address weth) internal {
-        _safeTransferETH(recipient, amount, weth, 1e5);
-    }
-
-    /// @notice Function to force transfer ETH, with a gas limit
-    /// @dev On failure to send the ETH, the ETH is converted to WETH and sent
-    /// @dev Care should be taken to always pass the proper WETH address that adheres to IWETH
+    /// @notice Function to transfer ETH, forwarding all gas
+    /// @dev Reverts on failure to send the ETH
     /// @dev If the `amount` is zero, the function returns in order to save gas
     /// @param recipient The recipient of the ETH
     /// @param amount The amount of ETH to send
-    /// @param weth The WETH token address
-    /// @param gasLimit The gas to forward
-    function _safeTransferETH(address recipient, uint256 amount, address weth, uint256 gasLimit) internal {
+    function _safeTransferETH(address recipient, uint256 amount) internal {
         if (amount == 0) return;
-        (bool success,) = recipient.call{value: amount, gas: gasLimit}("");
-        if (!success) {
-            IWETH token = IWETH(weth);
-            token.deposit{value: amount}();
-            token.safeTransfer(recipient, amount);
-        }
+        (bool success,) = recipient.call{value: amount}("");
+        if (!success) revert ETHTransferFailed();
     }
 
-    /*//////////////////////////////////////////////////////////////////////////
-                                  ERC-20 Functions
-    //////////////////////////////////////////////////////////////////////////*/
+    /// @notice Function to attempt to transfer ETH, with a gas limit
+    /// @dev Does not revert on failure, instead returns a boolean indicating success
+    /// @dev Callers should skip zero amounts themselves
+    /// @param recipient The recipient of the ETH
+    /// @param amount The amount of ETH to send
+    /// @param gasLimit The gas to forward
+    /// @return success Boolean indicating if the transfer succeeded
+    function _trySafeTransferETH(address recipient, uint256 amount, uint256 gasLimit) internal returns (bool success) {
+        (success,) = recipient.call{value: amount, gas: gasLimit}("");
+    }
+
+    /////////////////////////////////////////////////////////////////////
+    // ERC-20 FUNCTIONS
+    /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to safely transfer ERC-20 tokens from the contract, without checking for token tax
     /// @dev Does not check if the sender has enough balance as that is handled by the token contract
@@ -73,6 +65,20 @@ abstract contract TransferHelper {
     function _safeTransferERC20(address recipient, address currency, uint256 amount) internal {
         if (amount == 0) return;
         IERC20(currency).safeTransfer(recipient, amount);
+    }
+
+    /// @notice Function to attempt to transfer ERC-20 tokens from the contract, without checking for token tax
+    /// @dev Does not revert on failure, instead returns a boolean indicating success
+    /// @dev Callers should skip zero amounts themselves
+    /// @param recipient The recipient of the ERC-20 token
+    /// @param currency The address of the ERC-20 token
+    /// @param amount The amount of ERC-20 to send
+    /// @return success Boolean indicating if the transfer succeeded
+    function _trySafeTransferERC20(address recipient, address currency, uint256 amount)
+        internal
+        returns (bool success)
+    {
+        return IERC20(currency).trySafeTransfer(recipient, amount);
     }
 
     /// @notice Function to safely transfer ERC-20 tokens from another address to a recipient

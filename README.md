@@ -11,9 +11,10 @@ The mint contracts are
 ### Features
 - multi-tenant sales which keeps NFT contracts lighter weight with less code
 - implements a flat buyers fee in ETH per NFT minted
-- configurable for any ERC-20 token
+- configurable for any allowlisted ERC-20 token (the contract owner manages the allowlist; native currency is always allowed)
 - velocity/marathon mint: the duration of the open edition decreases (velocity) or increases (marathon) with each mint
 - only the NFT contract owner or admins can configure/alter/cancel a mint
+- purchases specify the expected currency, max cost per token, and drop round, so buyers are protected if a drop's price, currency, or phase changes, or the drop is closed and reconfigured (e.g. with new art), while their transaction is pending
 
 ## Auction House
 A contract for auctions and/or buy nows for minted ERC-721 tokens. Works for any ERC-721 compliant token in existence.
@@ -24,7 +25,7 @@ The auction house contract is `TLAuctionHouse.sol`
 - protocol fee as a percentage of the sale, charged to the seller
 - auction durations extended for any bids that come in the last five minutes
 - listings can be scheduled ahead of time
-- configurable for any ERC-20 token
+- configurable for any allowlisted ERC-20 token (the contract owner manages the allowlist; native currency is always allowed)
 - respects royalties on secondary sales (if configured on the token)
 - listing types
     - Scheduled auction
@@ -32,19 +33,19 @@ The auction house contract is `TLAuctionHouse.sol`
     - Reserve auction + buy now
     - Buy now
 - only the NFT owner can configure or cancel an listing
+- the NFT is always delivered to the buyer before funds are released to the seller; settlement either fully completes or reverts, and anyone can settle an ended auction
+- if an auction can't be settled (e.g. a broken NFT contract or a sanctioned party), the seller or highest bidder can cancel it via `cancelUnsettledAuction` once the settlement grace period (7 days after the auction ends) has passed, which credits the bid to the bidder (`claimableFunds`) and holds the NFT for the seller (`claimableNft`)
+- payouts that fail (reverting receivers, ERC-20 blocklists, sanctioned addresses) are credited and can be pulled to any address via `claimFunds`
+- NFTs from canceled unsettled auctions are held for the seller and can be pulled via `claimNft`; anything owed to a sanctioned address stays frozen until the address is no longer sanctioned
+- bids specify the expected listing id and currency, and buy nows specify the expected currency and max price, to guard against front-running (e.g. a seller delisting and relisting with a longer auction duration while a bid is pending)
+- the minimum next bid is the current bid plus 5%, rounded up
+
+### Trust Assumptions & Known Limitations
+- **ERC-20 allowlist:** only standard ERC-20 tokens should be allowed. Rebasing, fee-on-transfer, and other tokens whose balances can change outside of transfers are not supported. Incoming transfers are checked for the full amount, but escrow and payouts assume balances held by the contract never change on their own (a negative rebase would leave escrowed bids and `claimableFunds` underfunded) and don't account for fees on outgoing transfers. Low-decimal tokens should also be avoided so that bid increments stay meaningful.
+- **Primary vs. secondary sales:** a sale is treated as primary (no royalties) when the seller matches the address returned by the `creatorLookup` helper. The default `CreatorLookup` returns the collection's current `owner`, which fits single-creator collections like Transient Labs creator contracts. For multi-creator collections, collections whose ownership has changed hands, or royalties paid to someone other than the collection owner (e.g. a collaborator split), a sale by the collection owner skips royalties. If the lookup is unset or fails, the sale is treated as secondary.
 
 ## Deployments
-Contracts are deployed to the same address cross-chain using CREATE2. In doing such, constructor args have to be set to default values and then changed after deployment. Contracts are initially deployed with an EOA as the owner until initializations are made, then subsequently contract ownership is transferred to multi-sigs.
-
-### WETH Addresses
-Ethereum: `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
-Sepolia: `0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9`
-Arbitrum: `0x82aF49447D8a07e3bd95BD0d56f35241523fBab1`
-Arbitrum-Sepolia: `0x980B62Da83eFf3D4576C647993b0c1D7faf17c73`
-Base: `0x4200000000000000000000000000000000000006`
-Base-Sepolia: `0x4200000000000000000000000000000000000006`
-Shape: `0x4200000000000000000000000000000000000006`
-Shape-Sepolia: `0x4200000000000000000000000000000000000006`
+Contracts are deployed to the same address cross-chain using CREATE2. In doing such, constructor args have to be set to default values and then changed after deployment. Contracts are initially deployed with an EOA as the owner until initializations are made, then subsequently contract ownership is transferred to multi-sigs. Ownership transfers are two-step (`Ownable2Step`), so the multi-sig must call `acceptOwnership` to complete the transfer.
 
 ### Sanctions Oracle
 https://go.chainalysis.com/chainalysis-oracle-docs.html

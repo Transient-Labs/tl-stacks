@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import {DropType} from "./CommonUtils.sol";
 
 /// @dev stacks drop struct
 /// @param initialSupply The initial supply of the drop
 /// @param supply The current supply left in the drop
-/// @param allowance The allowance to mint per wallet during public mint
+/// @param allowance The number of tokens each wallet can mint during the public phase. This is separate from
+///        presale mints, which are capped per wallet by the presale merkle leaf.
 /// @param currencyAddress The currency address
 /// @param payoutReceiver The address that receives the payout of the mint
 /// @param startTime The time at which the drop opens
@@ -34,7 +35,6 @@ struct Drop {
 }
 
 interface ITLStacks721Events {
-    event WethUpdated(address indexed prevWeth, address indexed newWeth);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
     event ProtocolFeeSplitsUpdated(uint256 indexed freeMintFeeSplit, uint256 indexed referralFeeSplit);
     event DropConfigured(address indexed nftAddress, Drop drop);

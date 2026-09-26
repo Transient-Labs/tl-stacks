@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 /// @dev Enum to encapsulate drop phases
 enum DropPhase {
@@ -34,4 +34,8 @@ interface DropErrors {
     error CannotMintMoreThanAllowed();
     error IncorrectFunds();
     error ProtocolFeeSplitsTooLarge();
+    error CurrencyMismatch();
+    error PriceTooHigh();
+    error DropRoundChanged();
+    error InvalidProtocolFeeReceiver();
 }

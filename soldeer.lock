@@ -1,4 +1,18 @@
 [[dependencies]]
+name = "@openzeppelin-contracts"
+version = "5.6.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/@openzeppelin-contracts/5_6_1_15-03-2026_09:19:50_contracts.zip"
+checksum = "a3b6bc661be858c7c27f60a1708cbebe8c71034b4cc1e9fe270d0a05b069352f"
+integrity = "bce03af7ada1eee21a7fff393f238bcd7cd75a022a4db55ffb6b0dbb32433d35"
+
+[[dependencies]]
+name = "@openzeppelin-contracts-upgradeable"
+version = "5.6.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/@openzeppelin-contracts-upgradeable/5_6_1_15-03-2026_09:19:56_contracts-upgradeable.zip"
+checksum = "f6257dbc993c2499fe08fdc93f66e12459fe3458ee62ce716b92e1d95ee0b504"
+integrity = "2f539b6241258fc3c127c97225b3cb1b5e9225e422d2c1cb233c52a6f5c29002"
+
+[[dependencies]]
 name = "forge-std"
 version = "1.9.4"
 url = "https://soldeer-revisions.s3.amazonaws.com/forge-std/1_9_4_25-10-2024_14:36:59_forge-std-1.9.zip"
@@ -7,7 +21,7 @@ integrity = "3874463846ab995a6a9a88412913cacec6144f7605daa1af57c2d8bf3f210b13"
 
 [[dependencies]]
 name = "tl-creator-contracts"
-version = "3.7.1"
-url = "https://soldeer-revisions.s3.amazonaws.com/tl-creator-contracts/3_7_1_18-08-2025_15:06:18_tl-creator-contracts.zip"
-checksum = "5f73b4d97d7bc3e100c6abe12a971186a4ba68dd7925a66648d1a7d64ccaf31b"
-integrity = "fe9ace8bd7874875820eef6dee5066945e427d652438a1f4b9e70cfa5af38168"
+version = "4.1.1"
+url = "https://soldeer-revisions.s3.amazonaws.com/tl-creator-contracts/4_1_1_14-07-2026_18:28:57_tl-creator-contracts.zip"
+checksum = "f757e931b8f9f1f3117745852d84b2b69ca6f748eb9ae5db34cd3ec038552562"
+integrity = "300a7831f1b8828c20c929485ec29c1f895c0bd53249ed3725b1bf241cc98106"

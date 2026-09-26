@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 enum ListingType {
     NOT_CONFIGURED,
@@ -30,8 +30,8 @@ struct Listing {
 }
 
 interface ITLAuctionHouseEvents {
-    event WethUpdated(address indexed prevWeth, address indexed newWeth);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
+    event ProtocolFeeRemoved(address indexed nftAddress, uint256 indexed tokenId);
     event CreatorLookupUpdated(address indexed prevCreatorLookup, address indexed newCreatorLookup);
     event RoyaltyLookupUpdated(address indexed prevRoyaltyLookup, address indexed newRoyaltyLookup);
 
@@ -46,4 +46,9 @@ interface ITLAuctionHouseEvents {
     event BuyNowFulfilled(
         address indexed sender, address indexed nftAddress, uint256 indexed tokenId, address recipient, Listing listing
     );
+
+    event FundsCredited(address indexed account, address indexed currencyAddress, uint256 amount);
+    event FundsClaimed(address indexed account, address indexed currencyAddress, address to, uint256 amount);
+    event NftCredited(address indexed account, address indexed nftAddress, uint256 indexed tokenId);
+    event NftClaimed(address indexed account, address indexed nftAddress, uint256 indexed tokenId, address to);
 }

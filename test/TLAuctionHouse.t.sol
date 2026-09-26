@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity 0.8.30;
 
 import "forge-std-1.9.4/Test.sol";
 import {TLAuctionHouse} from "src/TLAuctionHouse.sol";
+import {TransferHelper} from "src/lib/TransferHelper.sol";
+import {CurrencyAllowlist} from "src/lib/CurrencyAllowlist.sol";
 import {CreatorLookup} from "src/helpers/CreatorLookup.sol";
 import {RoyaltyLookup} from "src/helpers/RoyaltyLookup.sol";
-import {IERC20Errors, IERC721Errors} from "@openzeppelin-contracts-5.0.2/interfaces/draft-IERC6093.sol";
-import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/access/OwnableUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.0.2/utils/PausableUpgradeable.sol";
-import {ERC721TL} from "tl-creator-contracts-3.7.1/erc-721/ERC721TL.sol";
+import {IERC20Errors, IERC721Errors} from "@openzeppelin-contracts-5.6.1/interfaces/draft-IERC6093.sol";
+import {OwnableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.6.1/access/OwnableUpgradeable.sol";
+import {PausableUpgradeable} from "@openzeppelin-contracts-upgradeable-5.6.1/utils/PausableUpgradeable.sol";
+import {ERC721TL} from "tl-creator-contracts-4.1.1/erc-721/ERC721TL.sol";
 import {IChainalysisSanctionsOracle, SanctionsCompliance} from "src/lib/SanctionsCompliance.sol";
 import {ITLAuctionHouseEvents, ListingType, Listing} from "src/utils/TLAuctionHouseUtils.sol";
 import {Receiver, RevertingReceiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
 import {MockERC20} from "test/utils/MockERC20.sol";
 import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
-import {WETH9} from "test/utils/WETH9.sol";
+import {BadERC721} from "test/utils/BadERC721.sol";
+import {BlocklistERC20} from "test/utils/BlocklistERC20.sol";
+import {FeeOnTransferERC20} from "test/utils/FeeOnTransferERC20.sol";
 
 contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
-    address weth;
     TLAuctionHouse ah;
     CreatorLookup cl;
     RoyaltyLookup rl;
@@ -38,21 +41,22 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     address bsy = address(0xCDB);
     address anon = address(0x404);
 
+    uint256 lid; // listing id to bid on, fetched ahead of any pranks or expected reverts
+
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event Paused(address account);
     event Unpaused(address account);
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// SETUP
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // SETUP
+    /////////////////////////////////////////////////////////////////////
 
     function setUp() public {
-        weth = address(new WETH9());
         cl = new CreatorLookup();
         rl = new RoyaltyLookup(address(this));
         ah = new TLAuctionHouse(address(this), address(0));
         basis = ah.BASIS();
-        ah.setWethAddress(weth);
         ah.setProtocolFeeSettings(tl, feePerc);
         ah.setCreatorLookup(address(cl));
         ah.setRoyaltyLookup(address(rl));
@@ -61,13 +65,14 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         vm.startPrank(ben);
         nft = new ERC721TL(false);
-        nft.initialize("LFG Bro", "LFG", "", ben, 1_000, ben, empty, false, address(0), address(0));
+        nft.initialize("LFG Bro", "LFG", ben, 1_000, ben, empty, false, address(0), 0, address(0));
         nft.mint(ben, "https://arweave.net/NO-BEEF");
         nft.mint(ben, "https://arweave.net/NO-BEEF-2");
         nft.mint(chris, "https://arweave.net/MORE-COFFEE");
         vm.stopPrank();
 
         coin = new MockERC20(address(this));
+        ah.setCurrencyAllowed(address(coin), true);
         coin.transfer(ben, 10000 ether);
         coin.transfer(chris, 10000 ether);
         coin.transfer(david, 10000 ether);
@@ -85,7 +90,6 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
     function test_setUp() public view {
         assertEq(ah.owner(), address(this));
-        assertEq(ah.weth(), weth);
         assertEq(ah.protocolFeeBps(), feePerc);
         assertEq(ah.protocolFeeReceiver(), tl);
         assertEq(address(ah.creatorLookup()), address(cl));
@@ -93,9 +97,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertFalse(ah.paused());
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST ADMIN
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST ADMIN
+    /////////////////////////////////////////////////////////////////////
 
     function test_ownerOnlyAccess(address sender) public {
         vm.assume(sender != address(this));
@@ -109,8 +113,6 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         ah.transferOwnership(sender);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
-        ah.setWethAddress(address(0));
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         ah.setProtocolFeeSettings(sender, 500);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         ah.setSanctionsOracle(sender);
@@ -122,16 +124,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.removeProtocolFee(address(nft), 1);
         vm.stopPrank();
 
-        // pass for owner
+        // pass for owner (two step ownership transfer)
+        vm.expectEmit(true, true, true, true);
+        emit OwnershipTransferStarted(address(this), address(this));
+        ah.transferOwnership(address(this));
+        assertEq(ah.pendingOwner(), address(this));
         vm.expectEmit(true, true, true, true);
         emit OwnershipTransferred(address(this), address(this));
-        ah.transferOwnership(address(this));
+        ah.acceptOwnership();
         assertEq(ah.owner(), address(this));
-
-        vm.expectEmit(true, true, true, true);
-        emit WethUpdated(weth, address(0));
-        ah.setWethAddress(address(0));
-        assertEq(ah.weth(), address(0));
+        assertEq(ah.pendingOwner(), address(0));
 
         vm.expectEmit(true, true, true, true);
         emit ProtocolFeeUpdated(address(this), 500);
@@ -162,15 +164,36 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     }
 
     function test_paused() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(
+            address(nft),
+            1,
+            ListingType.RESERVE_AUCTION_PLUS_BUY_NOW,
+            ben,
+            address(0),
+            block.timestamp,
+            1,
+            24 hours,
+            1 ether
+        );
+        vm.stopPrank();
+
         ah.pause(true);
 
         vm.startPrank(ben);
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        ah.list(address(nft), 2, ListingType.SCHEDULED_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        ah.bid(address(nft), 1, ben, 100);
+        ah.bid(address(nft), 1, address(0), 100, lid);
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        ah.buyNow(address(nft), 1, ben);
+        ah.buyNow(address(nft), 1, ben, address(0), type(uint256).max, lid);
+
+        // sellers can still take back listings without bids
+        ah.delist(address(nft), 1);
+        assertEq(nft.ownerOf(1), ben);
         vm.stopPrank();
     }
 
@@ -190,15 +213,19 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // invalid bps
         vm.expectRevert(TLAuctionHouse.InvalidProtocolFeeBps.selector);
         ah.setProtocolFeeSettings(address(this), 10_001);
+        uint256 maxFeeBps = ah.MAX_PROTOCOL_FEE_BPS();
+        vm.expectRevert(TLAuctionHouse.InvalidProtocolFeeBps.selector);
+        ah.setProtocolFeeSettings(address(this), maxFeeBps + 1);
+        ah.setProtocolFeeSettings(address(this), maxFeeBps);
 
         // listing not configured for zero protocol fee override
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         ah.removeProtocolFee(address(nft), 1);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST LIST
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST LIST
+    /////////////////////////////////////////////////////////////////////
 
     function test_list_errors() public {
         // set oracle and let most sanctions calls through
@@ -215,12 +242,12 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, anon, address(0), block.timestamp, 0, 24 hours, 0);
 
-        // sanctioned recipient
+        // sanctioned payout receiver
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(true)
         );
         vm.prank(chris);
-        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        vm.expectRevert(TLAuctionHouse.InvalidPayoutReceiver.selector);
         ah.list(address(nft), 3, ListingType.SCHEDULED_AUCTION, anon, address(0), block.timestamp, 0, 24 hours, 0);
 
         // check that if sanctions oracle reverts, tx reverts
@@ -277,7 +304,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         MaliciousERC721 c = new MaliciousERC721();
         c.mint(ben);
         vm.prank(ben);
-        vm.expectRevert(TLAuctionHouse.TokenNotTransferred.selector);
+        vm.expectRevert(TLAuctionHouse.NftTransferFailed.selector);
         ah.list(address(c), 1, ListingType.SCHEDULED_AUCTION, anon, address(0), block.timestamp, 0, 24 hours, 0);
 
         // clear mocked calls
@@ -338,6 +365,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list
         vm.startPrank(ben);
@@ -402,6 +431,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list
         vm.startPrank(ben);
@@ -466,6 +497,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list
         vm.startPrank(ben);
@@ -530,6 +563,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list
         vm.startPrank(ben);
@@ -584,9 +619,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.duration, 0);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST DELIST
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST DELIST
+    /////////////////////////////////////////////////////////////////////
 
     function test_delist_errors() public {
         // list
@@ -606,9 +641,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.delist(address(nft), 2);
 
         // auction started
+        lid = ah.getListing(address(nft), 1).id;
         vm.deal(chris, 0.1 ether);
         vm.prank(chris);
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, lid);
         vm.prank(ben);
         vm.expectRevert(TLAuctionHouse.AuctionStarted.selector);
         ah.delist(address(nft), 1);
@@ -624,6 +660,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list & delist
         vm.startPrank(ben);
@@ -670,6 +708,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list & delist
         vm.startPrank(ben);
@@ -716,6 +756,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list & delist
         vm.startPrank(ben);
@@ -762,6 +804,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     ) public {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
+        duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        ah.setCurrencyAllowed(currencyAddress, true);
 
         // list & delist
         vm.startPrank(ben);
@@ -798,9 +842,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.duration, 0);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST BID ETH
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST BID ETH
+    /////////////////////////////////////////////////////////////////////
 
     function test_first_bid_eth_errors() public {
         // list
@@ -834,58 +878,148 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(false)
         );
 
-        // zero address recpient
-        vm.prank(chris);
-        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether);
-
-        // sanctioned recipient
-        vm.mockCall(
-            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(true)
-        );
-        vm.prank(chris);
-        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 1, anon, 0.1 ether);
-
         // listing not configured
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 2, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 2, address(0), 0.1 ether, lid);
 
         // buy now configured
         vm.prank(ben);
         ah.list(address(nft), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 24 hours, 0.1 ether);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 2, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 2, address(0), 0.1 ether, lid);
 
         // listing not open
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, lid);
 
         vm.warp(block.timestamp + 1 hours + 1 seconds);
 
         // bid under reserve price
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
-        ah.bid{value: 0.009 ether}(address(nft), 1, chris, 0.009 ether);
+        ah.bid{value: 0.009 ether}(address(nft), 1, address(0), 0.009 ether, lid);
 
         // funds not attached
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector);
-        ah.bid{value: 0 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0 ether}(address(nft), 1, address(0), 0.1 ether, lid);
 
         // clear mocks
         vm.clearMockedCalls();
+    }
+
+    function test_bid_listingChanged() public {
+        // ben lists a one hour reserve auction
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0.1 ether, 1 hours, 0);
+        uint256 oldId = ah.getListing(address(nft), 1).id;
+
+        // ben relists with a longer duration before chris's bid lands
+        ah.delist(address(nft), 1);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0.1 ether, 30 days, 0);
+        uint256 newId = ah.getListing(address(nft), 1).id;
+        vm.stopPrank();
+        assertTrue(oldId != newId);
+
+        // bid against the old listing fails
+        vm.deal(chris, 0.2 ether);
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.ListingChanged.selector);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, oldId);
+
+        // bid against the new listing succeeds
+        vm.prank(chris);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, newId);
+        assertEq(ah.getListing(address(nft), 1).highestBidder, chris);
+    }
+
+    function test_buyNow_listingChanged() public {
+        // ben lists for buy now
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 0.1 ether);
+        uint256 oldId = ah.getListing(address(nft), 1).id;
+
+        // ben relists at the same price before chris's purchase lands
+        ah.delist(address(nft), 1);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 0.1 ether);
+        uint256 newId = ah.getListing(address(nft), 1).id;
+        vm.stopPrank();
+        assertTrue(oldId != newId);
+
+        // purchase against the old listing fails
+        vm.deal(chris, 0.1 ether);
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.ListingChanged.selector);
+        ah.buyNow{value: 0.1 ether}(address(nft), 1, chris, address(0), 0.1 ether, oldId);
+
+        // purchase against the new listing succeeds
+        vm.prank(chris);
+        ah.buyNow{value: 0.1 ether}(address(nft), 1, chris, address(0), 0.1 ether, newId);
+        assertEq(nft.ownerOf(1), chris);
+    }
+
+    function test_getNextBid_reservePrice() public {
+        // unlisted token needs a non-zero bid
+        assertEq(ah.getNextBid(address(nft), 1), 1);
+
+        // before the first bid, the next bid is the reserve price
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0.5 ether, 1 hours, 0);
+        vm.stopPrank();
+        assertEq(ah.getNextBid(address(nft), 1), 0.5 ether);
+
+        // after the first bid, the next bid is 5% higher
+        lid = ah.getListing(address(nft), 1).id;
+        vm.deal(chris, 0.5 ether);
+        vm.prank(chris);
+        ah.bid{value: 0.5 ether}(address(nft), 1, address(0), 0.5 ether, lid);
+        assertEq(ah.getNextBid(address(nft), 1), 0.525 ether);
+    }
+
+    function test_getNextBid_roundsUp() public {
+        // ben lists a scheduled auction in a coarse currency
+        ah.setCurrencyAllowed(address(coin), true);
+        coin.transfer(chris, 1000);
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, ben, address(coin), block.timestamp, 0, 24 hours, 0);
+        vm.stopPrank();
+
+        // unbid listing requires a non-zero bid
+        assertEq(ah.getNextBid(address(nft), 1), 1);
+
+        // 5% of 39 is 1.95, which rounds up to 2
+        lid = ah.getListing(address(nft), 1).id;
+        vm.startPrank(chris);
+        coin.approve(address(ah), 1000);
+        ah.bid(address(nft), 1, address(coin), 39, lid);
+        vm.stopPrank();
+        assertEq(ah.getNextBid(address(nft), 1), 41);
+
+        // bid of 40 is under 5% and fails
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
+        ah.bid(address(nft), 1, address(coin), 40, lid);
     }
 
     function test_bid_eth_revertingBidder() public {
@@ -906,17 +1040,34 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         bidder.bid{value: 0.01 ether}(address(nft), 1, 0.01 ether);
 
         // chris bids and has the highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
-        ah.bid{value: 0.02 ether}(address(nft), 1, chris, 0.02 ether);
+        ah.bid{value: 0.02 ether}(address(nft), 1, address(0), 0.02 ether, lid);
 
         // ensure auction values are correct
         Listing memory l = ah.getListing(address(nft), 1);
         assertEq(l.highestBid, 0.02 ether);
         assertEq(l.highestBidder, chris);
 
-        // reverting bidder gets funds back as WETH
+        // reverting bidder has refund credited to claim later
         assertEq(address(bidder).balance, 0);
-        assertEq(WETH9(payable(weth)).balanceOf(address(bidder)), 0.01 ether);
+        assertEq(ah.claimableFunds(address(bidder), address(0)), 0.01 ether);
+
+        // bidder can't claim to itself, but can claim to a different address
+        vm.expectRevert(TransferHelper.ETHTransferFailed.selector);
+        bidder.claimFunds(address(0), address(bidder));
+        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
+        bidder.claimFunds(address(0), address(0));
+        uint256 prevBalance = anon.balance;
+        vm.expectEmit(true, true, true, true);
+        emit FundsClaimed(address(bidder), address(0), anon, 0.01 ether);
+        bidder.claimFunds(address(0), anon);
+        assertEq(anon.balance - prevBalance, 0.01 ether);
+        assertEq(ah.claimableFunds(address(bidder), address(0)), 0);
+
+        // nothing left to claim
+        vm.expectRevert(TLAuctionHouse.NothingToClaim.selector);
+        bidder.claimFunds(address(0), anon);
     }
 
     function test_bid_eth_griefingBidder() public {
@@ -937,17 +1088,34 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         bidder.bid{value: 0.01 ether}(address(nft), 1, 0.01 ether);
 
         // chris bids and has the highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
-        ah.bid{value: 0.02 ether}(address(nft), 1, chris, 0.02 ether);
+        ah.bid{value: 0.02 ether}(address(nft), 1, address(0), 0.02 ether, lid);
 
         // ensure auction values are correct
         Listing memory l = ah.getListing(address(nft), 1);
         assertEq(l.highestBid, 0.02 ether);
         assertEq(l.highestBidder, chris);
 
-        // griefing bidder gets funds back as WETH
+        // griefing bidder has refund credited to claim later
         assertEq(address(bidder).balance, 0);
-        assertEq(WETH9(payable(weth)).balanceOf(address(bidder)), 0.01 ether);
+        assertEq(ah.claimableFunds(address(bidder), address(0)), 0.01 ether);
+
+        // bidder can't claim to itself, but can claim to a different address
+        vm.expectRevert(TransferHelper.ETHTransferFailed.selector);
+        bidder.claimFunds(address(0), address(bidder));
+        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
+        bidder.claimFunds(address(0), address(0));
+        uint256 prevBalance = anon.balance;
+        vm.expectEmit(true, true, true, true);
+        emit FundsClaimed(address(bidder), address(0), anon, 0.01 ether);
+        bidder.claimFunds(address(0), anon);
+        assertEq(anon.balance - prevBalance, 0.01 ether);
+        assertEq(ah.claimableFunds(address(bidder), address(0)), 0);
+
+        // nothing left to claim
+        vm.expectRevert(TLAuctionHouse.NothingToClaim.selector);
+        bidder.claimFunds(address(0), anon);
     }
 
     function test_bid_scheduledAuctionEnded() public {
@@ -967,9 +1135,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.warp(l.startTime + l.duration + 1);
 
         // chris bids and it reverts
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
-        ah.bid{value: 0.02 ether}(address(nft), 1, chris, 0.02 ether);
+        ah.bid{value: 0.02 ether}(address(nft), 1, address(0), 0.02 ether, lid);
 
         // can't settle auction
         vm.expectRevert(TLAuctionHouse.AuctionNotStarted.selector);
@@ -998,7 +1167,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, l2.startTime);
     }
 
-    function _bid_eth(address nftAddress, uint256 tokenId, address sender, address recipient, uint256 amount) private {
+    function _bid_eth(address nftAddress, uint256 tokenId, address sender, uint256 amount) private {
         // get existing data
         Listing memory l = ah.getListing(nftAddress, tokenId);
 
@@ -1011,7 +1180,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // adjust data
         l.highestBidder = sender;
         l.highestBid = amount;
-        l.recipient = recipient;
+        l.recipient = sender;
         if (l.startTime == 0) {
             l.startTime = block.timestamp;
         }
@@ -1024,7 +1193,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.prank(sender);
         vm.expectEmit(true, true, true, true);
         emit AuctionBid(sender, nftAddress, tokenId, l);
-        ah.bid{value: amount}(address(nft), tokenId, recipient, amount);
+        ah.bid{value: amount}(address(nft), tokenId, address(0), amount, l.id);
 
         // ensure auction values are correct
         _check_auction_data(nftAddress, tokenId, l);
@@ -1042,7 +1211,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         bool primarySale = ah.getIfPrimarySale(nftAddress, tokenId);
         (address payable[] memory recipients, uint256[] memory amounts) =
-            ah.getRoyalty(nftAddress, tokenId, l.highestBid - protocolFee);
+            ah.getRoyalty(nftAddress, tokenId, l.highestBid);
 
         uint256[] memory prevValues = new uint256[](recipients.length);
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -1089,17 +1258,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_scheduledAuction_primarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1126,46 +1295,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1174,17 +1345,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_scheduledAuction_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -1214,46 +1385,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1262,17 +1435,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_scheduledAuction_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1299,46 +1472,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
@@ -1347,17 +1522,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_scheduledAuction_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -1387,65 +1562,65 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
     }
 
-    function test_eth_reserveAuction_primarySale_royaltyLookup(
-        uint64 startDelay,
-        uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
-    ) public {
+    function test_eth_reserveAuction_primarySale_royaltyLookup(uint64 startDelay, uint256 reservePrice, uint64 duration)
+        public
+    {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1472,46 +1647,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1520,17 +1697,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuction_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -1560,46 +1737,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1608,17 +1787,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuction_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1645,46 +1824,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
@@ -1693,17 +1874,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuction_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -1733,46 +1914,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
@@ -1781,17 +1964,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuctionPlusBuyNow_primarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1818,46 +2001,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1866,17 +2051,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuctionPlusBuyNow_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -1906,46 +2091,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 1, chris, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 1, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_eth(address(nft), 1, chris, chris, reservePrice);
+        _bid_eth(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 1, bsy, nextBid);
 
         // ben bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, ben, ben, nextBid);
+        _bid_eth(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_eth(address(nft), 1, anon, david, nextBid);
+        _bid_eth(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 1, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 1, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 1, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 1, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 1);
@@ -1954,17 +2141,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuctionPlusBuyNow_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // deal ether to ben, chris, bsy, and anon
@@ -1991,46 +2178,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
@@ -2039,17 +2228,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_eth_reserveAuctionPlusBuyNow_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // remove royalty lookup
@@ -2079,54 +2268,56 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid{value: reservePrice}(address(nft), 3, ben, reservePrice);
+            ah.bid{value: reservePrice}(address(nft), 3, address(0), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_eth(address(nft), 3, ben, ben, reservePrice);
+        _bid_eth(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, bsy, bsy, nextBid);
+        _bid_eth(address(nft), 3, bsy, nextBid);
 
         // chris bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, chris, chris, nextBid);
+        _bid_eth(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_eth(address(nft), 3, anon, david, nextBid);
+        _bid_eth(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_eth(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_eth(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid{value: 700 ether}(address(nft), 3, david, 700 ether);
+        ah.bid{value: 700 ether}(address(nft), 3, address(0), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid{value: 900 ether}(address(nft), 3, david, 900 ether);
+        ah.bid{value: 900 ether}(address(nft), 3, address(0), 900 ether, lid);
 
         // settle the auction
         _settle_auction(address(nft), 3);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST BID ERC-20
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST BID ERC-20
+    /////////////////////////////////////////////////////////////////////
 
     function test_first_bid_erc20_errors() public {
         // list
@@ -2155,77 +2346,70 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        ah.bid(address(nft), 1, chris, 0.1 ether);
+        ah.bid(address(nft), 1, address(coin), 0.1 ether, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(false)
         );
 
-        // zero address recpient
-        vm.prank(chris);
-        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.bid(address(nft), 1, address(0), 0.1 ether);
-
-        // sanctioned recipient
-        vm.mockCall(
-            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(true)
-        );
-        vm.prank(chris);
-        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.bid(address(nft), 1, anon, 0.1 ether);
-
         // listing not configured
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.bid(address(nft), 2, chris, 0.1 ether);
+        ah.bid(address(nft), 2, address(coin), 0.1 ether, lid);
 
         // buy now configured
         vm.prank(ben);
         ah.list(address(nft), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 24 hours, 0.1 ether);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.bid(address(nft), 2, chris, 0.1 ether);
+        ah.bid(address(nft), 2, address(coin), 0.1 ether, lid);
 
         // listing not open
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-        ah.bid(address(nft), 1, chris, 0.1 ether);
+        ah.bid(address(nft), 1, address(coin), 0.1 ether, lid);
 
         vm.warp(block.timestamp + 1 hours + 1 seconds);
 
         // bid under reserve price
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
-        ah.bid(address(nft), 1, chris, 0.009 ether);
+        ah.bid(address(nft), 1, address(coin), 0.009 ether, lid);
 
         // funds attached
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector); // coin reverts due to not being approved
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(coin), 0.1 ether, lid);
 
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(ah), 0, 0.1 ether)
         ); // coin reverts due to not being approved
-        ah.bid(address(nft), 1, chris, 0.1 ether);
+        ah.bid(address(nft), 1, address(coin), 0.1 ether, lid);
 
         // not enought coin supply
         vm.startPrank(chris);
         coin.approve(address(ah), 10000000 ether);
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 10000 ether, 10000000 ether)
         ); // coin reverts due to insufficient balance
-        ah.bid(address(nft), 1, chris, 10000000 ether);
+        ah.bid(address(nft), 1, address(coin), 10000000 ether, lid);
 
         // clear mocks
         vm.clearMockedCalls();
     }
 
-    function _bid_erc20(address nftAddress, uint256 tokenId, address sender, address recipient, uint256 amount)
-        private
-    {
+    function _bid_erc20(address nftAddress, uint256 tokenId, address sender, uint256 amount) private {
         // get existing data
         Listing memory l = ah.getListing(nftAddress, tokenId);
 
@@ -2238,7 +2422,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // adjust data
         l.highestBidder = sender;
         l.highestBid = amount;
-        l.recipient = recipient;
+        l.recipient = sender;
         if (l.startTime == 0) {
             l.startTime = block.timestamp;
         }
@@ -2251,7 +2435,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.prank(sender);
         vm.expectEmit(true, true, true, true);
         emit AuctionBid(sender, nftAddress, tokenId, l);
-        ah.bid(address(nft), tokenId, recipient, amount);
+        ah.bid(address(nft), tokenId, address(coin), amount, l.id);
 
         // ensure auction values are correct
         _check_auction_data(nftAddress, tokenId, l);
@@ -2269,7 +2453,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         bool primarySale = ah.getIfPrimarySale(nftAddress, tokenId);
         (address payable[] memory recipients, uint256[] memory amounts) =
-            ah.getRoyalty(nftAddress, tokenId, l.highestBid - protocolFee);
+            ah.getRoyalty(nftAddress, tokenId, l.highestBid);
 
         uint256[] memory prevValues = new uint256[](recipients.length);
         for (uint256 i = 0; i < recipients.length; i++) {
@@ -2316,17 +2500,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_scheduledAuction_primarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -2359,46 +2543,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -2407,17 +2593,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_scheduledAuction_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -2453,46 +2639,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -2501,17 +2689,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_scheduledAuction_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -2544,46 +2732,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
@@ -2592,17 +2782,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_scheduledAuction_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -2638,46 +2828,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
@@ -2686,17 +2878,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuction_primarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -2729,46 +2921,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -2777,17 +2971,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuction_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -2823,46 +3017,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -2871,17 +3067,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuction_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -2914,46 +3110,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
@@ -2962,17 +3160,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuction_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -3008,46 +3206,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
@@ -3056,17 +3256,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuctionPlusBuyNow_primarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -3099,46 +3299,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -3147,17 +3349,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuctionPlusBuyNow_primarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -3193,46 +3395,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(chris);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 1, chris, reservePrice);
+            ah.bid(address(nft), 1, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // chris kicks off auction
-        _bid_erc20(address(nft), 1, chris, chris, reservePrice);
+        _bid_erc20(address(nft), 1, chris, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 1, bsy, nextBid);
 
         // ben  bids
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, ben, ben, nextBid);
+        _bid_erc20(address(nft), 1, ben, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 1);
-        _bid_erc20(address(nft), 1, anon, david, nextBid);
+        _bid_erc20(address(nft), 1, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 1, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 1, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 700 ether);
+        ah.bid(address(nft), 1, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 1);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 1, david, 900 ether);
+        ah.bid(address(nft), 1, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 1);
@@ -3241,17 +3445,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuctionPlusBuyNow_secondarySale_royaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // approve auction house
@@ -3284,46 +3488,48 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
@@ -3332,17 +3538,17 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_erc20_reserveAuctionPlusBuyNow_secondarySale_noRoyaltyLookup(
         uint64 startDelay,
         uint256 reservePrice,
-        uint64 duration,
-        bool bidderSameAsRecipient
+        uint64 duration
     ) public {
         // limit fuzz variables
         vm.assume(duration > 0); // makes sure that auction can always be kicked off
         if (reservePrice > 500 ether) {
             reservePrice %= 500 ether;
         }
+        if (reservePrice == 0) reservePrice = 1; // first bid must be non-zero
 
-        if (duration > 300 days) {
-            duration %= 300 days;
+        if (duration > 30 days) {
+            duration = duration % 30 days + 1;
         }
 
         // set royalty lookup to address(0)
@@ -3378,54 +3584,56 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // try bidding before the auction starts
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(ben);
             vm.expectRevert(TLAuctionHouse.CannotBidYet.selector);
-            ah.bid(address(nft), 3, ben, reservePrice);
+            ah.bid(address(nft), 3, address(coin), reservePrice, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
         // ben kicks off auction
-        _bid_erc20(address(nft), 3, ben, ben, reservePrice);
+        _bid_erc20(address(nft), 3, ben, reservePrice);
 
         // bsy bids
         uint256 nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, bsy, bsy, nextBid);
+        _bid_erc20(address(nft), 3, bsy, nextBid);
 
         // chris  bids
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, chris, chris, nextBid);
+        _bid_erc20(address(nft), 3, chris, nextBid);
 
         // anon bids for david
         nextBid = ah.getNextBid(address(nft), 3);
-        _bid_erc20(address(nft), 3, anon, david, nextBid);
+        _bid_erc20(address(nft), 3, anon, nextBid);
 
         // bsy bids a crazy amount to win at the last mint
         Listing memory l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration - 10);
-        address recipient = bidderSameAsRecipient ? bsy : anon;
-        _bid_erc20(address(nft), 3, bsy, recipient, 777 ether);
+        _bid_erc20(address(nft), 3, bsy, 777 ether);
 
         // bid under highest bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 700 ether);
+        ah.bid(address(nft), 3, address(coin), 700 ether, lid);
 
         // no one can beat the bid, go to end of auction
         l = ah.getListing(address(nft), 3);
         vm.warp(l.startTime + l.duration + 1);
 
         // try bidding again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.AuctionEnded.selector);
         vm.prank(david);
-        ah.bid(address(nft), 3, david, 900 ether);
+        ah.bid(address(nft), 3, address(coin), 900 ether, lid);
 
         // settle the auction
         _settle_auction_erc20(address(nft), 3);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST SETTLE AUCTION
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST SETTLE AUCTION
+    /////////////////////////////////////////////////////////////////////
 
     function test_settleAuction_errors() public {
         // list nfts
@@ -3458,10 +3666,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.settleAuction(address(nft), 1);
 
         // bid on auction for nft 1
+        lid = ah.getListing(address(nft), 1).id;
         vm.warp(block.timestamp + 24 hours);
         vm.deal(chris, 0.1 ether);
         vm.prank(chris);
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, lid);
 
         // auction not ended
         vm.expectRevert(TLAuctionHouse.AuctionNotEnded.selector);
@@ -3473,9 +3682,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.settleAuction(address(nft), 1);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST SETTLE UP FUNCTION
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST SETTLE UP FUNCTION
+    /////////////////////////////////////////////////////////////////////
 
     function test_settleUp_royaltyLookupReverts() public {
         // mock royalty lookup
@@ -3498,9 +3707,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.removeProtocolFee(address(nft), 3);
 
         // deal and bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.deal(david, 0.1 ether);
         vm.prank(david);
-        ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 3, address(0), 0.1 ether, lid);
 
         // warp to end of auction
         Listing memory l = ah.getListing(address(nft), 3);
@@ -3543,9 +3753,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.removeProtocolFee(address(nft), 3);
 
         // deal and bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.deal(david, 0.1 ether);
         vm.prank(david);
-        ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 3, address(0), 0.1 ether, lid);
 
         // warp to end of auction
         Listing memory l = ah.getListing(address(nft), 3);
@@ -3580,9 +3791,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.removeProtocolFee(address(nft), 3);
 
         // deal and bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.deal(david, 0.1 ether);
         vm.prank(david);
-        ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 3, address(0), 0.1 ether, lid);
 
         // warp to end of auction
         Listing memory l = ah.getListing(address(nft), 3);
@@ -3596,16 +3808,23 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // set sanctions oracle
         ah.setSanctionsOracle(oracle);
 
-        // mock sanctions call to return true for sanctioned address
-        vm.mockCall(oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(true));
+        // mock sanctions call to return true for the royalty recipient only
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, ben), abi.encode(true)
+        );
 
         // settle the auction
         ah.settleAuction(address(nft), 3);
 
         // check balances
-        assertEq(ahPrevBalance - address(ah).balance, 0.1 ether);
+        assertEq(ahPrevBalance - address(ah).balance, 0.09 ether); // frozen royalty stays in escrow
         assertEq(ben.balance - benPrevBalance, 0); // royalties not paid due to sanctions
-        assertEq(chris.balance - chrisPrevBalance, 0.1 ether);
+        assertEq(ah.claimableFunds(ben, address(0)), 0.01 ether); // but frozen for the royalty recipient
+        assertEq(chris.balance - chrisPrevBalance, 0.09 ether);
+        assertEq(nft.ownerOf(3), david);
 
         vm.clearMockedCalls();
     }
@@ -3630,9 +3849,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         ah.removeProtocolFee(address(nft), 3);
 
         // deal and bid
+        lid = ah.getListing(address(nft), 3).id;
         vm.deal(david, 0.1 ether);
         vm.prank(david);
-        ah.bid{value: 0.1 ether}(address(nft), 3, david, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 3, address(0), 0.1 ether, lid);
 
         // warp to end of auction
         Listing memory l = ah.getListing(address(nft), 3);
@@ -3648,15 +3868,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // check balances
         assertEq(ahPrevBalance - address(ah).balance, 0.1 ether);
-        assertEq(ben.balance - benPrevBalance, 0); // royalties not paid due to trying to payout too much
-        assertEq(chris.balance - chrisPrevBalance, 0.1 ether);
+        assertEq(ben.balance - benPrevBalance, 0);
+        assertEq(address(1).balance, 0.01 ether); // royalty clamped to 10% of the sale
+        assertEq(chris.balance - chrisPrevBalance, 0.09 ether);
 
         vm.clearMockedCalls();
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST BUY NOW ETH
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST BUY NOW ETH
+    /////////////////////////////////////////////////////////////////////
 
     function test_buyNow_eth_errors() public {
         // set oracle and let most sanctions calls through
@@ -3674,33 +3895,37 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(false)
         );
 
         // zero address recpient
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.buyNow(address(nft), 1, address(0));
+        ah.buyNow(address(nft), 1, address(0), address(0), type(uint256).max, lid);
 
         // sanctioned recipient
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.buyNow(address(nft), 1, anon);
+        ah.buyNow(address(nft), 1, anon, address(0), type(uint256).max, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(false)
         );
 
         // not configured listing
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
 
         // configured as scheduled auction
         vm.prank(chris);
@@ -3710,9 +3935,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             address(nft), 3, ListingType.SCHEDULED_AUCTION, chris, address(0), block.timestamp, 0.01 ether, 24 hours, 0
         );
 
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(ben);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(0), type(uint256).max, lid);
 
         // configured as reserve auction
         vm.prank(ben);
@@ -3720,9 +3946,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.prank(ben);
         ah.list(address(nft), 2, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0.01 ether, 24 hours, 0);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 2, chris);
+        ah.buyNow(address(nft), 2, chris, address(0), type(uint256).max, lid);
 
         vm.prank(ben);
         ah.delist(address(nft), 2);
@@ -3748,34 +3975,40 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         );
 
         // trying to buy too soon
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
         vm.prank(chris);
-        ah.buyNow{value: 0.1 ether}(address(nft), 1, chris);
+        ah.buyNow{value: 0.1 ether}(address(nft), 1, chris, address(0), type(uint256).max, lid);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
         vm.prank(chris);
-        ah.buyNow{value: 0.1 ether}(address(nft), 2, chris);
+        ah.buyNow{value: 0.1 ether}(address(nft), 2, chris, address(0), type(uint256).max, lid);
 
         // warp
         vm.warp(block.timestamp + 24 hours);
 
         // not enough eth attached
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector);
         vm.prank(chris);
-        ah.buyNow{value: 0.01 ether}(address(nft), 1, chris);
+        ah.buyNow{value: 0.01 ether}(address(nft), 1, chris, address(0), type(uint256).max, lid);
 
         // too much eth attached
+        lid = ah.getListing(address(nft), 2).id;
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector);
         vm.prank(chris);
-        ah.buyNow{value: 1 ether}(address(nft), 2, chris);
+        ah.buyNow{value: 1 ether}(address(nft), 2, chris, address(0), type(uint256).max, lid);
 
         // auction in progress
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
-        ah.bid{value: 0.1 ether}(address(nft), 1, chris, 0.1 ether);
+        ah.bid{value: 0.1 ether}(address(nft), 1, address(0), 0.1 ether, lid);
 
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(anon);
         vm.expectRevert(TLAuctionHouse.AuctionStarted.selector);
-        ah.buyNow{value: 0.1 ether}(address(nft), 1, anon);
+        ah.buyNow{value: 0.1 ether}(address(nft), 1, anon, address(0), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_eth_primary_royaltyLookup(
@@ -3813,9 +4046,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -3829,10 +4063,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -3865,14 +4100,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_eth_primary_noRoyaltyLookup(
@@ -3913,9 +4150,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -3929,10 +4167,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -3965,14 +4204,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_eth_secondary_royaltyLookup(
@@ -4010,9 +4251,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4026,15 +4268,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
         uint256 remainingBalance = buyNowPrice - protocolFee;
-        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, remainingBalance);
+        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, buyNowPrice);
         remainingBalance -= amounts[0];
         assertEq(address(ah).balance, 0);
         assertEq(prevBuyerBalance - buyer.balance, buyNowPrice);
@@ -4063,14 +4306,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(0), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_eth_secondary_noRoyaltyLookup(
@@ -4111,9 +4356,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4127,10 +4373,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4164,14 +4411,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(0), type(uint256).max, lid);
     }
 
     function test_buyNow_eth_primary_royaltyLookup(
@@ -4199,9 +4448,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4215,10 +4465,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4251,14 +4502,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
     }
 
     function test_buyNow_eth_primary_noRoyaltyLookup(
@@ -4289,9 +4542,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4305,10 +4559,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 1, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4341,14 +4596,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(0), type(uint256).max, lid);
     }
 
     function test_buyNow_eth_secondary_royaltyLookup(
@@ -4376,9 +4633,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4392,15 +4650,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
         uint256 remainingBalance = buyNowPrice - protocolFee;
-        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, remainingBalance);
+        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, buyNowPrice);
         remainingBalance -= amounts[0];
         assertEq(address(ah).balance, 0);
         assertEq(prevBuyerBalance - buyer.balance, buyNowPrice);
@@ -4429,14 +4688,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(0), type(uint256).max, lid);
     }
 
     function test_buyNow_eth_secondary_noRoyaltyLookup(
@@ -4467,9 +4728,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+            ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4483,10 +4745,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = anon.balance;
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient);
+        ah.buyNow{value: buyNowPrice}(address(nft), 3, recipient, address(0), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4520,19 +4783,21 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(0), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(0), type(uint256).max, lid);
     }
 
-    ///////////////////////////////////////////////////////////////////////////
-    /// TEST BUY NOW ERC-20
-    ///////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////
+    // TEST BUY NOW ERC-20
+    /////////////////////////////////////////////////////////////////////
 
     function test_buyNow_erc20_errors() public {
         // set oracle and let most sanctions calls through
@@ -4545,33 +4810,37 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, chris), abi.encode(false)
         );
 
         // zero address recpient
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.buyNow(address(nft), 1, address(0));
+        ah.buyNow(address(nft), 1, address(0), address(coin), type(uint256).max, lid);
 
         // sanctioned recipient
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(true)
         );
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
-        ah.buyNow(address(nft), 1, anon);
+        ah.buyNow(address(nft), 1, anon, address(coin), type(uint256).max, lid);
         vm.mockCall(
             oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, anon), abi.encode(false)
         );
 
         // not configured listing
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
 
         // configured as scheduled auction
         vm.prank(chris);
@@ -4589,9 +4858,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             0
         );
 
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(ben);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(coin), type(uint256).max, lid);
 
         // configured as reserve auction
         vm.prank(ben);
@@ -4601,9 +4871,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
             address(nft), 2, ListingType.RESERVE_AUCTION, ben, address(coin), block.timestamp, 0.01 ether, 24 hours, 0
         );
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.buyNow(address(nft), 2, chris);
+        ah.buyNow(address(nft), 2, chris, address(coin), type(uint256).max, lid);
 
         vm.prank(ben);
         ah.delist(address(nft), 2);
@@ -4629,58 +4900,68 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         );
 
         // trying to buy too soon
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 2, chris);
+        ah.buyNow(address(nft), 2, chris, address(coin), type(uint256).max, lid);
 
         // warp
         vm.warp(block.timestamp + 24 hours);
 
         // eth attached
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector);
         vm.prank(chris);
-        ah.buyNow{value: 0.01 ether}(address(nft), 1, chris);
+        ah.buyNow{value: 0.01 ether}(address(nft), 1, chris, address(coin), type(uint256).max, lid);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.expectRevert(TLAuctionHouse.UnexpectedMsgValue.selector);
         vm.prank(chris);
-        ah.buyNow{value: 0.01 ether}(address(nft), 2, chris);
+        ah.buyNow{value: 0.01 ether}(address(nft), 2, chris, address(coin), type(uint256).max, lid);
 
         // not enough coin allowance
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(ah), 0, 0.1 ether)
         ); // coin reverts due to not being approved
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
 
+        lid = ah.getListing(address(nft), 2).id;
         vm.prank(chris);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(ah), 0, 0.1 ether)
         ); // coin reverts due to not being approved
-        ah.buyNow(address(nft), 2, chris);
+        ah.buyNow(address(nft), 2, chris, address(coin), type(uint256).max, lid);
 
         // not enought coin supply
         vm.startPrank(chris);
         coin.approve(address(ah), 10000 ether);
         coin.transfer(address(this), 10000 ether);
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether)); // coin reverts due to insufficient balance
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
+        lid = ah.getListing(address(nft), 2).id;
         vm.expectRevert(abi.encodeWithSelector(IERC20Errors.ERC20InsufficientBalance.selector, chris, 0, 0.1 ether)); // coin reverts due to insufficient balance
-        ah.buyNow(address(nft), 2, chris);
+        ah.buyNow(address(nft), 2, chris, address(coin), type(uint256).max, lid);
         vm.stopPrank();
 
         coin.transfer(chris, 10000 ether);
 
         // auction in progress
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0.1 ether);
+        ah.bid(address(nft), 1, address(coin), 0.1 ether, lid);
 
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(anon);
         vm.expectRevert(TLAuctionHouse.AuctionStarted.selector);
-        ah.buyNow(address(nft), 1, anon);
+        ah.buyNow(address(nft), 1, anon, address(coin), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_erc20_primary_royaltyLookup(
@@ -4723,9 +5004,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 1, recipient);
+            ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4739,10 +5021,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow(address(nft), 1, recipient);
+        ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4775,14 +5058,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(coin), 0, lid);
 
         // try buying
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_erc20_primary_noRoyaltyLookup(
@@ -4828,9 +5113,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 1, recipient);
+            ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4844,10 +5130,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow(address(nft), 1, recipient);
+        ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -4880,14 +5167,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(coin), 0, lid);
 
         // try buying
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_erc20_secondary_royaltyLookup(
@@ -4930,9 +5219,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 3, recipient);
+            ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -4946,15 +5236,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow(address(nft), 3, recipient);
+        ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
         uint256 remainingBalance = buyNowPrice - protocolFee;
-        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, remainingBalance);
+        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, buyNowPrice);
         remainingBalance -= amounts[0];
         assertEq(address(ah).balance, 0);
         assertEq(prevBuyerBalance - coin.balanceOf(buyer), buyNowPrice);
@@ -4983,14 +5274,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(coin), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(coin), type(uint256).max, lid);
     }
 
     function test_reservePlusBuyNow_erc20_secondary_noRoyaltyLookup(
@@ -5036,9 +5329,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 3, recipient);
+            ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -5052,10 +5346,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow(address(nft), 3, recipient);
+        ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -5089,14 +5384,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(coin), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(coin), type(uint256).max, lid);
     }
 
     function test_buyNow_erc20_primary_royaltyLookup(
@@ -5131,9 +5428,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 1, recipient);
+            ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -5147,10 +5445,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow(address(nft), 1, recipient);
+        ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -5183,14 +5482,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(coin), 0, lid);
 
         // try buying
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
     }
 
     function test_buyNow_erc20_primary_noRoyaltyLookup(
@@ -5228,9 +5529,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 1).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 1, recipient);
+            ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -5244,10 +5546,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 1).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 1, recipient, l);
-        ah.buyNow(address(nft), 1, recipient);
+        ah.buyNow(address(nft), 1, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -5279,14 +5582,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.bid(address(nft), 1, chris, 0);
+        ah.bid(address(nft), 1, address(coin), 0, lid);
 
         // try buying
+        lid = ah.getListing(address(nft), 1).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(chris);
-        ah.buyNow(address(nft), 1, chris);
+        ah.buyNow(address(nft), 1, chris, address(coin), type(uint256).max, lid);
     }
 
     function test_buyNow_erc20_secondary_royaltyLookup(
@@ -5321,9 +5626,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 3, recipient);
+            ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -5337,15 +5643,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow(address(nft), 3, recipient);
+        ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
         uint256 remainingBalance = buyNowPrice - protocolFee;
-        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, remainingBalance);
+        (, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, buyNowPrice);
         remainingBalance -= amounts[0];
         assertEq(address(ah).balance, 0);
         assertEq(prevBuyerBalance - coin.balanceOf(buyer), buyNowPrice);
@@ -5373,14 +5680,16 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(coin), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(coin), type(uint256).max, lid);
     }
 
     function test_buyNow_erc20_secondary_noRoyaltyLookup(
@@ -5418,9 +5727,10 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // test buying before start time
         if (startDelay > 0) {
+            lid = ah.getListing(address(nft), 3).id;
             vm.prank(buyer);
             vm.expectRevert(TLAuctionHouse.CannotBuyYet.selector);
-            ah.buyNow(address(nft), 3, recipient);
+            ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
             vm.warp(block.timestamp + startDelay);
         }
 
@@ -5434,10 +5744,11 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 prevAnonBalance = coin.balanceOf(anon);
 
         // buy now
+        lid = ah.getListing(address(nft), 3).id;
         vm.prank(buyer);
         vm.expectEmit(true, true, true, true);
         emit BuyNowFulfilled(buyer, address(nft), 3, recipient, l);
-        ah.buyNow(address(nft), 3, recipient);
+        ah.buyNow(address(nft), 3, recipient, address(coin), type(uint256).max, lid);
 
         // ensure funds transfer properly
         uint256 protocolFee = buyNowPrice * ah.protocolFeeBps() / ah.BASIS();
@@ -5470,13 +5781,776 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(l.startTime, 0);
 
         // try bidding
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.bid(address(nft), 3, ben, 0);
+        ah.bid(address(nft), 3, address(coin), 0, lid);
 
         // try buying again
+        lid = ah.getListing(address(nft), 3).id;
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         vm.prank(ben);
-        ah.buyNow(address(nft), 3, ben);
+        ah.buyNow(address(nft), 3, ben, address(coin), type(uint256).max, lid);
+    }
+
+    /////////////////////////////////////////////////////////////////////
+    // SECURITY HARDENING
+    /////////////////////////////////////////////////////////////////////
+
+    /// @dev lists `tokenId` as a scheduled ETH auction, bids `amount` from `bidder`, and warps to the end
+    function _listBidAndEnd(
+        address nftAddress,
+        uint256 tokenId,
+        address seller,
+        address payoutReceiver,
+        address bidder,
+        uint256 amount
+    ) private {
+        vm.startPrank(seller);
+        BadERC721(nftAddress).setApprovalForAll(address(ah), true);
+        ah.list(
+            nftAddress,
+            tokenId,
+            ListingType.SCHEDULED_AUCTION,
+            payoutReceiver,
+            address(0),
+            block.timestamp,
+            0,
+            24 hours,
+            0
+        );
+        vm.stopPrank();
+
+        lid = ah.getListing(nftAddress, tokenId).id;
+        vm.deal(bidder, amount);
+        vm.prank(bidder);
+        ah.bid{value: amount}(nftAddress, tokenId, address(0), amount, lid);
+
+        Listing memory l = ah.getListing(nftAddress, tokenId);
+        vm.warp(l.startTime + l.duration + 1);
+    }
+
+    function _sanction(address account) private {
+        ah.setSanctionsOracle(oracle);
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, account), abi.encode(true)
+        );
+    }
+
+    function _mockRoyalties(address payable[] memory recipients, uint256[] memory amounts) private {
+        vm.mockCall(
+            address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyalty.selector), abi.encode(recipients, amounts)
+        );
+    }
+
+    function test_list_alreadyListed() public {
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        _listBidAndEnd(address(bad), 1, ben, ben, chris, 1 ether);
+
+        // nft lies about ownership so the seller appears to own it again
+        bad.setFakeOwner(ben);
+        bad.setMode(BadERC721.Mode.LIE_OWNER_OF);
+
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.AlreadyListed.selector);
+        ah.list(address(bad), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 0.1 ether);
+
+        // bid is still intact
+        Listing memory l = ah.getListing(address(bad), 1);
+        assertEq(l.highestBidder, chris);
+        assertEq(l.highestBid, 1 ether);
+    }
+
+    function test_list_invalidPayoutReceiverAndDuration() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+
+        vm.expectRevert(TLAuctionHouse.InvalidPayoutReceiver.selector);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, address(0), address(0), block.timestamp, 0, 0, 1 ether);
+
+        uint256 tooLong = ah.MAX_AUCTION_DURATION() + 1;
+        vm.expectRevert(TLAuctionHouse.InvalidDuration.selector);
+        ah.list(address(nft), 1, ListingType.SCHEDULED_AUCTION, ben, address(0), block.timestamp, 0, tooLong, 0);
+        vm.expectRevert(TLAuctionHouse.InvalidDuration.selector);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, tooLong, 0);
+        vm.expectRevert(TLAuctionHouse.InvalidDuration.selector);
+        ah.list(
+            address(nft), 1, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, ben, address(0), block.timestamp, 0, tooLong, 1
+        );
+
+        // buy now ignores duration
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, tooLong, 1 ether);
+        assertEq(ah.getListing(address(nft), 1).duration, 0);
+        vm.stopPrank();
+    }
+
+    function test_bid_zeroFirstBid() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        vm.stopPrank();
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.BidTooLow.selector);
+        ah.bid(address(nft), 1, address(0), 0, lid);
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        ah.bid{value: 1}(address(nft), 1, address(0), 1, lid);
+        assertEq(ah.getListing(address(nft), 1).highestBid, 1);
+    }
+
+    function test_bid_currencyMismatch() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        ah.list(address(nft), 2, ListingType.RESERVE_AUCTION, ben, address(coin), block.timestamp, 0, 24 hours, 0);
+        vm.stopPrank();
+
+        vm.startPrank(chris);
+        coin.approve(address(ah), type(uint256).max);
+        lid = ah.getListing(address(nft), 1).id;
+        vm.expectRevert(TLAuctionHouse.CurrencyMismatch.selector);
+        ah.bid(address(nft), 1, address(coin), 1 ether, lid);
+        lid = ah.getListing(address(nft), 2).id;
+        vm.expectRevert(TLAuctionHouse.CurrencyMismatch.selector);
+        ah.bid{value: 1 ether}(address(nft), 2, address(0), 1 ether, lid);
+        vm.stopPrank();
+    }
+
+    function test_buyNow_frontRunRelist() public {
+        // seller lists for 1 coin
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(coin), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        // buyer has a large outstanding approval
+        vm.prank(chris);
+        coin.approve(address(ah), type(uint256).max);
+
+        // seller front-runs by relisting at a higher price, and then in a different currency
+        vm.startPrank(ben);
+        ah.delist(address(nft), 1);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(coin), block.timestamp, 0, 0, 100 ether);
+        vm.stopPrank();
+
+        uint256 chrisPrevBalance = coin.balanceOf(chris);
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.PriceTooHigh.selector);
+        ah.buyNow(address(nft), 1, chris, address(coin), 1 ether, lid);
+
+        vm.startPrank(ben);
+        ah.delist(address(nft), 1);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.CurrencyMismatch.selector);
+        ah.buyNow(address(nft), 1, chris, address(coin), 1 ether, lid);
+
+        assertEq(coin.balanceOf(chris), chrisPrevBalance);
+    }
+
+    function test_settleAuction_expensiveTransfer() public {
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        _listBidAndEnd(address(bad), 1, ben, anon, chris, 1 ether);
+
+        // nfts with heavy transfer hooks get all the gas they need
+        bad.setMode(BadERC721.Mode.EXPENSIVE_TRANSFER);
+        uint256 anonPrevBalance = anon.balance;
+        ah.settleAuction(address(bad), 1);
+        assertEq(bad.ownerOf(1), chris);
+        assertEq(anon.balance - anonPrevBalance, 0.99 ether);
+        assertEq(ah.claimableFunds(chris, address(0)), 0);
+    }
+
+    function test_settleAuction_gasBombLookups() public {
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        _listBidAndEnd(address(bad), 1, ben, anon, chris, 1 ether);
+        Listing memory l = ah.getListing(address(bad), 1);
+
+        // both the creator lookup (`owner`) and royalty lookup (`royaltyInfo`) burn all gas given to them, so the
+        // nft contract blocks settlement, just as it could by blocking transfers
+        bad.setContractOwnerMode(BadERC721.ContractOwnerMode.BURN_GAS);
+        vm.expectRevert();
+        ah.settleAuction{gas: 10_000_000}(address(bad), 1);
+
+        // the auction unwinds after the grace period without calling the nft
+        vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
+        vm.prank(chris);
+        ah.cancelUnsettledAuction{gas: 300_000}(address(bad), 1);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        assertEq(ah.claimableNft(address(bad), 1), ben);
+    }
+
+    function test_settleAuction_sanctionedPayoutReceiver() public {
+        _listBidAndEnd(address(nft), 1, ben, anon, chris, 1 ether);
+        _sanction(anon);
+
+        uint256 anonPrevBalance = anon.balance;
+        ah.settleAuction(address(nft), 1);
+
+        // sale completes, but proceeds are frozen
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(anon.balance, anonPrevBalance);
+        assertEq(ah.claimableFunds(anon, address(0)), 0.99 ether);
+        vm.prank(anon);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.claimFunds(address(0), anon);
+        vm.clearMockedCalls();
+    }
+
+    function test_bid_previousBidderSanctioned() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        vm.stopPrank();
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        ah.bid{value: 1 ether}(address(nft), 1, address(0), 1 ether, lid);
+
+        _sanction(chris);
+        uint256 chrisPrevBalance = chris.balance;
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(david);
+        ah.bid{value: 2 ether}(address(nft), 1, address(0), 2 ether, lid);
+
+        assertEq(chris.balance, chrisPrevBalance);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        vm.clearMockedCalls();
+    }
+
+    function test_settleUp_creatorLookupUnsetOrMalformed() public {
+        // creator lookup unset: treated as secondary sale, royalties paid via ERC-2981 (10% to ben)
+        ah.setCreatorLookup(address(0));
+        _listBidAndEnd(address(nft), 1, ben, anon, chris, 1 ether);
+        uint256 benPrevBalance = ben.balance;
+        uint256 anonPrevBalance = anon.balance;
+        ah.settleAuction(address(nft), 1);
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(ben.balance - benPrevBalance, 0.1 ether);
+        assertEq(anon.balance - anonPrevBalance, 0.89 ether);
+        ah.setCreatorLookup(address(cl));
+
+        // nft contract returns malformed `owner()` data
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        _listBidAndEnd(address(bad), 1, ben, anon, chris, 1 ether);
+        bad.setContractOwnerMode(BadERC721.ContractOwnerMode.MALFORMED);
+
+        anonPrevBalance = anon.balance;
+        ah.settleAuction(address(bad), 1);
+        assertEq(bad.ownerOf(1), chris);
+        assertEq(anon.balance - anonPrevBalance, 0.99 ether); // no ERC-2981 on the bad nft
+    }
+
+    function test_getRoyalty_cappedLikeSettlement() public {
+        // 12 recipients asking for 5% each, with a zero address in the mix
+        address payable[] memory r = new address payable[](12);
+        uint256[] memory amts = new uint256[](12);
+        for (uint256 i = 0; i < 12; ++i) {
+            r[i] = payable(address(uint160(i + 1)));
+            amts[i] = 0.05 ether;
+        }
+        r[1] = payable(address(0));
+        vm.mockCall(address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyaltyView.selector), abi.encode(r, amts));
+
+        // view matches what settlement pays: first 10 recipients, zero address skipped, 10% total
+        (address payable[] memory recipients, uint256[] memory amounts) = ah.getRoyalty(address(nft), 3, 1 ether);
+        assertEq(recipients.length, 10);
+        assertEq(amounts[0], 0.05 ether);
+        assertEq(amounts[1], 0);
+        assertEq(amounts[2], 0.05 ether);
+        for (uint256 i = 3; i < 10; ++i) {
+            assertEq(amounts[i], 0);
+        }
+
+        // mismatched array lengths return nothing
+        vm.mockCall(
+            address(rl), abi.encodeWithSelector(RoyaltyLookup.getRoyaltyView.selector), abi.encode(r, new uint256[](1))
+        );
+        (recipients, amounts) = ah.getRoyalty(address(nft), 3, 1 ether);
+        assertEq(recipients.length, 0);
+        assertEq(amounts.length, 0);
+        vm.clearMockedCalls();
+    }
+
+    function test_settleUp_zeroAddressRoyalty() public {
+        address payable[] memory r = new address payable[](2);
+        r[0] = payable(address(0));
+        r[1] = payable(address(1));
+        uint256[] memory amts = new uint256[](2);
+        amts[0] = 0.05 ether;
+        amts[1] = 0.05 ether;
+        _mockRoyalties(r, amts);
+
+        _listBidAndEnd(address(nft), 3, chris, chris, david, 1 ether);
+        uint256 chrisPrevBalance = chris.balance;
+        ah.settleAuction(address(nft), 3);
+
+        // zero address share stays with the seller instead of getting stuck
+        assertEq(address(1).balance, 0.05 ether);
+        assertEq(chris.balance - chrisPrevBalance, 0.94 ether);
+        assertEq(address(ah).balance, 0);
+        vm.clearMockedCalls();
+    }
+
+    function test_settleUp_royaltyCaps() public {
+        // recipient cap
+        uint256 n = ah.MAX_ROYALTY_RECIPIENTS() + 1;
+        address payable[] memory r = new address payable[](n);
+        uint256[] memory amts = new uint256[](n);
+        for (uint256 i = 0; i < n; ++i) {
+            r[i] = payable(address(uint160(0x1000 + i)));
+            amts[i] = 0.005 ether;
+        }
+        _mockRoyalties(r, amts);
+
+        _listBidAndEnd(address(nft), 3, chris, chris, david, 1 ether);
+        uint256 chrisPrevBalance = chris.balance;
+        ah.settleAuction(address(nft), 3);
+        assertEq(r[n - 2].balance, 0.005 ether);
+        assertEq(r[n - 1].balance, 0);
+        assertEq(chris.balance - chrisPrevBalance, 0.99 ether - 0.05 ether);
+        vm.clearMockedCalls();
+
+        // total royalty cap (10% of the 1 ether sale), later recipients are clamped to what's left
+        r = new address payable[](2);
+        r[0] = payable(address(0x2000));
+        r[1] = payable(address(0x2001));
+        amts = new uint256[](2);
+        amts[0] = 0.08 ether;
+        amts[1] = 0.05 ether;
+        _mockRoyalties(r, amts);
+
+        _listBidAndEnd(address(nft), 3, david, david, chris, 1 ether);
+        uint256 davidPrevBalance = david.balance;
+        ah.settleAuction(address(nft), 3);
+        assertEq(r[0].balance, 0.08 ether);
+        assertEq(r[1].balance, 0.02 ether);
+        assertEq(david.balance - davidPrevBalance, 0.89 ether);
+        vm.clearMockedCalls();
+    }
+
+    function test_bid_feeOnTransferCurrency() public {
+        // a fee-on-transfer currency is allowlisted by mistake
+        FeeOnTransferERC20 token = new FeeOnTransferERC20(chris);
+        ah.setCurrencyAllowed(address(token), true);
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(token), block.timestamp, 1 ether, 1 hours, 0);
+        vm.stopPrank();
+
+        // escrow receives less than the bid, so the bid reverts rather than leaving the auction underfunded
+        lid = ah.getListing(address(nft), 1).id;
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        vm.expectRevert(TransferHelper.InsufficentERC20Transfer.selector);
+        ah.bid(address(nft), 1, address(token), 1 ether, lid);
+        vm.stopPrank();
+        assertEq(token.balanceOf(address(ah)), 0);
+    }
+
+    function test_payout_erc20Blocklist() public {
+        BlocklistERC20 token = new BlocklistERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        token.transfer(chris, 10 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, anon, address(token), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        // payout receiver gets blocked by the token
+        token.setBlocked(anon, true);
+
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        vm.expectEmit(true, true, true, true);
+        emit FundsCredited(anon, address(token), 0.99 ether);
+        ah.buyNow(address(nft), 1, chris, address(token), 1 ether, lid);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(token.balanceOf(tl), 0.01 ether);
+        assertEq(ah.claimableFunds(anon, address(token)), 0.99 ether);
+
+        // can't claim to the blocked address, but can redirect
+        vm.startPrank(anon);
+        vm.expectRevert("blocked");
+        ah.claimFunds(address(token), anon);
+        vm.expectEmit(true, true, true, true);
+        emit FundsClaimed(anon, address(token), bsy, 0.99 ether);
+        ah.claimFunds(address(token), bsy);
+        vm.stopPrank();
+        assertEq(token.balanceOf(bsy), 0.99 ether);
+        assertEq(token.balanceOf(address(ah)), 0);
+    }
+
+    function test_claim_whilePaused() public {
+        RevertingBidder bidder = new RevertingBidder(address(ah));
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        vm.stopPrank();
+        bidder.bid{value: 1 ether}(address(nft), 1, 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        ah.bid{value: 2 ether}(address(nft), 1, address(0), 2 ether, lid);
+
+        ah.pause(true);
+        uint256 anonPrevBalance = anon.balance;
+        bidder.claimFunds(address(0), anon);
+        assertEq(anon.balance - anonPrevBalance, 1 ether);
+    }
+
+    function test_removeProtocolFee_event() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        vm.expectEmit(true, true, true, true);
+        emit ProtocolFeeRemoved(address(nft), 1);
+        ah.removeProtocolFee(address(nft), 1);
+    }
+
+    function test_currencyAllowlist() public {
+        MockERC20 other = new MockERC20(address(this));
+
+        // owner only
+        vm.prank(anon);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, anon));
+        ah.setCurrencyAllowed(address(other), true);
+
+        // non-allowlisted currency can't be listed
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        vm.expectRevert(CurrencyAllowlist.CurrencyNotAllowed.selector);
+        ah.list(address(nft), 1, ListingType.BUY_NOW, ben, address(other), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        // eth is always allowed, even if explicitly removed
+        ah.setCurrencyAllowed(address(0), false);
+        vm.prank(ben);
+        ah.list(address(nft), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+
+        // allowlisting enables listing
+        vm.expectEmit(true, true, true, true);
+        emit CurrencyAllowlist.CurrencyAllowlistUpdated(address(other), true);
+        ah.setCurrencyAllowed(address(other), true);
+        assertTrue(ah.allowedCurrencies(address(other)));
+        vm.prank(ben);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(other), block.timestamp, 0, 24 hours, 0);
+
+        // removing a currency doesn't affect live listings
+        other.transfer(chris, 10 ether);
+        vm.startPrank(chris);
+        other.approve(address(ah), 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        ah.bid(address(nft), 1, address(other), 1 ether, lid);
+        vm.stopPrank();
+
+        vm.expectEmit(true, true, true, true);
+        emit CurrencyAllowlist.CurrencyAllowlistUpdated(address(other), false);
+        ah.setCurrencyAllowed(address(other), false);
+
+        vm.warp(block.timestamp + 25 hours);
+        ah.settleAuction(address(nft), 1);
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(other.balanceOf(ben), 0.99 ether);
+    }
+
+    function test_sanctionedSeller_blocksDelistBuyNowAndSettle() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        ah.list(address(nft), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        _sanction(ben);
+
+        // seller can't pull their escrowed nft back out
+        vm.prank(ben);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.delist(address(nft), 1);
+
+        // buyers can't buy from the sanctioned seller
+        lid = ah.getListing(address(nft), 2).id;
+        vm.deal(chris, 2 ether);
+        vm.prank(chris);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.buyNow{value: 1 ether}(address(nft), 2, chris, address(0), 1 ether, lid);
+
+        // bids are accepted, but the auction can't settle with the sanctioned seller
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        ah.bid{value: 1 ether}(address(nft), 1, address(0), 1 ether, lid);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.settleAuction(address(nft), 1);
+
+        // bidder recovers their funds after the grace period, and the nft is frozen for the seller
+        vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
+        vm.prank(chris);
+        ah.cancelUnsettledAuction(address(nft), 1);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        assertEq(ah.claimableNft(address(nft), 1), ben);
+
+        vm.clearMockedCalls();
+    }
+
+    function test_buyNow_nftTransferFails() public {
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        bad.mint(ben, 2);
+        vm.startPrank(ben);
+        bad.setApprovalForAll(address(ah), true);
+        ah.list(address(bad), 1, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        ah.list(address(bad), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        uint256 chrisPrevBalance = chris.balance;
+
+        // reverting transfer
+        bad.setMode(BadERC721.Mode.REVERT_TRANSFER);
+        lid = ah.getListing(address(bad), 1).id;
+        vm.prank(chris);
+        vm.expectRevert("no transfers");
+        ah.buyNow{value: 1 ether}(address(bad), 1, chris, address(0), 1 ether, lid);
+
+        // transfer that doesn't actually move the nft
+        bad.setMode(BadERC721.Mode.NOOP_TRANSFER);
+        lid = ah.getListing(address(bad), 2).id;
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.NftTransferFailed.selector);
+        ah.buyNow{value: 1 ether}(address(bad), 2, chris, address(0), 1 ether, lid);
+
+        assertEq(chris.balance, chrisPrevBalance);
+    }
+
+    function test_cancelUnsettledAuction_nftFailsToTransfer() public {
+        BadERC721.Mode[3] memory modes =
+            [BadERC721.Mode.REVERT_TRANSFER, BadERC721.Mode.NOOP_TRANSFER, BadERC721.Mode.BURN_GAS_TRANSFER];
+
+        for (uint256 i = 0; i < modes.length; ++i) {
+            BadERC721 bad = new BadERC721(ben);
+            bad.mint(ben, 1);
+            _listBidAndEnd(address(bad), 1, ben, anon, chris, 1 ether);
+            Listing memory l = ah.getListing(address(bad), 1);
+
+            // settlement can't complete
+            bad.setMode(modes[i]);
+            vm.expectRevert();
+            ah.settleAuction{gas: 10_000_000}(address(bad), 1);
+
+            // can't cancel until the grace period is over
+            vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD());
+            vm.prank(chris);
+            vm.expectRevert(TLAuctionHouse.SettlementGracePeriodNotOver.selector);
+            ah.cancelUnsettledAuction(address(bad), 1);
+
+            // bidder cancels, without any calls to the nft
+            vm.warp(block.timestamp + 1);
+            uint256 anonPrevBalance = anon.balance;
+            vm.expectEmit(true, true, true, true);
+            emit FundsCredited(chris, address(0), 1 ether);
+            vm.expectEmit(true, true, true, true);
+            emit NftCredited(ben, address(bad), 1);
+            vm.expectEmit(true, true, true, true);
+            emit ListingCanceled(chris, address(bad), 1, l);
+            vm.prank(chris);
+            ah.cancelUnsettledAuction{gas: 300_000}(address(bad), 1);
+
+            // seller and protocol not paid, bidder refund is claimableFunds, nft held for seller
+            assertEq(anon.balance, anonPrevBalance);
+            assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+            assertEq(ah.claimableNft(address(bad), 1), ben);
+            assertEq(uint8(ah.getListing(address(bad), 1).type_), uint8(ListingType.NOT_CONFIGURED));
+
+            uint256 chrisPrevBalance = chris.balance;
+            vm.prank(chris);
+            ah.claimFunds(address(0), chris);
+            assertEq(chris.balance - chrisPrevBalance, 1 ether);
+            assertEq(address(ah).balance, 0);
+        }
+    }
+
+    function test_cancelUnsettledAuction_errors() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(address(nft), 2, ListingType.BUY_NOW, ben, address(0), block.timestamp, 0, 0, 1 ether);
+        vm.stopPrank();
+
+        // not configured
+        vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
+        ah.cancelUnsettledAuction(address(nft), 3);
+
+        // buy now
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
+        ah.cancelUnsettledAuction(address(nft), 2);
+
+        // no bids
+        vm.prank(ben);
+        ah.list(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), block.timestamp, 0, 24 hours, 0);
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.AuctionNotStarted.selector);
+        ah.cancelUnsettledAuction(address(nft), 1);
+
+        // bid and end, then wait out the grace period
+        lid = ah.getListing(address(nft), 1).id;
+        vm.prank(chris);
+        ah.bid{value: 1 ether}(address(nft), 1, address(0), 1 ether, lid);
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
+
+        // only the seller or highest bidder
+        vm.prank(anon);
+        vm.expectRevert(TLAuctionHouse.NotSellerOrBidder.selector);
+        ah.cancelUnsettledAuction(address(nft), 1);
+
+        // seller can cancel, even while paused
+        ah.pause(true);
+        vm.prank(ben);
+        ah.cancelUnsettledAuction(address(nft), 1);
+        ah.pause(false);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        assertEq(ah.claimableNft(address(nft), 1), ben);
+
+        // auction can no longer be settled or canceled
+        vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
+        ah.settleAuction(address(nft), 1);
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
+        ah.cancelUnsettledAuction(address(nft), 1);
+
+        // seller reclaims the nft
+        vm.prank(ben);
+        ah.claimNft(address(nft), 1, ben);
+        assertEq(nft.ownerOf(1), ben);
+    }
+
+    function test_settleAuction_sanctionedBidder() public {
+        // sanctioned bidder: settlement reverts, seller cancels after the grace period and the refund is frozen
+        _listBidAndEnd(address(nft), 1, ben, ben, chris, 1 ether);
+        _sanction(chris);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.settleAuction(address(nft), 1);
+
+        vm.warp(block.timestamp + ah.SETTLEMENT_GRACE_PERIOD());
+        vm.prank(ben);
+        ah.cancelUnsettledAuction(address(nft), 1);
+        vm.prank(ben);
+        ah.claimNft(address(nft), 1, ben);
+        assertEq(nft.ownerOf(1), ben);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        vm.prank(chris);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.claimFunds(address(0), david);
+        vm.clearMockedCalls();
+    }
+
+    function test_settleAuction_sanctionedSeller() public {
+        _listBidAndEnd(address(nft), 1, ben, anon, chris, 1 ether);
+        _sanction(ben);
+
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.settleAuction(address(nft), 1);
+
+        // bidder cancels after the grace period, and the nft is frozen in escrow for the seller
+        vm.warp(block.timestamp + ah.SETTLEMENT_GRACE_PERIOD());
+        uint256 anonPrevBalance = anon.balance;
+        vm.prank(chris);
+        ah.cancelUnsettledAuction(address(nft), 1);
+        assertEq(anon.balance, anonPrevBalance);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        assertEq(nft.ownerOf(1), address(ah));
+        assertEq(ah.claimableNft(address(nft), 1), ben);
+
+        // seller can't claim while sanctioned
+        vm.prank(ben);
+        vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
+        ah.claimNft(address(nft), 1, ben);
+
+        // once no longer sanctioned, the seller can claim, but no one else can
+        vm.clearMockedCalls();
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector), abi.encode(false)
+        );
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.NothingToClaim.selector);
+        ah.claimNft(address(nft), 1, chris);
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
+        ah.claimNft(address(nft), 1, address(0));
+
+        // claims can't be sent to a sanctioned address
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, david), abi.encode(true)
+        );
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
+        ah.claimNft(address(nft), 1, david);
+        vm.prank(chris);
+        vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);
+        ah.claimFunds(address(0), david);
+        vm.mockCall(
+            oracle, abi.encodeWithSelector(IChainalysisSanctionsOracle.isSanctioned.selector, david), abi.encode(false)
+        );
+
+        vm.prank(ben);
+        vm.expectEmit(true, true, true, true);
+        emit NftClaimed(ben, address(nft), 1, david);
+        ah.claimNft(address(nft), 1, david);
+        assertEq(nft.ownerOf(1), david);
+        assertEq(ah.claimableNft(address(nft), 1), address(0));
+
+        // bidder reclaims their funds
+        uint256 chrisPrevBalance = chris.balance;
+        vm.prank(chris);
+        ah.claimFunds(address(0), chris);
+        assertEq(chris.balance - chrisPrevBalance, 1 ether);
+        vm.clearMockedCalls();
+    }
+
+    function test_claimNft_brokenNft() public {
+        BadERC721 bad = new BadERC721(ben);
+        bad.mint(ben, 1);
+        _listBidAndEnd(address(bad), 1, ben, ben, chris, 1 ether);
+
+        // nft can't be delivered, so the auction is canceled after the grace period and the nft held for the seller
+        bad.setMode(BadERC721.Mode.REVERT_TRANSFER);
+        vm.expectRevert("no transfers");
+        ah.settleAuction(address(bad), 1);
+        vm.warp(block.timestamp + ah.SETTLEMENT_GRACE_PERIOD());
+        vm.prank(chris);
+        ah.cancelUnsettledAuction(address(bad), 1);
+        assertEq(ah.claimableNft(address(bad), 1), ben);
+
+        // claiming fails while the nft is broken, but the claim is kept
+        vm.prank(ben);
+        vm.expectRevert("no transfers");
+        ah.claimNft(address(bad), 1, ben);
+        assertEq(ah.claimableNft(address(bad), 1), ben);
+
+        // once transfers work again, the seller can claim
+        bad.setMode(BadERC721.Mode.NORMAL);
+        vm.prank(ben);
+        ah.claimNft(address(bad), 1, ben);
+        assertEq(bad.ownerOf(1), ben);
     }
 }
