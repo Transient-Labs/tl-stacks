@@ -16,7 +16,11 @@ import {DropType} from "./CommonUtils.sol";
 /// @param presaleMerkleRoot The merkle root for the presale phase of the drop
 /// @param publicDuration The duration of the public sale phase
 /// @param publicCost The cost of each token during the public sale phase
-/// @param baseUri The base uri for the folder to use for mint (NO TRAILING SLASH "/")
+/// @param baseUri The base uri for the folder to use for mint (NO TRAILING SLASH "/"). Token uris are built as
+///        `baseUri + "/" + counter`. For an unnumbered edition, set this to the uri of a single metadata json
+///        followed by a "#" (e.g. `ar://<id>#`). The counter then lands in the uri fragment, which isn't sent when
+///        the uri is fetched, so every token resolves to the same metadata. This allows open ended supply, such as
+///        velocity drops, without needing a pre-generated metadata file per token.
 struct Drop {
     DropType dropType;
     address payoutReceiver;
