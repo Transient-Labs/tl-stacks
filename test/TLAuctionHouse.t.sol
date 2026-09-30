@@ -588,6 +588,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        reservePrice = bound(reservePrice, 0, type(uint256).max - 1);
+        buyNowPrice = bound(buyNowPrice, reservePrice + 1, type(uint256).max);
         ah.setCurrencyAllowed(currencyAddress, true);
 
         // list
@@ -855,6 +857,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // limit inputs
         vm.assume(payoutReceiver != address(0));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
+        reservePrice = bound(reservePrice, 0, type(uint256).max - 1);
+        buyNowPrice = bound(buyNowPrice, reservePrice + 1, type(uint256).max);
         ah.setCurrencyAllowed(currencyAddress, true);
 
         // list & delist
@@ -2154,7 +2158,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -2246,7 +2250,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -2335,7 +2339,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -2427,7 +2431,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -3478,7 +3482,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -3576,7 +3580,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -3671,7 +3675,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -3769,7 +3773,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
                 block.timestamp + startDelay,
                 reservePrice,
                 duration,
-                0
+                reservePrice + 1
             )
         );
         vm.stopPrank();
@@ -4334,6 +4338,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -4437,6 +4442,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -4543,6 +4549,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -4647,6 +4654,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -5335,6 +5343,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -5443,6 +5452,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -5554,6 +5564,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -5663,6 +5674,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice > 500 ether) {
             buyNowPrice %= 500 ether;
         }
+        if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
         vm.assume(recipient != address(0));
@@ -7675,6 +7687,57 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.prank(chris);
         ah.buyNow{value: 3 ether}(address(nft), 1, chris, address(0), 3 ether, l.id);
         assertEq(nft.ownerOf(1), chris);
+    }
+
+    function test_reserveAuctionPlusBuyNow_buyNowNotAboveReserve() public {
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+
+        // buy now equal to reserve
+        vm.expectRevert(TLAuctionHouse.InvalidBuyNowPrice.selector);
+        ah.list(
+            _cfg(
+                address(nft), 1, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, ben, address(0), 0, 1 ether, 1 hours, 1 ether
+            )
+        );
+
+        // buy now below reserve
+        vm.expectRevert(TLAuctionHouse.InvalidBuyNowPrice.selector);
+        ah.list(
+            _cfg(
+                address(nft),
+                1,
+                ListingType.RESERVE_AUCTION_PLUS_BUY_NOW,
+                ben,
+                address(0),
+                0,
+                1 ether,
+                1 hours,
+                0.5 ether
+            )
+        );
+
+        // zero buy now with zero reserve
+        vm.expectRevert(TLAuctionHouse.InvalidBuyNowPrice.selector);
+        ah.list(_cfg(address(nft), 1, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, ben, address(0), 0, 0, 1 hours, 0));
+
+        // update can't move buy now to or below the reserve
+        ah.list(
+            _cfg(
+                address(nft), 1, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, ben, address(0), 0, 1 ether, 1 hours, 2 ether
+            )
+        );
+        vm.expectRevert(TLAuctionHouse.InvalidBuyNowPrice.selector);
+        ah.updateListing(
+            _cfg(
+                address(nft), 1, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, ben, address(0), 0, 2 ether, 1 hours, 2 ether
+            )
+        );
+        vm.stopPrank();
+
+        Listing memory l = ah.getListing(address(nft), 1);
+        assertEq(l.reservePrice, 1 ether);
+        assertEq(l.buyNowPrice, 2 ether);
     }
 
     function test_updateListing_privateSale() public {

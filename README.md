@@ -20,6 +20,10 @@ The mint contracts are
 - only the NFT contract owner or admins can configure/alter/cancel a mint
 - purchases specify the expected currency, max cost per token, and drop round, so buyers are protected if a drop's price, currency, or phase changes, or the drop is closed and reconfigured (e.g. with new art), while their transaction is pending
 
+### Trust Assumptions & Known Limitations
+- **Delegated minting and gifting:** the payer and recipient may differ, but presale and public mint allowances are charged to the recipient. A payer who can satisfy the purchase requirements can therefore consume a recipient's phase allowance by minting tokens to them. This is intentional so gifts and delegated presale mints do not require recipient authorization. The caller pays the full mint price and fees, and the recipient receives the tokens.
+- **Selectable mint ordering:** selected indices are unique and visible in pending transaction calldata. Another eligible buyer who observes the transaction can mint an index first, causing the pending purchase to revert. Appropriate pricing and private transaction routing can reduce the practical incentive and exposure, but private routing is not guaranteed across wallets and networks.
+
 ## Auction House
 A contract for auctions and/or buy nows for minted ERC-721 tokens. Works for any ERC-721 compliant token in existence.
 

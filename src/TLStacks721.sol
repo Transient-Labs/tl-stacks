@@ -400,6 +400,8 @@ contract TLStacks721 is
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to purchase tokens on a drop
+    /// @dev The recipient's phase allowance is consumed even when another account pays. This intentionally supports
+    ///      permissionless delegation and gifting, but an eligible payer can consume the allowance by minting to them.
     /// @dev Reverts on any of the following conditions
     ///     - Drop isn't active or configured
     ///     - numberToMint is 0
@@ -465,6 +467,10 @@ contract TLStacks721 is
     /// @notice Function to purchase selected tokens on a selectable drop
     /// @dev The selected indices are the metadata indices (`baseUri/<index>`), not token ids. Token ids are still
     ///      assigned in order by the nft contract.
+    /// @dev Selected indices are public calldata and are not reserved before inclusion. Another eligible buyer can mint
+    ///      an observed index first, causing this transaction to revert.
+    /// @dev The recipient's phase allowance is consumed even when another account pays. This intentionally supports
+    ///      permissionless delegation and gifting, but an eligible payer can consume the allowance by minting to them.
     /// @dev Reverts on the same conditions as `purchase`, where the number to mint is the number of indices, and if
     ///     - The drop is not a selectable drop
     ///     - Any index is greater than or equal to the drop's `initialSupply`

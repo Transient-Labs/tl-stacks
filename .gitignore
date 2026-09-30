@@ -4,7 +4,6 @@ env
 .env
 .DS_Store
 broadcast/
-docs/
 .venv/
 
 # Soldeer

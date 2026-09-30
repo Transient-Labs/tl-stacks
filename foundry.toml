@@ -17,6 +17,49 @@ ignore = ["test/TLStacks721.t.sol", "test/TLStacks1155.t.sol", "test/TLAuctionHo
 [fuzz]
 runs = 1024
 
+[invariant]
+runs = 256
+depth = 100
+fail_on_revert = true
+show_metrics = true
+
+# CI sets FOUNDRY_PROFILE=ci, so it gets its own profile with the default campaign sizes
+[profile.ci]
+src = 'src'
+out = 'out'
+libs = ["dependencies"]
+optimizer = true
+optimizer_runs = 20000
+fs_permissions = [{ access = "read-write", path = "./"}]
+ignored_warnings_from = ["test/**"]
+
+[profile.ci.fuzz]
+runs = 1024
+
+[profile.ci.invariant]
+runs = 256
+depth = 100
+fail_on_revert = true
+
+# long campaigns for pre-audit runs: `make test-deep`
+[profile.deep]
+src = 'src'
+out = 'out'
+libs = ["dependencies"]
+optimizer = true
+optimizer_runs = 20000
+fs_permissions = [{ access = "read-write", path = "./"}]
+ignored_warnings_from = ["test/**"]
+
+[profile.deep.fuzz]
+runs = 50000
+
+[profile.deep.invariant]
+runs = 2000
+depth = 250
+fail_on_revert = true
+show_metrics = true
+
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 arbitrum_sepolia = "${ARB_SEPOLIA_RPC_URL}"

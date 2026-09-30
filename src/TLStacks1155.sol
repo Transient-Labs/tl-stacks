@@ -428,6 +428,8 @@ contract TLStacks1155 is
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Function to purchase a single token via a drop
+    /// @dev The recipient's phase allowance is consumed even when another account pays. This intentionally supports
+    ///      permissionless delegation and gifting, but an eligible payer can consume the allowance by minting to them.
     /// @dev Reverts on any of the following conditions
     ///     - Drop isn't active or configured
     ///     - numberToMint is 0

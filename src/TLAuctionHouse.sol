@@ -84,6 +84,7 @@ contract TLAuctionHouse is
     error NotSellerOrBidder();
     error SettlementGracePeriodNotOver();
     error NotHighestBidder();
+    error InvalidBuyNowPrice();
 
     /////////////////////////////////////////////////////////////////////
     // CONSTRUCTOR
@@ -108,6 +109,7 @@ contract TLAuctionHouse is
     ///      - the currency must be on the allowlist (ETH is always allowed)
     ///      - the auction duration cannot exceed `MAX_AUCTION_DURATION`
     ///      - private sales must specify a recipient that isn't the zero address or sanctioned
+    ///      - reserve auctions with buy now must have a buy now price greater than the reserve price
     ///      - the token is escrowed upon listing
     ///      - if the auction house isn't approved for the token, escrowing will fail, so no need to check for that explicitly
     /// @param config The listing configuration (see `ListingConfig`)
@@ -775,6 +777,9 @@ contract TLAuctionHouse is
             listing.buyNowPrice = 0;
         } else if (type_ == ListingType.RESERVE_AUCTION) {
             listing.buyNowPrice = 0;
+        } else if (type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
+            // buy now must be above the reserve, otherwise no one would bid
+            if (listing.buyNowPrice <= listing.reservePrice) revert InvalidBuyNowPrice();
         } else if (type_ == ListingType.BUY_NOW) {
             listing.reservePrice = 0;
             listing.duration = 0;
@@ -783,9 +788,6 @@ contract TLAuctionHouse is
             listing.reservePrice = 0;
             listing.duration = 0;
             listing.recipient = config.recipient;
-        } else if (type_ == ListingType.RESERVE_AUCTION_PLUS_BUY_NOW) {
-            // uses every pricing field, so nothing to adjust
-            // note: forge coverage reports this branch as missed since the block has no statements, but it is tested
         } else {
             revert InvalidListingType();
         }

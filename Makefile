@@ -52,6 +52,12 @@ test-cov: build
 test-fuzz: build
 	forge test --fuzz-runs 10000
 
+test-invariant: build
+	forge test --mc Invariant
+
+test-deep: build
+	FOUNDRY_PROFILE=deep forge test
+
 #####################################
 ### CreatorLookup
 #####################################
