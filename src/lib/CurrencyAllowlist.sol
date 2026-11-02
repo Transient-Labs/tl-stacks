@@ -30,7 +30,7 @@ abstract contract CurrencyAllowlist {
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to add or remove a currency from the allowlist
-    /// @dev Removing a currency only blocks new sales from using it, existing sales are unaffected
+    /// @dev Callers enforce admission for new sales and, where applicable, sale term updates
     /// @param currencyAddress The ERC-20 currency address
     /// @param allowed Boolean indicating if the currency is allowed
     function _setCurrencyAllowed(address currencyAddress, bool allowed) internal {

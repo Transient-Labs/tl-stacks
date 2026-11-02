@@ -95,7 +95,11 @@ contract AuctionHouseHandler is Test {
 
         address[] memory empty = new address[](0);
         nft = new ERC721TL(false);
-        nft.initialize("Invariant", "INV", actors[0], 1_000, actors[0], empty, false, address(0), 0, address(0));
+        // Keep direct royalties in the tracked royalty pool, disjoint from payer/payout actors.
+        // Empty/reverting engine schedules can now pay the NFT's direct recipient.
+        nft.initialize(
+            "Invariant", "INV", royaltyRecipients[0], 1_000, actors[0], empty, false, address(0), 0, address(0)
+        );
         vm.startPrank(actors[0]);
         for (uint256 i = 0; i < NUM_TOKENS; ++i) {
             nft.mint(actors[i % actors.length], "https://arweave.net/invariant");
@@ -336,6 +340,10 @@ contract AuctionHouseHandler is Test {
             _check(caller == prev.highestBidder, "G-18: top up by non-highest bidder");
             _check(amount > 0, "topUpBid: zero top up accepted");
             _check(block.timestamp <= prev.startTime + prev.duration, "G-19: top up after end");
+            _check(
+                prev.startTime + prev.duration - block.timestamp > ah.EXTENSION_TIME(),
+                "G-19: top up inside anti-snipe window"
+            );
             _check(l.highestBid == prev.highestBid + amount, "topUpBid: bid not raised by amount");
             _check(l.startTime == prev.startTime && l.duration == prev.duration, "I-10: top up moved the end");
         } catch {}
@@ -478,7 +486,7 @@ contract AuctionHouseHandler is Test {
 
     function removeProtocolFee(uint256 tokenSeed) external {
         uint256 tokenId = _pickToken(tokenSeed, STATE_LISTED);
-        try ah.removeProtocolFee(address(nft), tokenId) {
+        try ah.removeProtocolFee(address(nft), tokenId, ah.getListing(address(nft), tokenId).id) {
             _hit("removeProtocolFee");
             ghostZeroFee[tokenId] = true;
         } catch {}
@@ -612,7 +620,7 @@ contract AuctionHouseHandler is Test {
         address payable[] memory r;
         uint256[] memory a;
         if (mode == 0) {
-            // no royalties
+            // Empty engine schedule triggers direct royalties
             r = new address payable[](0);
             a = new uint256[](0);
         } else if (mode == 1) {
@@ -634,7 +642,7 @@ contract AuctionHouseHandler is Test {
             (r[1], a[1]) = (payable(address(ah)), 200);
             (r[2], a[2]) = (royaltyRecipients[1], 5_000);
         } else if (mode == 4) {
-            // length mismatch is ignored
+            // Length mismatch triggers direct royalties
             r = new address payable[](2);
             a = new uint256[](1);
             (r[0], a[0]) = (royaltyRecipients[0], 500);

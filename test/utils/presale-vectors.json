@@ -1,0 +1,19 @@
+{
+  "root": "0xa0a141551de2692f573b52765fbbc7e60173da2368b89948bae522a7c2cce0ff",
+  "entries": [
+    {
+      "recipient": "0x1111111111111111111111111111111111111111",
+      "allowance": 2,
+      "recipientHash": "0xaafae41182fdefb0af836c3b506e127c7f229f33360c66de1139f4b0316f09d8",
+      "innerHash": "0x96f99d9d68a9bab3cf0cc9aa423f5b28c8d4c79c1c2d94e5198dc74dc4733f94",
+      "leaf": "0xe9ca91c0161bdc8418896a6f054e74a33e73033d10bd7729424ae950fd14bd63"
+    },
+    {
+      "recipient": "0x2222222222222222222222222222222222222222",
+      "allowance": 3,
+      "recipientHash": "0x761d1673706b12d7996f463b3ee41f89445e41739a7b2688d9e00d8e45cf27f3",
+      "innerHash": "0x360342897365ea4430e21194d9978b2007198cb8f2581ea57dffde5e7543fbbb",
+      "leaf": "0x2aef90b6985a8b20b48d621d20393a6b22ec2a2fbd4d3b841c860aedcb8aa754"
+    }
+  ]
+}

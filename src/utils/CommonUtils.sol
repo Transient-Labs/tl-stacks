@@ -22,8 +22,13 @@ enum DropType {
 interface DropErrors {
     error NotDropAdmin();
     error NotApprovedMintContract();
+    error TokenDoesntExist();
     error InvalidPayoutReceiver();
+    error InvalidRecipient();
+    error OwnershipRenunciationDisabled();
     error InvalidDropSupply();
+    error InvalidDropDuration();
+    error InvalidDecayRate();
     error DropAlreadyConfigured();
     error DropUpdateNotAllowed();
     error InvalidDropType();

@@ -83,7 +83,7 @@ contract TLStacks721FuzzTest is Test, DropErrors {
         protocolFee = bound(protocolFee, 0, 0.1 ether);
         bps = bound(bps, 0, stacks.MAX_SELLER_FEE_BPS());
         stacks.setProtocolFeeSettings(feeReceiver, protocolFee, bps, 0);
-        if (waived) stacks.waiveSellerFee(address(nft));
+        if (waived) stacks.waiveSellerFee(address(nft), 0);
         _configure(DropType.REGULAR, 20, 20, address(0), block.timestamp, 0, 0, 1 days, cost, 0);
 
         uint256 value = numberToMint * (cost + protocolFee);
@@ -118,7 +118,7 @@ contract TLStacks721FuzzTest is Test, DropErrors {
         bps = bound(bps, 0, stacks.MAX_SELLER_FEE_BPS());
         ethSent = bound(ethSent, 1, 1 ether);
         stacks.setProtocolFeeSettings(feeReceiver, 0.01 ether, 0, bps);
-        if (waived) stacks.waiveSellerFee(address(nft));
+        if (waived) stacks.waiveSellerFee(address(nft), 0);
         _configure(DropType.REGULAR, 20, 20, address(coin), block.timestamp, 0, 0, 1 days, cost, 0);
         coin.transfer(buyer, numberToMint * cost);
 

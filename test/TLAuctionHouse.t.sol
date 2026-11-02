@@ -205,7 +205,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
         ah.setRoyaltyLookup(address(0));
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, sender));
-        ah.removeProtocolFee(address(nft), 1);
+        ah.removeProtocolFee(address(nft), 1, 1);
         vm.stopPrank();
 
         // pass for owner (two step ownership transfer)
@@ -306,7 +306,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         // listing not configured for zero protocol fee override
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
-        ah.removeProtocolFee(address(nft), 1);
+        ah.removeProtocolFee(address(nft), 1, 1);
     }
 
     /////////////////////////////////////////////////////////////////////
@@ -450,7 +450,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -518,7 +518,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -586,7 +586,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         reservePrice = bound(reservePrice, 0, type(uint256).max - 1);
         buyNowPrice = bound(buyNowPrice, reservePrice + 1, type(uint256).max);
@@ -656,7 +656,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -755,7 +755,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -805,7 +805,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -855,7 +855,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         reservePrice = bound(reservePrice, 0, type(uint256).max - 1);
         buyNowPrice = bound(buyNowPrice, reservePrice + 1, type(uint256).max);
@@ -907,7 +907,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         uint256 buyNowPrice
     ) public {
         // limit inputs
-        vm.assume(payoutReceiver != address(0));
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != address(ah));
         duration = bound(duration, 0, ah.MAX_AUCTION_DURATION());
         ah.setCurrencyAllowed(currencyAddress, true);
 
@@ -3965,7 +3965,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // set protocol fee to zero for the auction
-        ah.removeProtocolFee(address(nft), 3);
+        ah.removeProtocolFee(address(nft), 3, ah.getListing(address(nft), 3).id);
 
         // deal and bid
         lid = ah.getListing(address(nft), 3).id;
@@ -4021,7 +4021,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // set protocol fee to zero for the auction
-        ah.removeProtocolFee(address(nft), 3);
+        ah.removeProtocolFee(address(nft), 3, ah.getListing(address(nft), 3).id);
 
         // deal and bid
         lid = ah.getListing(address(nft), 3).id;
@@ -4069,7 +4069,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // set protocol fee to zero for the auction
-        ah.removeProtocolFee(address(nft), 3);
+        ah.removeProtocolFee(address(nft), 3, ah.getListing(address(nft), 3).id);
 
         // deal and bid
         lid = ah.getListing(address(nft), 3).id;
@@ -4137,7 +4137,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.stopPrank();
 
         // set protocol fee to zero for the auction
-        ah.removeProtocolFee(address(nft), 3);
+        ah.removeProtocolFee(address(nft), 3, ah.getListing(address(nft), 3).id);
 
         // deal and bid
         lid = ah.getListing(address(nft), 3).id;
@@ -4341,7 +4341,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // deal eth to buyer
         vm.deal(buyer, 1000 ether);
@@ -4445,7 +4445,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -4552,7 +4552,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // deal eth to buyer
         vm.deal(buyer, 1000 ether);
@@ -4657,7 +4657,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -4764,7 +4764,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // deal eth to buyer
         vm.deal(buyer, 1000 ether);
@@ -4859,7 +4859,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -4957,7 +4957,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // deal eth to buyer
         vm.deal(buyer, 1000 ether);
@@ -5053,7 +5053,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -5346,7 +5346,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -5455,7 +5455,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -5567,7 +5567,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -5677,7 +5677,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         if (buyNowPrice == 0) buyNowPrice = 1; // buy now must be above the reserve
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -5789,7 +5789,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -5897,7 +5897,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -6007,7 +6007,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // ben sends coins to buyer
         vm.prank(ben);
@@ -6115,7 +6115,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         }
 
         vm.assume(buyer != ben && buyer != tl && buyer != anon && buyer != address(0) && buyer != address(ah));
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
 
         // set royalty lookjup to address(0)
         ah.setRoyaltyLookup(address(0));
@@ -6690,7 +6690,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
 
         vm.expectEmit(true, true, true, true);
         emit ProtocolFeeRemoved(address(nft), 1);
-        ah.removeProtocolFee(address(nft), 1);
+        ah.removeProtocolFee(address(nft), 1, 1);
     }
 
     function test_currencyAllowlist() public {
@@ -7371,8 +7371,8 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.prank(chris);
         ah.bid{value: firstBid}(address(nft), 1, address(0), firstBid, lid);
 
-        // top up in the last minute doesn't extend the auction
-        vm.warp(block.timestamp + 59 minutes);
+        // top up before the anti-snipe window doesn't extend the auction
+        vm.warp(block.timestamp + 54 minutes);
         Listing memory l = ah.getListing(address(nft), 1);
         l.highestBid += topUp;
         uint256 prevChrisBalance = chris.balance;
@@ -7394,7 +7394,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(nextBid, (firstBid + topUp) + Math.mulDiv(firstBid + topUp, 500, 10_000, Math.Rounding.Ceil));
 
         // settle pays out the topped up amount (primary sale)
-        vm.warp(block.timestamp + 1 minutes + 1);
+        vm.warp(l.startTime + l.duration + 1);
         uint256 prevBenBalance = ben.balance;
         uint256 prevTlBalance = tl.balance;
         ah.settleAuction(address(nft), 1);
@@ -7551,13 +7551,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     function test_updateListing_reserveAuction(uint256 reservePrice, uint256 duration, address payoutReceiver) public {
         reservePrice = bound(reservePrice, 1, 100 ether);
         duration = bound(duration, 1, 30 days);
-        vm.assume(payoutReceiver != address(0) && payoutReceiver != tl);
+        vm.assume(payoutReceiver != address(0) && payoutReceiver != tl && payoutReceiver != address(ah));
 
         vm.startPrank(ben);
         nft.setApprovalForAll(address(ah), true);
         ah.list(_cfg(address(nft), 1, ListingType.RESERVE_AUCTION, ben, address(0), 0, 1 ether, 1 hours, 0));
         vm.stopPrank();
-        ah.removeProtocolFee(address(nft), 1);
+        ah.removeProtocolFee(address(nft), 1, 1);
         uint256 oldId = ah.getListing(address(nft), 1).id;
 
         // expected listing after the update

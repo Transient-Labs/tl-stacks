@@ -37,14 +37,14 @@ contract TLAuctionHouse is
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 500; // 5% max protocol fee
     uint256 public constant MAX_ROYALTY_BPS = 1_000; // royalties can take at most 10% of the sale value
     uint256 public constant MAX_ROYALTY_RECIPIENTS = 10; // bounds gas spent on royalty payouts
-    uint256 public constant MAX_AUCTION_DURATION = 30 days;
+    uint256 public constant MAX_AUCTION_DURATION = 30 days; // initial duration only; anti-snipe extensions may exceed it
     uint256 public constant SETTLEMENT_GRACE_PERIOD = 7 days; // time after an auction ends before an unsettled auction can be canceled
-    uint256 public constant PAYOUT_GAS_LIMIT = 1e5; // gas forwarded on ETH payouts before crediting instead, so a payee can't burn the gas needed to finish the call
 
     /////////////////////////////////////////////////////////////////////
     // STORAGE
     /////////////////////////////////////////////////////////////////////
 
+    uint256 public payoutGasLimit = 1e5; // per-call gas allowance for automatic ETH payouts and bid refunds
     uint256 private _id; // listing id
     address public protocolFeeReceiver; // receives protocol fee
     uint256 public protocolFeeBps; // basis points for protocol fee
@@ -69,10 +69,12 @@ contract TLAuctionHouse is
     error CannotBidYet();
     error CannotBuyYet();
     error InvalidRecipient();
+    error OwnershipRenunciationDisabled();
     error BidTooLow();
     error AuctionEnded();
     error UnexpectedMsgValue();
     error InvalidProtocolFeeBps();
+    error InvalidPayoutGasLimit();
     error AlreadyListed();
     error InvalidPayoutReceiver();
     error InvalidDuration();
@@ -84,6 +86,7 @@ contract TLAuctionHouse is
     error NotSellerOrBidder();
     error SettlementGracePeriodNotOver();
     error NotHighestBidder();
+    error TopUpWindowClosed();
     error InvalidBuyNowPrice();
 
     /////////////////////////////////////////////////////////////////////
@@ -107,8 +110,8 @@ contract TLAuctionHouse is
     ///      - the token cannot already be listed
     ///      - the payout receiver cannot be the zero address or sanctioned
     ///      - the currency must be on the allowlist (ETH is always allowed)
-    ///      - the auction duration cannot exceed `MAX_AUCTION_DURATION`
-    ///      - private sales must specify a recipient that isn't the zero address or sanctioned
+    ///      - the initial auction duration cannot exceed `MAX_AUCTION_DURATION`; later bid extensions are uncapped
+    ///      - private sales must specify a recipient that isn't zero, this contract, or sanctioned
     ///      - reserve auctions with buy now must have a buy now price greater than the reserve price
     ///      - the token is escrowed upon listing
     ///      - if the auction house isn't approved for the token, escrowing will fail, so no need to check for that explicitly
@@ -153,6 +156,7 @@ contract TLAuctionHouse is
         // listing type and currency are fixed
         if (config.type_ != listing.type_) revert InvalidListingType();
         if (config.currencyAddress != listing.currencyAddress) revert CurrencyMismatch();
+        if (!_isCurrencyAllowed(config.currencyAddress)) revert CurrencyNotAllowed();
 
         // build and save the updated listing
         listing = _buildListing(config, listing.seller, listing.zeroProtocolFee);
@@ -165,7 +169,7 @@ contract TLAuctionHouse is
     /// @dev Requirements
     ///      - only the seller of the listing can update
     ///      - the seller cannot be sanctioned
-    ///      - the new payout receiver cannot be the zero address or sanctioned
+    ///      - the new payout receiver cannot be zero, this contract, or sanctioned
     ///      - can be called at any point before the listing is settled or canceled, including after bids
     ///      - the listing id does not change, as the terms for buyers and bidders are unaffected
     /// @param nftAddress The nft contract address
@@ -173,6 +177,7 @@ contract TLAuctionHouse is
     /// @param newPayoutReceiver The new address that will receive payout for the sale
     function updatePayoutReceiver(address nftAddress, uint256 tokenId, address newPayoutReceiver)
         external
+        nonReentrant
         whenNotPaused
     {
         Listing storage listing = _listings[nftAddress][tokenId];
@@ -322,10 +327,10 @@ contract TLAuctionHouse is
     ///        token can't land on a new listing where msg.sender is also the highest bidder (e.g. smart accounts
     ///        whose transactions can execute out of order)
     ///      - msg.sender must be the highest bidder
-    ///      - the auction can't have ended
+    ///      - more than `EXTENSION_TIME` must remain before the current auction end
     ///      - `amount` must be non-zero and the funds sent must match `amount` exactly
     ///      - if topping up with ERC-20 tokens, no ETH is allowed to be sent
-    ///      - topping up never extends the auction, so the highest bidder can't hold an auction open indefinitely
+    ///      - topping up never extends the auction; use a regular bid in the final anti-snipe window
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param amount The amount to add to the current bid
@@ -352,7 +357,11 @@ contract TLAuctionHouse is
         if (msg.sender != listing.highestBidder) revert NotHighestBidder();
 
         // cannot top up after auction is ended
-        if (block.timestamp > listing.startTime + listing.duration) revert AuctionEnded();
+        uint256 auctionEndTime = listing.startTime + listing.duration;
+        if (block.timestamp > auctionEndTime) revert AuctionEnded();
+
+        // Only regular bids may raise the bid floor during the anti-snipe window.
+        if (auctionEndTime - block.timestamp <= EXTENSION_TIME) revert TopUpWindowClosed();
 
         // top up must be non-zero
         if (amount == 0) revert BidTooLow();
@@ -448,7 +457,7 @@ contract TLAuctionHouse is
     /// @notice Function to buy a token at a fixed price
     /// @dev Requirements
     ///      - msg.sender and recipient cannot be sanctioned
-    ///      - recipient cannot be the zero address
+    ///      - recipient cannot be the zero address or this contract
     ///      - listing must be configured as a reserve auction with a buy now price, a buy now, or a private sale
     ///      - for private sales, `recipient` must be the recipient set by the seller (anyone can pay)
     ///      - the listing id must match `expectedListingId`, so a delisted and relisted token can't be bought with a
@@ -516,26 +525,32 @@ contract TLAuctionHouse is
     ///      - msg.sender and `to` cannot be sanctioned
     ///      - `to` cannot be the zero address
     ///      - msg.sender must have a non-zero `claimableFunds` balance for `currencyAddress`
-    /// @dev Not gated by pause, since funds can only be credited through pausable functions
+    /// @dev Not gated by pause so existing credits remain recoverable
     /// @param currencyAddress The currency to claim (zero address == ETH)
     /// @param to The address to send the funds to, which allows the intended recipient to redirect funds
     function claimFunds(address currencyAddress, address to) external nonReentrant {
-        if (_isSanctioned(msg.sender)) revert SanctionedAddress();
+        _claimFunds(msg.sender, currencyAddress, to);
+    }
+
+    /// @notice Anyone may retry a funded credit, paying only its original beneficiary.
+    /// @dev Available while paused. Failed transfers revert and preserve the credit. No caller can redirect it.
+    ///      Beneficiary/destination screening remains required; an oracle error reverts.
+    function retryPayout(address beneficiary, address currencyAddress) external nonReentrant {
+        _claimFunds(beneficiary, currencyAddress, beneficiary);
+    }
+
+    function _claimFunds(address beneficiary, address currencyAddress, address to) private {
+        if (_isSanctioned(beneficiary)) revert SanctionedAddress();
         if (!_isValidRecipient(to)) revert InvalidRecipient();
-
-        uint256 amount = claimableFunds[msg.sender][currencyAddress];
+        uint256 amount = claimableFunds[beneficiary][currencyAddress];
         if (amount == 0) revert NothingToClaim();
-
-        // reset claimable funds
-        claimableFunds[msg.sender][currencyAddress] = 0;
-
+        claimableFunds[beneficiary][currencyAddress] = 0;
         if (currencyAddress == address(0)) {
             _safeTransferETH(to, amount);
         } else {
             _safeTransferERC20(to, currencyAddress, amount);
         }
-
-        emit FundsClaimed(msg.sender, currencyAddress, to, amount);
+        emit FundsClaimed(beneficiary, currencyAddress, to, amount);
     }
 
     /// @notice Function to claim an escrowed nft that couldn't be returned to the caller
@@ -543,7 +558,7 @@ contract TLAuctionHouse is
     ///      - msg.sender and `to` cannot be sanctioned
     ///      - `to` cannot be the zero address
     ///      - msg.sender must be able to claim the nft
-    /// @dev Not gated by pause, since nfts can only be credited through pausable functions
+    /// @dev Not gated by pause so existing NFT claims remain recoverable
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     /// @param to The address to send the nft to
@@ -561,6 +576,24 @@ contract TLAuctionHouse is
     /////////////////////////////////////////////////////////////////////
     // ADMIN FUNCTIONS
     /////////////////////////////////////////////////////////////////////
+
+    /// @notice Ownership cannot be renounced; use the two-step ownership transfer instead.
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipRenunciationDisabled();
+    }
+
+    /// @notice Set the per-recipient gas allowance for automatic ETH payments and bid refunds.
+    /// @dev Requires owner and a nonzero limit. May be changed while paused.
+    ///      Failed calls credit the payee if enough transaction gas remains. Excessive limits can prevent
+    ///      the transaction from completing; the owner is responsible for choosing a practical allowance.
+    ///      Explicit claims and ERC-20 payments do not use this allowance.
+    /// @param newPayoutGasLimit The gas allowance for each automatic ETH call
+    function setPayoutGasLimit(uint256 newPayoutGasLimit) external onlyOwner {
+        if (newPayoutGasLimit == 0) revert InvalidPayoutGasLimit();
+        uint256 previousGasLimit = payoutGasLimit;
+        payoutGasLimit = newPayoutGasLimit;
+        emit PayoutGasLimitUpdated(previousGasLimit, newPayoutGasLimit);
+    }
 
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
@@ -586,7 +619,7 @@ contract TLAuctionHouse is
 
     /// @notice Function to add or remove an ERC-20 currency from the allowlist
     /// @dev Requires owner
-    /// @dev Removing a currency only blocks new sales from using it, existing sales are unaffected
+    /// @dev Removing a currency blocks new listings and term updates; existing sales can still execute
     /// @dev Only allow standard ERC-20 tokens. Escrow and payout accounting assume balances held by this contract
     ///      only change through its own transfers, and payouts don't account for transfer fees, so rebasing,
     ///      fee-on-transfer, and other balance-altering tokens must never be allowed. A negative rebase would leave
@@ -633,9 +666,11 @@ contract TLAuctionHouse is
     /// @dev Requires owner
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
-    function removeProtocolFee(address nftAddress, uint256 tokenId) external onlyOwner {
+    /// @param expectedListingId The current listing intended for the waiver
+    function removeProtocolFee(address nftAddress, uint256 tokenId, uint256 expectedListingId) external onlyOwner {
         if (_listings[nftAddress][tokenId].type_ == ListingType.NOT_CONFIGURED) revert InvalidListingType();
 
+        if (_listings[nftAddress][tokenId].id != expectedListingId) revert ListingChanged();
         _listings[nftAddress][tokenId].zeroProtocolFee = true;
 
         emit ProtocolFeeRemoved(nftAddress, tokenId);
@@ -659,7 +694,7 @@ contract TLAuctionHouse is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     function getNextBid(address nftAddress, uint256 tokenId) external view returns (uint256) {
-        Listing memory listing = _listings[nftAddress][tokenId];
+        Listing storage listing = _listings[nftAddress][tokenId];
         if (listing.highestBidder == address(0)) return Math.max(listing.reservePrice, 1);
 
         return _calcNextBid(listing.highestBid);
@@ -669,7 +704,7 @@ contract TLAuctionHouse is
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     function getIfPrimarySale(address nftAddress, uint256 tokenId) external view returns (bool) {
-        Listing memory listing = _listings[nftAddress][tokenId];
+        Listing storage listing = _listings[nftAddress][tokenId];
         return _isPrimarySale(nftAddress, tokenId, listing.seller);
     }
 
@@ -699,9 +734,9 @@ contract TLAuctionHouse is
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to check if an nft recipient is valid
-    /// @dev Returns false if the recipient is sanctioned or if it is the zero address
+    /// @dev Returns false for sanctioned recipients, the zero address, or this contract
     function _isValidRecipient(address recipient) private view returns (bool) {
-        if (recipient == address(0)) return false;
+        if (recipient == address(0) || recipient == address(this)) return false;
         if (_isSanctioned(recipient)) return false;
         return true;
     }
@@ -728,6 +763,13 @@ contract TLAuctionHouse is
 
         // check that the sender owns the token
         if (IERC721(config.nftAddress).ownerOf(config.tokenId) != msg.sender) revert NotTokenOwner();
+
+        address previousClaimant = claimableNft[config.nftAddress][config.tokenId];
+        if (previousClaimant != address(0)) {
+            // NFT was somehow claimed if the check above this works
+            delete claimableNft[config.nftAddress][config.tokenId];
+            emit NftClaimRetired(config.nftAddress, config.tokenId, previousClaimant, msg.sender);
+        }
 
         // build and set listing
         Listing memory listing = _buildListing(config, msg.sender, false);
@@ -849,7 +891,9 @@ contract TLAuctionHouse is
     }
 
     /// @notice Internal function to abstract payouts when settling a listing
-    /// @dev Never reverts: if `to` is sanctioned or the transfer fails, the funds are credited to `to` to be claimed
+    /// @dev If `to` is sanctioned or the transfer fails, the funds are credited to `to` to be claimed,
+    ///      provided enough transaction gas remains to complete the operation.
+    ///      A configured sanctions oracle is a required dependency: screening errors propagate and revert.
     function _payout(address to, address currencyAddress, uint256 value) private {
         if (to == address(0) || value == 0) return;
 
@@ -860,7 +904,7 @@ contract TLAuctionHouse is
 
         bool success;
         if (currencyAddress == address(0)) {
-            success = _trySafeTransferETH(to, value, PAYOUT_GAS_LIMIT);
+            success = _trySafeTransferETH(to, value, payoutGasLimit);
         } else {
             success = _trySafeTransferERC20(to, currencyAddress, value);
         }
@@ -881,7 +925,7 @@ contract TLAuctionHouse is
         uint256 numRecipients = Math.min(recipients.length, MAX_ROYALTY_RECIPIENTS);
         cappedRecipients = new address payable[](numRecipients);
         cappedAmounts = new uint256[](numRecipients);
-        uint256 royaltyBudget = value * MAX_ROYALTY_BPS / BASIS;
+        uint256 royaltyBudget = Math.mulDiv(value, MAX_ROYALTY_BPS, BASIS);
         for (uint256 i = 0; i < numRecipients; ++i) {
             if (recipients[i] == address(0) || recipients[i] == address(this)) continue;
             cappedRecipients[i] = recipients[i];
@@ -891,7 +935,8 @@ contract TLAuctionHouse is
     }
 
     /// @notice Internal function to determine royalties before transferring the NFT
-    /// @dev Royalties are capped by `_capRoyalties`; lookup failures leave the full sale value with the seller
+    /// @dev Royalties are capped by `_capRoyalties`. An unset (codeless) royalty lookup disables royalties, and a
+    ///      reverting lookup pays no royalty. `RoyaltyLookup` handles engine failures and the ERC-2981 fallback.
     function _quoteRoyalties(address nftAddress, uint256 tokenId, uint256 value)
         private
         returns (address payable[] memory recipients, uint256[] memory amounts)
@@ -928,7 +973,7 @@ contract TLAuctionHouse is
 
         // take protocol fee (if not zeroed by contract owner)
         if (!listing.zeroProtocolFee) {
-            uint256 protocolFee = value * protocolFeeBps / BASIS;
+            uint256 protocolFee = Math.mulDiv(value, protocolFeeBps, BASIS);
             remainingValue -= protocolFee;
             _payout(protocolFeeReceiver, listing.currencyAddress, protocolFee);
         }

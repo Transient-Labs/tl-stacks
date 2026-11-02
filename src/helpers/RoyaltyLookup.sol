@@ -9,13 +9,13 @@ import {IERC2981} from "@openzeppelin-contracts-5.6.1/interfaces/IERC2981.sol";
 /// @title RoyaltyLookup.sol
 /// @notice Contract to enable TLAuctionHouse to determine royalties to payout on secondary sales
 /// @author Transient Labs, Inc.
-/// @custom:version 2.6.0
+/// @custom:version 2.8.0
 contract RoyaltyLookup is Ownable, IRoyaltyLookup {
     /////////////////////////////////////////////////////////////////////
     // CONSTANTS
     /////////////////////////////////////////////////////////////////////
 
-    string public constant VERSION = "2.6.0";
+    string public constant VERSION = "2.8.0";
 
     /////////////////////////////////////////////////////////////////////
     // STORAGE
@@ -38,27 +38,14 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         external
         returns (address payable[] memory recipients, uint256[] memory amounts)
     {
-        // if royalty registry is enabled, use that, otherwise fallback to ERC-2981
-        if (address(royaltyEngine) != address(0)) {
-            // make sure royalty engine is not an EOA
-            if (address(royaltyEngine).code.length == 0) return (recipients, amounts);
-
-            // try looking up royalty
+        if (address(royaltyEngine).code.length != 0) {
             try royaltyEngine.getRoyalty(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
-                // if array lengths don't match, return empty
-                if (r.length != a.length) return (recipients, amounts);
-
-                // return values from the royalty registry otherwise
-                return (r, a);
-            } catch {
-                // if error, return empty
-                return (recipients, amounts);
-            }
-        } else {
-            return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
+                if (_hasPayableRoyalty(r, a)) return (r, a);
+            } catch {}
         }
+        return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
     }
 
     /// @inheritdoc IRoyaltyLookup
@@ -67,27 +54,14 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         view
         returns (address payable[] memory recipients, uint256[] memory amounts)
     {
-        // if royalty registry is enabled, use that, otherwise fallback to ERC-2981
-        if (address(royaltyEngine) != address(0)) {
-            // make sure royalty engine is not an EOA
-            if (address(royaltyEngine).code.length == 0) return (recipients, amounts);
-
-            // try looking up royalty
+        if (address(royaltyEngine).code.length != 0) {
             try royaltyEngine.getRoyaltyView(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
-                // if array lengths don't match, return empty
-                if (r.length != a.length) return (recipients, amounts);
-
-                // return values from the royalty registry otherwise
-                return (r, a);
-            } catch {
-                // if error, return empty
-                return (recipients, amounts);
-            }
-        } else {
-            return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
+                if (_hasPayableRoyalty(r, a)) return (r, a);
+            } catch {}
         }
+        return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
     }
 
     /////////////////////////////////////////////////////////////////////
@@ -103,7 +77,23 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
     // INTERNAL HELPERS
     /////////////////////////////////////////////////////////////////////
 
+    /// @notice Internal function to check if an engine schedule is usable
+    /// @dev True when the arrays match and at least one nonzero amount goes to a nonzero recipient
+    function _hasPayableRoyalty(address payable[] memory recipients, uint256[] memory amounts)
+        internal
+        pure
+        returns (bool)
+    {
+        if (recipients.length != amounts.length) return false;
+        for (uint256 i = 0; i < amounts.length; ++i) {
+            if (amounts[i] != 0 && recipients[i] != address(0)) return true;
+        }
+        return false;
+    }
+
     /// @notice Internal function to get royalty info based on ERC-2981 specification
+    /// @dev A reverting NFT yields empty arrays. A successful call with malformed return data reverts this lookup
+    ///      while decoding; `TLAuctionHouse` calls this contract inside `try/catch`, so that sale pays no royalty.
     function _getERC2981RoyaltyInfo(address nftAddress, uint256 tokenId, uint256 value)
         internal
         view
@@ -112,19 +102,11 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
         // make sure nft address is not an EOA
         if (nftAddress.code.length == 0) return (recipients, amounts);
 
-        // try looking up royalty
-        try IERC2981(nftAddress).royaltyInfo(tokenId, value) returns (address r_, uint256 a_) {
-            // convert return value to arrays
-            address payable[] memory r = new address payable[](1);
-            r[0] = payable(r_);
-            uint256[] memory a = new uint256[](1);
-            a[0] = a_;
-
-            // return arrays
-            return (r, a);
-        } catch {
-            // if error, return empty
-            return (recipients, amounts);
-        }
+        try IERC2981(nftAddress).royaltyInfo(tokenId, value) returns (address r, uint256 a) {
+            recipients = new address payable[](1);
+            amounts = new uint256[](1);
+            recipients[0] = payable(r);
+            amounts[0] = a;
+        } catch {}
     }
 }

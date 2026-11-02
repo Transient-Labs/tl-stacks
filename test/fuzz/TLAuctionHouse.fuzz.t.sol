@@ -153,7 +153,7 @@ contract TLAuctionHouseFuzzTest is Test {
             1 days,
             p.viaAuction ? 0 : p.value
         );
-        if (p.zeroFee) ah.removeProtocolFee(address(nft), tokenId);
+        if (p.zeroFee) ah.removeProtocolFee(address(nft), tokenId, ah.getListing(address(nft), tokenId).id);
 
         _fund(buyer, currency, p.value);
         if (p.viaAuction) {
@@ -247,8 +247,8 @@ contract TLAuctionHouseFuzzTest is Test {
     // TIME BOUNDARIES
     /////////////////////////////////////////////////////////////////////
 
-    /// @dev G-14, G-19, G-22: at the stored end a bid or top up still lands, settlement does not; one second later
-    ///      it is the reverse
+    /// @dev G-14, G-19, G-22: at the stored end a regular bid still lands, but top ups and settlement do not;
+    ///      one second later only settlement is allowed
     function testFuzz_endBoundary_bidTopUpSettle(uint256 duration) public {
         duration = bound(duration, 0, 30 days);
         uint256 lid = _list(SECONDARY_TOKEN, ListingType.RESERVE_AUCTION, address(0), 0, 0, duration, 0);
@@ -266,10 +266,11 @@ contract TLAuctionHouseFuzzTest is Test {
         end = l.startTime + l.duration;
         assertEq(end, block.timestamp + ah.EXTENSION_TIME(), "bid at end not extended");
 
-        // exactly at the new end: a top up lands without moving the end
+        // exactly at the new end: top ups are blocked by the anti-snipe window
         vm.warp(end);
         vm.deal(bidder2, 1);
         vm.prank(bidder2);
+        vm.expectRevert(TLAuctionHouse.TopUpWindowClosed.selector);
         ah.topUpBid{value: 1}(address(nft), SECONDARY_TOKEN, 1, lid);
         l = ah.getListing(address(nft), SECONDARY_TOKEN);
         assertEq(l.startTime + l.duration, end, "I-10: top up moved the end");
@@ -399,7 +400,7 @@ contract TLAuctionHouseFuzzTest is Test {
         ListingType type_ = ListingType(bound(typeSeed, 0, 5));
         openTime = bound(openTime, 0, 2_000_000);
         duration = bound(duration, 0, 60 days);
-        vm.assume(recipient != address(0));
+        vm.assume(recipient != address(0) && recipient != address(ah));
         ListingConfig memory cfg = ListingConfig(
             address(nft),
             SECONDARY_TOKEN,
@@ -456,10 +457,12 @@ contract TLAuctionHouseFuzzTest is Test {
         duration = bound(duration, 0, 30 days);
         reservePrice = bound(reservePrice, 0, type(uint256).max - 1);
         buyNowPrice = bound(buyNowPrice, reservePrice + 1, type(uint256).max);
-        vm.assume(newPayoutReceiver != address(0));
+        vm.assume(newPayoutReceiver != address(0) && newPayoutReceiver != address(ah));
         uint256 lid =
             _list(SECONDARY_TOKEN, ListingType.RESERVE_AUCTION_PLUS_BUY_NOW, address(0), 0, 1 ether, 1 days, 2 ether);
-        if (waive) ah.removeProtocolFee(address(nft), SECONDARY_TOKEN);
+        if (waive) {
+            ah.removeProtocolFee(address(nft), SECONDARY_TOKEN, ah.getListing(address(nft), SECONDARY_TOKEN).id);
+        }
 
         vm.prank(seller);
         ah.updateListing(

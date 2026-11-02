@@ -46,6 +46,7 @@ struct ListingConfig {
 }
 
 interface ITLAuctionHouseEvents {
+    event PayoutGasLimitUpdated(uint256 previousGasLimit, uint256 newGasLimit);
     event ProtocolFeeUpdated(address indexed newProtocolFeeReceiver, uint256 indexed newProtocolFee);
     event ProtocolFeeRemoved(address indexed nftAddress, uint256 indexed tokenId);
     event CreatorLookupUpdated(address indexed prevCreatorLookup, address indexed newCreatorLookup);
@@ -69,6 +70,9 @@ interface ITLAuctionHouseEvents {
 
     event FundsCredited(address indexed account, address indexed currencyAddress, uint256 amount);
     event FundsClaimed(address indexed account, address indexed currencyAddress, address to, uint256 amount);
+    event NftClaimRetired(
+        address indexed nftAddress, uint256 indexed tokenId, address indexed previousClaimant, address newSeller
+    );
     event NftCredited(address indexed account, address indexed nftAddress, uint256 indexed tokenId);
     event NftClaimed(address indexed account, address indexed nftAddress, uint256 indexed tokenId, address to);
 }

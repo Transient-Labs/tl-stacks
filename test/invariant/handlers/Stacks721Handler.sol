@@ -307,7 +307,7 @@ contract Stacks721Handler is Test {
 
     function waiveSellerFee(uint256 nftSeed) external {
         address nft = _nft(nftSeed);
-        stacks.waiveSellerFee(nft);
+        stacks.waiveSellerFee(nft, ghostRound[nft]);
         ghostWaived[nft][ghostRound[nft]] = true;
         _hit("waiveSellerFee");
     }

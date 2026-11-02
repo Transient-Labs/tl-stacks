@@ -5,6 +5,7 @@ import {Ownable, Ownable2Step} from "@openzeppelin-contracts-5.6.1/access/Ownabl
 import {Pausable} from "@openzeppelin-contracts-5.6.1/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol";
 import {MerkleProof} from "@openzeppelin-contracts-5.6.1/utils/cryptography/MerkleProof.sol";
+import {Math} from "@openzeppelin-contracts-5.6.1/utils/math/Math.sol";
 import {Strings} from "@openzeppelin-contracts-5.6.1/utils/Strings.sol";
 import {BitMaps} from "@openzeppelin-contracts-5.6.1/utils/structs/BitMaps.sol";
 import {OwnableAccessControlUpgradeable} from "tl-creator-contracts-4.1.1/lib/OwnableAccessControlUpgradeable.sol";
@@ -80,6 +81,11 @@ contract TLStacks721 is
     // OWNER FUNCTIONS
     /////////////////////////////////////////////////////////////////////
 
+    /// @notice Ownership cannot be renounced; use the two-step ownership transfer instead.
+    function renounceOwnership() public view override onlyOwner {
+        revert OwnershipRenunciationDisabled();
+    }
+
     /// @notice Function to set the protocol fee settings
     /// @dev Requires owner
     /// @param newProtocolFeeReceiver The new protocol fee receiver
@@ -100,8 +106,10 @@ contract TLStacks721 is
     /// @dev Can be called before the drop is configured, and a waived seller fee stays waived for the round. The
     ///      waiver resets when the drop is closed or reconfigured, since that starts a new round.
     /// @param nftAddress The nft contract address
-    function waiveSellerFee(address nftAddress) external onlyOwner {
+    /// @param expectedRound The current round intended for the waiver, including an unconfigured round
+    function waiveSellerFee(address nftAddress, uint256 expectedRound) external onlyOwner {
         uint256 round = _rounds[nftAddress];
+        if (round != expectedRound) revert DropRoundChanged();
         _sellerFeeWaived[nftAddress][round] = true;
 
         emit SellerFeeWaived(nftAddress, round);
@@ -154,6 +162,7 @@ contract TLStacks721 is
     /// @notice Function to configure a drop
     /// @dev Caller must be the nft contract owner or an admin on the contract
     /// @dev Reverts if
+    ///     - startTime + presaleDuration + publicDuration exceeds type(uint64).max
     ///     - the payout receiver is the zero address or sanctioned
     ///     - the `dropType` is `NOT_CONFIGURED`
     ///     - the currency is not on the allowlist (native currency is always allowed)
@@ -174,8 +183,10 @@ contract TLStacks721 is
         if (!_isCurrencyAllowed(drop.currencyAddress)) revert CurrencyNotAllowed();
         if (drop.initialSupply != drop.supply) revert InvalidDropSupply();
         if (drop.dropType == DropType.NOT_CONFIGURED) revert InvalidDropType();
+        if (drop.decayRate == type(int256).min) revert InvalidDecayRate();
         if (drop.decayRate != 0 && drop.dropType != DropType.VELOCITY) revert InvalidDropType();
         if (drop.dropType == DropType.VELOCITY && drop.presaleDuration != 0) revert NotAllowedForVelocityDrops();
+        _validateDropDuration(drop.startTime, drop.presaleDuration, drop.publicDuration);
 
         // check if drop is already configured and live
         Drop memory mDrop = _drops[nftAddress];
@@ -292,6 +303,7 @@ contract TLStacks721 is
         DropPhase mPhase = _getDropPhase(drop);
         if (mPhase == DropPhase.NOT_CONFIGURED || mPhase == DropPhase.ENDED) revert DropUpdateNotAllowed();
         if (drop.dropType == DropType.VELOCITY && presaleDuration != 0) revert NotAllowedForVelocityDrops();
+        _validateDropDuration(startTime, presaleDuration, publicDuration);
 
         // update durations
         drop.startTime = startTime;
@@ -333,7 +345,7 @@ contract TLStacks721 is
     /// @notice Function to adjust the drop decay rate
     /// @dev Caller must be the nft contract owner or an admin on the contract, and cannot be sanctioned
     /// @param nftAddress The nft contract address
-    /// @param decayRate The merkle root for the presale phase (each leaf is abi encoded with the recipient and number they can mint during presale)
+    /// @param decayRate Signed seconds per minted token: negative shortens, positive extends; int256.min is invalid
     function updateDropDecayRate(address nftAddress, int256 decayRate) external nonReentrant whenNotPaused {
         // sanctions
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
@@ -346,6 +358,7 @@ contract TLStacks721 is
         if (drop.dropType != DropType.VELOCITY) revert NotAllowedForVelocityDrops();
 
         // update decay rate
+        if (decayRate == type(int256).min) revert InvalidDecayRate();
         drop.decayRate = decayRate;
         _drops[nftAddress].decayRate = drop.decayRate;
 
@@ -614,6 +627,7 @@ contract TLStacks721 is
         uint256 newEthSellerFeeBps,
         uint256 newErc20SellerFeeBps
     ) internal {
+        if (newProtocolFeeReceiver == address(this)) revert InvalidProtocolFeeReceiver();
         if (
             newProtocolFeeReceiver == address(0)
                 && (newProtocolFee != 0 || newEthSellerFeeBps != 0 || newErc20SellerFeeBps != 0)
@@ -648,9 +662,19 @@ contract TLStacks721 is
 
     /// @notice Internal function to check if a payout address is a valid address
     /// @param payoutReceiver The payout address to check
-    /// @return bool Indication of if the payout address is not the zero address and not sanctioned
+    /// @return bool Indication of if the payout address is neither zero nor this contract and is not sanctioned
     function _checkPayoutReceiver(address payoutReceiver) internal view returns (bool) {
-        return payoutReceiver != address(0) && !_isSanctioned(payoutReceiver);
+        return payoutReceiver != address(0) && payoutReceiver != address(this) && !_isSanctioned(payoutReceiver);
+    }
+
+    /// @notice Require the complete schedule to fit a uint64 timestamp without overflowing intermediate sums
+    function _validateDropDuration(uint256 startTime, uint256 presaleDuration, uint256 publicDuration) internal pure {
+        uint256 remaining = type(uint64).max;
+        if (startTime > remaining) revert InvalidDropDuration();
+        remaining -= startTime;
+        if (presaleDuration > remaining) revert InvalidDropDuration();
+        remaining -= presaleDuration;
+        if (publicDuration > remaining) revert InvalidDropDuration();
     }
 
     /// @notice Internal function to get the drop phase
@@ -711,6 +735,7 @@ contract TLStacks721 is
     ) internal view returns (Drop memory drop, DropPhase dropPhase, uint256 cost) {
         if (_isSanctioned(msg.sender)) revert SanctionedAddress();
         if (_isSanctioned(recipient)) revert SanctionedAddress();
+        if (recipient == address(this)) revert InvalidRecipient();
 
         // cache drop
         drop = _drops[nftAddress];
@@ -780,17 +805,18 @@ contract TLStacks721 is
     ) internal {
         // velocity mint
         if (drop.dropType == DropType.VELOCITY) {
-            uint256 durationAdjust = drop.decayRate < 0
-                ? uint256(-1 * drop.decayRate) * numberToMint
-                : uint256(drop.decayRate) * numberToMint;
             if (drop.decayRate < 0) {
-                if (durationAdjust > drop.publicDuration) {
-                    _drops[nftAddress].publicDuration = 0;
-                } else {
-                    _drops[nftAddress].publicDuration -= durationAdjust;
-                }
-            } else {
-                _drops[nftAddress].publicDuration += durationAdjust;
+                uint256 magnitude = uint256(-drop.decayRate);
+                // Check saturation before multiplication so even extreme rates cannot overflow.
+                _drops[nftAddress].publicDuration =
+                    numberToMint > drop.publicDuration / magnitude ? 0 : drop.publicDuration - magnitude * numberToMint;
+            } else if (drop.decayRate > 0) {
+                uint256 rate = uint256(drop.decayRate);
+                // Stored schedules end at or before uint64.max, so this can't underflow. Extensions cap at that
+                // ceiling (effectively forever); compare before multiplying so even extreme rates cannot overflow.
+                uint256 remaining = type(uint64).max - drop.startTime - drop.presaleDuration - drop.publicDuration;
+                _drops[nftAddress].publicDuration =
+                    drop.publicDuration + (numberToMint > remaining / rate ? remaining : rate * numberToMint);
             }
         }
 
@@ -814,7 +840,7 @@ contract TLStacks721 is
         // calculate the seller fee (rounds down in favor of the seller)
         uint256 sellerFee;
         if (!_sellerFeeWaived[nftAddress][round]) {
-            sellerFee = totalSale * (isEth ? ethSellerFeeBps : erc20SellerFeeBps) / BASIS;
+            sellerFee = Math.mulDiv(totalSale, isEth ? ethSellerFeeBps : erc20SellerFeeBps, BASIS);
         }
         uint256 sellerProceeds = totalSale - sellerFee;
 

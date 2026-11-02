@@ -30,7 +30,7 @@ Auction house also: `setCreatorLookup()` → `setRoyaltyLookup()`. `RoyaltyLooku
 
 `[list above]` → `bid()`  ◄── `openTime` reached; listing id and currency match
 
-→ `topUpBid()`  ◄── caller is `highestBidder`; auction not ended
+→ `topUpBid()`  ◄── caller is `highestBidder`; more than five minutes remain
 
 → `buyNow()`  ◄── buy-now type; no bid yet; price ≤ `maxPrice`
 
@@ -106,6 +106,18 @@ NFT grants `APPROVED_MINT_CONTRACT`; caller is the NFT `owner` or `ADMIN_ROLE`
 | Value flow | Auction house → `to` |
 | Reentrancy guard | yes |
 
+### `TLAuctionHouse.retryPayout()`
+
+| Aspect | Detail |
+| --- | --- |
+| Visibility | external, `nonReentrant`, available while paused |
+| Caller | Anyone; no permission to redirect funds |
+| Parameters | `beneficiary`, `currencyAddress` |
+| Value flow | Exact stored credit to `beneficiary` only; ETH uses available gas |
+| Checks | Beneficiary/destination screening, valid recipient, nonzero funded credit; no currency admission recheck |
+| Failure | Reverts and preserves the original credit |
+| Event | Existing `FundsClaimed` names the beneficiary as the credit account |
+
 ### `TLStacks721.purchase()`
 
 | Aspect | Detail |
@@ -150,7 +162,7 @@ NFT grants `APPROVED_MINT_CONTRACT`; caller is the NFT `owner` or `ADMIN_ROLE`
 | Visibility | external |
 | Caller | Anyone (auction house calls it during settlement) |
 | Parameters | `nftAddress`, `tokenId`, `value` (user-controlled) |
-| Call chain | `→ IRoyaltyEngineV1.getRoyalty()` when `royaltyEngine` is set; otherwise `→ IERC2981.royaltyInfo()` |
+| Call chain | `→ IRoyaltyEngineV1.getRoyalty()` when `royaltyEngine` has code; `→ IERC2981.royaltyInfo()` when there is no engine or its schedule fails or pays nothing |
 | State modified | None |
 | Value flow | None |
 | Reentrancy guard | no |
@@ -164,7 +176,7 @@ NFT grants `APPROVED_MINT_CONTRACT`; caller is the NFT `owner` or `ADMIN_ROLE`
 | `TLAuctionHouse` | `list` | Token owner (`ownerOf`) | `_listings`, `_id` | NFT in | `nonReentrant`, `whenNotPaused` |
 | `TLAuctionHouse` | `batchList` | Token owner, per item | `_listings`, `_id` | NFT in | `nonReentrant`, `whenNotPaused` |
 | `TLAuctionHouse` | `updateListing` | `listing.seller`; no bid yet | `_listings` (new `id`) | None | `nonReentrant`, `whenNotPaused` |
-| `TLAuctionHouse` | `updatePayoutReceiver` | `listing.seller` | `listing.payoutReceiver` | None | `whenNotPaused` |
+| `TLAuctionHouse` | `updatePayoutReceiver` | `listing.seller` | `listing.payoutReceiver` | None | `nonReentrant`, `whenNotPaused` |
 | `TLAuctionHouse` | `delist` | `listing.seller`; no bid | deletes `_listings` | NFT out | `nonReentrant` |
 | `TLAuctionHouse` | `topUpBid` | `listing.highestBidder` | `highestBid` | Currency in | `nonReentrant`, `whenNotPaused` |
 | `TLAuctionHouse` | `cancelUnsettledAuction` | Seller or highest bidder; grace elapsed | deletes `_listings`; `claimableFunds`; `claimableNft` | Accounting only | `nonReentrant` |
@@ -191,7 +203,7 @@ NFT grants `APPROVED_MINT_CONTRACT`; caller is the NFT `owner` or `ADMIN_ROLE`
 | `TLStacks1155` | `closeDrop` | Drop admin | deletes `_drops[nft][id]`; `_rounds++` | None | `nonReentrant` |
 | `TLStacks1155` | `acceptOwnership` | `pendingOwner` | `owner` | None | inherited `Ownable2Step` |
 
-Drop admin means `msg.sender` equals the NFT contract's `owner()` or holds `ADMIN_ROLE` (`keccak256("ADMIN_ROLE")`) on that contract. `configureDrop` also requires this contract to hold `APPROVED_MINT_CONTRACT`.
+Drop admin means `msg.sender` equals the NFT contract's `owner()` or holds `ADMIN_ROLE` (`keccak256("ADMIN_ROLE")`) on that contract. `configureDrop` also requires this contract to hold `APPROVED_MINT_CONTRACT`. ERC-1155 configuration additionally requires `IERC1155TL.getTokenDetails(tokenId).created`; missing IDs revert with `TokenDoesntExist` before drop state is written. Both mint contracts also require the complete schedule endpoint to fit in `uint64` on configuration, duration updates, and positive marathon extensions; exceeding it reverts with `InvalidDropDuration`.
 
 ---
 
@@ -199,31 +211,32 @@ Drop admin means `msg.sender` equals the NFT contract's `owner()` or holds `ADMI
 
 | Contract | Function | Parameters | State Modified |
 |----------|----------|------------|----------------|
+| `TLAuctionHouse` | `setPayoutGasLimit` | nonzero per-call ETH gas allowance; owner only, also while paused | `payoutGasLimit` (initially `1e5`); emits previous/new values |
 | `TLAuctionHouse` | `setProtocolFeeSettings` | receiver, bps ≤ 500 | `protocolFeeReceiver`, `protocolFeeBps` |
 | `TLAuctionHouse` | `setSanctionsOracle` | oracle | `SanctionsCompliance.oracle` |
 | `TLAuctionHouse` | `setCurrencyAllowed` | currency, bool | `allowedCurrencies` |
 | `TLAuctionHouse` | `setCreatorLookup` | helper | `creatorLookup` |
 | `TLAuctionHouse` | `setRoyaltyLookup` | helper | `royaltyLookup` |
 | `TLAuctionHouse` | `pause` | bool | Pausable flag |
-| `TLAuctionHouse` | `removeProtocolFee` | nft, tokenId | `listing.zeroProtocolFee = true` |
+| `TLAuctionHouse` | `removeProtocolFee` | nft, tokenId, expectedListingId | `listing.zeroProtocolFee = true` |
 | `TLAuctionHouse` | `transferOwnership` | new owner | `_pendingOwner` (inherited `Ownable2Step`) |
-| `TLAuctionHouse` | `renounceOwnership` | — | `owner = address(0)` (inherited `Ownable`, not overridden) |
+| `TLAuctionHouse` | `renounceOwnership` | owner only | Reverts with `OwnershipRenunciationDisabled`; ownership is unchanged |
 | `TLStacks721` | `setProtocolFeeSettings` | receiver, flat ETH fee, two bps ≤ 500 | `protocolFeeReceiver`, `protocolFee`, `ethSellerFeeBps`, `erc20SellerFeeBps` |
-| `TLStacks721` | `waiveSellerFee` | nft | `_sellerFeeWaived[nft][round] = true` |
+| `TLStacks721` | `waiveSellerFee` | nft, expectedRound | `_sellerFeeWaived[nft][round] = true` |
 | `TLStacks721` | `setSanctionsOracle` | oracle | `oracle` |
 | `TLStacks721` | `setCurrencyAllowed` | currency, bool | `allowedCurrencies` |
 | `TLStacks721` | `withdrawFunds` | currency, amount | None (transfers balance) |
 | `TLStacks721` | `pause` | bool | Pausable flag |
 | `TLStacks721` | `transferOwnership` | new owner | `_pendingOwner` |
-| `TLStacks721` | `renounceOwnership` | — | `owner = address(0)` |
+| `TLStacks721` | `renounceOwnership` | owner only | Reverts with `OwnershipRenunciationDisabled`; ownership is unchanged |
 | `TLStacks1155` | `setProtocolFeeSettings` | receiver, flat ETH fee, two bps ≤ 500 | same fee fields as 721 |
-| `TLStacks1155` | `waiveSellerFee` | nft, tokenId | `_sellerFeeWaived[nft][tokenId][round] = true` |
+| `TLStacks1155` | `waiveSellerFee` | nft, tokenId, expectedRound | `_sellerFeeWaived[nft][tokenId][round] = true` |
 | `TLStacks1155` | `setSanctionsOracle` | oracle | `oracle` |
 | `TLStacks1155` | `setCurrencyAllowed` | currency, bool | `allowedCurrencies` |
 | `TLStacks1155` | `withdrawFunds` | currency, amount | None (transfers balance) |
 | `TLStacks1155` | `pause` | bool | Pausable flag |
 | `TLStacks1155` | `transferOwnership` | new owner | `_pendingOwner` |
-| `TLStacks1155` | `renounceOwnership` | — | `owner = address(0)` |
+| `TLStacks1155` | `renounceOwnership` | owner only | Reverts with `OwnershipRenunciationDisabled`; ownership is unchanged |
 | `RoyaltyLookup` | `setRoyaltyEngine` | engine | `royaltyEngine` |
 | `RoyaltyLookup` | `transferOwnership` | new owner | `owner` immediately (single-step `Ownable`) |
 | `RoyaltyLookup` | `renounceOwnership` | — | `owner = address(0)` |
@@ -234,4 +247,10 @@ Drop admin means `msg.sender` equals the NFT contract's `owner()` or holds `ADMI
 
 ## Initialization
 
-No `initialize`. Owners and the sanctions oracle are set in the constructors (`TLAuctionHouse.sol:92`, `TLStacks721.sol:68`, `TLStacks1155.sol:66`, `RoyaltyLookup.sol:30`). Stacks constructors also call `_setProtocolFeeSettings`.
+No `initialize`. Owners are set in the constructors of `TLAuctionHouse`, `TLStacks721`, `TLStacks1155`, and `RoyaltyLookup`; the three sales contracts also take the sanctions oracle there. Stacks constructors also call `_setProtocolFeeSettings`.
+
+## Audit boundary changes
+
+`list`/`batchList` retire prior `claimableNft` records atomically with verified new custody, emitting `NftClaimRetired(nftAddress, tokenId, previousClaimant, newSeller)`. Failure rolls back retirement. `updatePayoutReceiver` is `nonReentrant`, so no callback during a list, bid, or top-up can change a listing mid-call, and those events emit the listing as written.
+
+`RoyaltyLookup` selects an engine schedule with a payable entry or falls back to direct ERC-2981; the auction house calls it inside `try/catch` and then filters/caps the result. View and settlement share the policy. A reverting helper, or an unset auction-house `royaltyLookup`, results in no royalty. Presale encoding is specified in [presale-merkle.md](presale-merkle.md).

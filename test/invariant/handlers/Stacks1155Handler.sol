@@ -278,7 +278,7 @@ contract Stacks1155Handler is Test {
 
     function waiveSellerFee(uint256 tokenSeed) external {
         uint256 tokenId = _tokenId(tokenSeed);
-        stacks.waiveSellerFee(address(nft), tokenId);
+        stacks.waiveSellerFee(address(nft), tokenId, ghostRound[tokenId]);
         ghostWaived[tokenId][ghostRound[tokenId]] = true;
         _hit("waiveSellerFee");
     }
