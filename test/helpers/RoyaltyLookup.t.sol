@@ -5,6 +5,7 @@ import "forge-std-1.9.4/Test.sol";
 import {Ownable, RoyaltyLookup, IRoyaltyEngineV1} from "src/helpers/RoyaltyLookup.sol";
 import {ERC721TL, ERC2981TLUpgradeable} from "tl-creator-contracts-4.1.1/erc-721/ERC721TL.sol";
 import {MalformedRoyaltyNFT} from "test/utils/AuditRecoveryMocks.sol";
+import {RoyaltyConstants} from "src/utils/RoyaltyConstants.sol";
 
 contract RoyaltyLookupTest is Test {
     RoyaltyLookup rl;
@@ -127,6 +128,149 @@ contract RoyaltyLookupTest is Test {
             assertEq(actual[0], address(this));
             assertEq(amounts[0], 1_000);
         }
+    }
+
+    function test_engineSchedulePayableOnlyAfterRecipientLimitFallsBack() public {
+        rl.setRoyaltyEngine(address(this));
+        uint256 length = RoyaltyConstants.MAX_ROYALTY_RECIPIENTS + 1;
+        address payable[] memory engineRecipients = new address payable[](length);
+        uint256[] memory engineAmounts = new uint256[](length);
+        engineRecipients[length - 1] = payable(badNft);
+        engineAmounts[length - 1] = 500;
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+
+        (address payable[] memory recipients, uint256[] memory amounts) = rl.getRoyalty(address(nft), 1, 10_000);
+        assertEq(recipients.length, 1);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 1_000);
+
+        (recipients, amounts) = rl.getRoyaltyView(address(nft), 1, 10_000);
+        assertEq(recipients.length, 1);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 1_000);
+    }
+
+    function test_engineSchedulePayableAtRecipientLimitWins() public {
+        rl.setRoyaltyEngine(address(this));
+        uint256 length = RoyaltyConstants.MAX_ROYALTY_RECIPIENTS;
+        address payable[] memory engineRecipients = new address payable[](length);
+        uint256[] memory engineAmounts = new uint256[](length);
+        engineRecipients[length - 1] = payable(badNft);
+        engineAmounts[length - 1] = 500;
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+
+        (address payable[] memory recipients, uint256[] memory amounts) = rl.getRoyalty(address(nft), 1, 10_000);
+        assertEq(recipients.length, length);
+        assertEq(recipients[length - 1], badNft);
+        assertEq(amounts[length - 1], 500);
+
+        (recipients, amounts) = rl.getRoyaltyView(address(nft), 1, 10_000);
+        assertEq(recipients.length, length);
+        assertEq(recipients[length - 1], badNft);
+        assertEq(amounts[length - 1], 500);
+    }
+
+    function test_engineSchedulePayableOnlyToCallerFallsBack() public {
+        rl.setRoyaltyEngine(address(this));
+        address payable[] memory engineRecipients = new address payable[](1);
+        uint256[] memory engineAmounts = new uint256[](1);
+        engineRecipients[0] = payable(address(this));
+        engineAmounts[0] = 500;
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+
+        (address payable[] memory recipients, uint256[] memory amounts) = rl.getRoyalty(address(nft), 1, 10_000);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 1_000);
+
+        (recipients, amounts) = rl.getRoyaltyView(address(nft), 1, 10_000);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 1_000);
+    }
+
+    function test_engineSchedulePayableToDifferentCallerWins() public {
+        rl.setRoyaltyEngine(address(this));
+        address payable[] memory engineRecipients = new address payable[](1);
+        uint256[] memory engineAmounts = new uint256[](1);
+        engineRecipients[0] = payable(address(this));
+        engineAmounts[0] = 500;
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+
+        address caller = makeAddr("royalty caller");
+        vm.prank(caller);
+        (address payable[] memory recipients, uint256[] memory amounts) = rl.getRoyalty(address(nft), 1, 10_000);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 500);
+
+        vm.prank(caller);
+        (recipients, amounts) = rl.getRoyaltyView(address(nft), 1, 10_000);
+        assertEq(recipients[0], address(this));
+        assertEq(amounts[0], 500);
+    }
+
+    function test_engineScheduleWithCallerAndPayableRecipientWins() public {
+        rl.setRoyaltyEngine(address(this));
+        address payable[] memory engineRecipients = new address payable[](2);
+        uint256[] memory engineAmounts = new uint256[](2);
+        engineRecipients[0] = payable(address(this));
+        engineRecipients[1] = payable(badNft);
+        engineAmounts[0] = 400;
+        engineAmounts[1] = 100;
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyalty.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+        vm.mockCall(
+            address(this),
+            abi.encodeWithSelector(IRoyaltyEngineV1.getRoyaltyView.selector),
+            abi.encode(engineRecipients, engineAmounts)
+        );
+
+        (address payable[] memory recipients, uint256[] memory amounts) = rl.getRoyalty(address(nft), 1, 10_000);
+        assertEq(recipients.length, 2);
+        assertEq(recipients[1], badNft);
+        assertEq(amounts[1], 100);
+
+        (recipients, amounts) = rl.getRoyaltyView(address(nft), 1, 10_000);
+        assertEq(recipients.length, 2);
+        assertEq(recipients[1], badNft);
+        assertEq(amounts[1], 100);
     }
 
     function test_getRoyalty_royaltyEngine(uint256 tokenId) public {

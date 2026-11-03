@@ -185,7 +185,7 @@ On each stacks contract the owner can:
 - Allowlist currencies, swap the sanctions oracle, and pause.
 - Call `withdrawFunds` for any currency, including ETH. The function is not pause-gated. The contracts are written not to escrow user funds. The owner can still pull any balance that is sitting on the contract.
 
-`RoyaltyLookup`'s owner can swap the royalty engine in one transaction, and can hand that contract over in one transaction. That owner is stored on its own. A deployment that wants one multisig for both has to set both owners to it.
+`RoyaltyLookup`'s owner can swap the royalty engine in one transaction, and can hand that contract over in one transaction. That owner is stored on its own. A deployment that wants one multisig for both has to set both owners to it. The auction house must call `RoyaltyLookup` directly or through a proxy that preserves `msg.sender`, because the helper uses its immediate caller when it rejects engine royalties payable to the consuming auction house. A normal call-forwarding adapter must implement the same filter itself. Preview integrations should call `TLAuctionHouse.getRoyalty`; a direct `eth_call` to `RoyaltyLookup.getRoyaltyView` must use the auction-house address as `from` to reproduce settlement behavior.
 
 ---
 
@@ -209,7 +209,7 @@ Buyers are pinned to three fields of their own choosing: `expectedRound`, `curre
 
 The first bid must be non-zero and at least the reserve. A later bid from someone else must be at least 5% above the stored high bid, rounded up (`TLAuctionHouse._calcNextBid`, checked in `bid`). `topUpBid` is different on purpose: only the current high bidder can call it, any non-zero amount is accepted while more than `EXTENSION_TIME` (five minutes) remains, and the auction end does not move. At five minutes or less remaining, `TopUpWindowClosed` prevents a small top-up from raising the competing-bid minimum without a response window. This uses the current stored end, including extensions. The incumbent can still place a regular bid meeting the 5% increase; that bid follows the normal extension rules. Auctions with five minutes or less remaining immediately after their first bid cannot accept top-ups.
 
-The NFT is transferred to the buyer before any of the price is paid out (`TLAuctionHouse._completeSale`: `_transferNft` first, payouts after). If a payout call fails or the recipient is sanctioned, the amount is credited to `claimableFunds` and the sale completes provided the remaining transaction gas and other dependencies permit it. The seller's receiver need not accept ETH, but an excessive owner-configured allowance can let it consume too much gas to finish.
+The NFT is transferred to the buyer before any of the price is paid out (`TLAuctionHouse._completeSale`: `_transferNft` first, payouts after). If a payout call fails without moving ERC-20 funds, or the recipient is sanctioned, the amount is credited to `claimableFunds` and the sale completes provided the remaining transaction gas and other dependencies permit it. An ERC-20 call that returns false after moving the exact requested amount counts as paid; any other nonzero sender-balance change reverts atomically instead of creating an unfunded credit. The seller's receiver need not accept ETH, but an excessive owner-configured allowance can let it consume too much gas to finish.
 
 While a bid is escrowed, the seller cannot `delist` and cannot change the listing type or currency. They can still change `payoutReceiver`. That address is the seller's payee. It does not change the price the bidder pays.
 
@@ -231,7 +231,7 @@ Selectable 721 drops mark each chosen index in a per-round bitmap before minting
 
 ### Shared
 
-- Inbound ERC-20 pulls measure the recipient balance and revert if the received amount is short (`TransferHelper._safeTransferFromERC20`). Fee-on-transfer tokens fail on the way in.
+- Inbound ERC-20 pulls measure the recipient balance and revert if the received amount is short (`TransferHelper._safeTransferFromERC20`). Fee-on-transfer tokens fail on the way in. Automatic payouts snapshot the sender balance before the attempt; if the call reports failure, exact full movement counts as paid, no movement creates a credit, and partial or otherwise unexpected movement reverts.
 - `nonReentrant` is on every function that escrows, bids, buys, settles, claims, or mints.
 - `whenNotPaused` is on `list`, `batchList`, `updateListing`, `updatePayoutReceiver`, `bid`, `topUpBid`, `settleAuction`, `buyNow`, drop configuration updates, and both purchase functions.
 
@@ -241,7 +241,7 @@ Selectable 721 drops mark each chosen index in a per-round bitmap before minting
 
 Only the stored seller can update a listing, change the payout receiver, or delist. `delist` additionally requires that nobody has bid, and it is **not** pause-gated, so a seller can take an unbid NFT back while the house is paused (`TLAuctionHouse.delist`).
 
-After a bid exists, the seller's exit is settlement or, once seven days have passed after the end, `cancelUnsettledAuction`. Cancel credits the high bid to the bidder's `claimableFunds` and holds the NFT for the seller in `claimableNft`. The cancel itself makes no external call, so a broken token or a reverting payee cannot block it. Either the seller or the high bidder may call it. The README states that this remains available even when settlement would still succeed.
+After a bid exists, the seller's ordinary exit is settlement. The high bidder may call `cancelUnsettledAuction` 7 days after the auction ends; the seller may call it after 30 days. Cancel credits the high bid to the bidder's `claimableFunds` and holds the NFT for the seller in `claimableNft`. The cancel itself makes no external call, so a broken token or a reverting payee cannot block it. The README states that cancellation remains available even when settlement would still succeed.
 
 If the owner removes the protocol fee on a listing, `updateListing` keeps that waiver.
 
@@ -259,7 +259,7 @@ These hold because every write site checks them, or because the only payout path
 |-------|--------|-----------|
 | Auction protocol fee ≤ 5% of the sale | `protocolFeeBps` write in `TLAuctionHouse.setProtocolFeeSettings`, applied in `_completeSale` | Every settlement, unless `zeroProtocolFee` is set, in which case the fee is 0 |
 | Royalties paid ≤ 10% of the sale, at most 10 recipients | `TLAuctionHouse._capRoyalties` | Every settlement that pays royalties. Primary sales skip the quote. |
-| Seller fee on mints ≤ 5% of the token price | `ethSellerFeeBps` and `erc20SellerFeeBps` writes | Both stacks contracts. A waived round pays 0. |
+| Seller fee on mints ≤ 5% of the token price | `ethSellerFeeBps` and `erc20SellerFeeBps` writes | Both stacks contracts. A waived round pays 0. The fee rounds down per purchase, so split purchases can pay up to one base unit less each (see the README). |
 | Auction fee + royalty cap < 100% | Constants 500 + 1000 < 10_000 | The subtractions in `TLAuctionHouse._completeSale` |
 | `supply <= initialSupply` on a stored drop | Configure requires equality; purchases only decrease `supply`; supply cuts cannot go below the number minted | Both stacks contracts |
 | Active-round conservation | `initialSupply == supply + Σ minted` for the current round | Both stacks contracts, while the drop is stored |
@@ -301,7 +301,7 @@ The auction house does not keep a single "total escrow" number. The books are pe
 - The live bid for a token is `listing.highestBid`, in `listing.currencyAddress`.
 - A replaced bid is sent back to the previous bidder, or added to `claimableFunds` if the send fails or the bidder is sanctioned.
 - `claimFunds` and `retryPayout` pay exactly the stored credit and zero it (`TLAuctionHouse._claimFunds`). Every increase goes through `_credit`.
-- After grace-period cancel, the bid amount moves from the listing into `claimableFunds`, and the NFT is recorded in `claimableNft` for the seller.
+- After caller-eligible delayed cancellation, the bid amount moves from the listing into `claimableFunds`, and the NFT is recorded in `claimableNft` for the seller.
 
 Settlement deletes the listing before payouts. A failed payout call becomes a credit if enough transaction gas remains; the credited party pulls later. Transaction-wide out-of-gas or another reverting dependency still rolls back settlement, including the NFT transfer. The per-recipient ETH allowance is not a transaction-wide gas reserve or a guarantee of settlement.
 
@@ -316,12 +316,12 @@ Each dependency has a failure mode. The auction house and the stacks contracts d
 | Dependency | What the contracts assume | If it fails or lies |
 |------------|---------------------------|---------------------|
 | Sanctions oracle (`SanctionsCompliance._isSanctioned`) | `isSanctioned` is a current boolean. `address(0)` disables checks. | A revert halts the call. There is no try/catch. The owner can point this at any address. |
-| Royalty engine, via `RoyaltyLookup` | The returned arrays are the royalty for `value`. | Missing/reverting/mismatched engine schedules, and schedules with no nonzero amount to a nonzero recipient, fall back to direct ERC-2981. A schedule with a payable entry retains precedence; the auction house's filters/caps apply afterward. A malformed NFT `royaltyInfo` response reverts the helper, which the auction house catches as no royalty. A reverting helper, or an unset auction-house `royaltyLookup`, results in no royalty. |
+| Royalty engine, via `RoyaltyLookup` | The returned arrays are the royalty for `value`. | Missing/reverting/mismatched engine schedules, and schedules with no nonzero amount to a nonzero recipient other than the calling auction house in the first ten entries, fall back to direct ERC-2981. A schedule with a payable entry inside that limit retains precedence; the auction house's filters/caps apply afterward. A malformed NFT `royaltyInfo` response reverts the helper, which the auction house catches as no royalty. A reverting helper, or an unset auction-house `royaltyLookup`, results in no royalty. |
 | ERC-2981 on the NFT | Fallback when no usable nonzero engine/helper schedule resolves. | A reverting or unsupported direct call returns an empty schedule; correctly encoded responses remain required. |
 | `CreatorLookup` | The collection's current owner is the creator of every token. | Lookup failure is treated as a **secondary** sale, so royalties are quoted. A match with the seller is a **primary** sale, and royalties are skipped. |
 | Creator `externalMint` | The mint delivers the tokens or reverts. The implementation is `tl-creator-contracts` 4.1.1, outside this repo. | A revert rolls the purchase back, including payment. |
 | ERC-721 `transferFrom` / `ownerOf` | The token moves, and `ownerOf` afterwards equals the recipient. | `NftTransferFailed` if `ownerOf` disagrees. A token that callbacks during `transferFrom` hits `nonReentrant` on the escrow functions and on `updatePayoutReceiver`. |
-| Allowlisted ERC-20 | Balances of this contract change only through its own transfers. Outbound transfers deliver the full amount. | Inbound shortfalls revert. Outbound transfers (`_safeTransferERC20`, `_trySafeTransferERC20`) do not measure the balance delta. A fee on the way out, or a rebase, can leave `claimableFunds` or a stored bid larger than the balance. The README says those tokens must not be allowlisted. The code does not detect them. |
+| Allowlisted ERC-20 | Balances of this contract change only through its own transfers. Outbound transfers deliver the full amount. | Inbound shortfalls revert. An automatic outbound call that reports failure is reconciled against the auction house's balance: exact full movement counts as paid, no movement creates a credit, and another delta reverts. Calls that report success still do not measure recipient receipt, and rebases or fee-on-transfer behavior remain unsupported. |
 
 Royalty amounts are quoted **before** the NFT leaves escrow (`_quoteRoyalties` runs before `_transferNft` in `TLAuctionHouse._completeSale`). A royalty rule that reads `ownerOf` sees the auction house, not the seller or the buyer. That order is intentional (`105e494`).
 
@@ -333,9 +333,11 @@ Primary versus secondary is also decided at settlement, from the helper installe
 
 A sanctioned caller cannot list, bid, buy, mint, or claim. Recipients and payout receivers are checked when they are set.
 
-Settlement checks the seller and the high bidder again (`TLAuctionHouse.settleAuction`). A bid can be placed after the seller becomes sanctioned. Settlement then reverts until the oracle no longer flags either party. The README describes the intended path: the bid stays escrowed until the auction ends and the seven-day grace period passes, then the seller or the high bidder cancels, and a sanctioned claimant cannot pull `claimableFunds` or `claimableNft` until the flag clears. There is no function that refunds a bid at the moment the oracle flips.
+Settlement checks the seller and the high bidder again (`TLAuctionHouse.settleAuction`). A bid can be placed after the seller becomes sanctioned. Settlement then reverts until the oracle no longer flags either party. The README describes the intended path: the bid stays escrowed until the auction ends, then the high bidder may cancel after 7 days or the seller after 30 days. A sanctioned claimant cannot pull `claimableFunds` or `claimableNft` until the flag clears. There is no function that refunds a bid at the moment the oracle flips.
 
 `closeDrop` does not consult the oracle.
+
+The Stacks `protocolFeeReceiver` is screened only when fee settings are configured. Purchases do not recheck it, to save gas, so protocol and seller fees keep reaching it if the oracle flags it later. The protocol owner monitors its status and rotates it when necessary (see the README).
 
 ---
 
@@ -362,6 +364,6 @@ The source leaves these as operational conditions. They are the checks that make
 4. The sanctions oracle is the intended Chainalysis oracle, or `address(0)` if checks are meant to be off.
 5. Every allowlisted ERC-20 is a standard token: no transfer fee, no rebase, no balance that moves by itself. Decimals should be high enough that a 5% bid step is meaningful.
 6. Each creator contract has granted `APPROVED_MINT_CONTRACT` to the stacks contract that should mint for it, and its `ADMIN_ROLE` holders are the people who should be able to rewrite a live drop.
-7. Users who need an exit during a pause know that `delist` (no bid), `cancelUnsettledAuction` (after the grace period), `claimFunds`, and `claimNft` stay open, and that `settleAuction` does not.
+7. Users who need an exit during a pause know that `delist` (no bid), `cancelUnsettledAuction` (high bidder after 7 days; seller after 30 days), `claimFunds`, and `claimNft` stay open, and that `settleAuction` does not.
 
-Negative velocity rates are validated at both configuration and rate updates: `int256.min` is rejected. Reductions compare quantity against duration divided by the rate magnitude before multiplying, saturating at zero without overflowing. Positive extensions saturate at the uint64 endpoint ceiling the same way.
+Negative velocity rates are validated at both configuration and rate updates: `int256.min` is rejected. A batch is admitted atomically from the phase observed when the transaction executes, then changes the duration for its full token count; the contract does not model it as sequential one-token purchases with intermediate phase checks. Reductions compare quantity against duration divided by the rate magnitude before multiplying, saturating at zero without overflowing. Positive extensions saturate at the uint64 endpoint ceiling the same way.

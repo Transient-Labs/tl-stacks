@@ -410,10 +410,9 @@ contract AuctionHouseHandler is Test {
         try ah.cancelUnsettledAuction(address(nft), tokenId) {
             _hit("cancelUnsettledAuction");
             _check(caller == prev.seller || caller == prev.highestBidder, "G-27: cancel by third party");
-            _check(
-                block.timestamp > prev.startTime + prev.duration + ah.SETTLEMENT_GRACE_PERIOD(),
-                "I-8: canceled before grace period"
-            );
+            uint256 gracePeriod =
+                caller == prev.highestBidder ? ah.SETTLEMENT_GRACE_PERIOD() : ah.SELLER_SETTLEMENT_GRACE_PERIOD();
+            _check(block.timestamp > prev.startTime + prev.duration + gracePeriod, "I-8: canceled before grace period");
             _check(
                 ah.claimableFunds(prev.highestBidder, prev.currencyAddress) == bidderCredit + prev.highestBid,
                 "cancel: bid not credited"

@@ -159,7 +159,7 @@ contract TLAuctionHouseEdgeTest is Test {
         ah.bid{value: 1 ether}(address(recovered), TOKEN, address(0), 1 ether, lid);
         Listing memory l = ah.getListing(address(recovered), TOKEN);
         vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
-        vm.prank(seller);
+        vm.prank(bidder1);
         ah.cancelUnsettledAuction(address(recovered), TOKEN);
         recovered.recover(nextSeller, TOKEN);
         vm.prank(nextSeller);
@@ -391,6 +391,35 @@ contract TLAuctionHouseEdgeTest is Test {
         _settle();
         assertEq(creator.balance + royalty0.balance, royalty);
         assertEq(payout.balance, 0.99 ether - royalty);
+    }
+
+    function test_filteredEngineRoyaltyWithLatePayeeFallsBackToERC2981() public {
+        RoyaltyLookup helper = new RoyaltyLookup(address(this));
+        MockRoyaltyLookup engine = new MockRoyaltyLookup();
+        helper.setRoyaltyEngine(address(engine));
+        ah.setRoyaltyLookup(address(helper));
+
+        uint256 length = ah.MAX_ROYALTY_RECIPIENTS() + 1;
+        address payable[] memory recipients = new address payable[](length);
+        uint256[] memory amounts = new uint256[](length);
+        recipients[0] = payable(address(ah));
+        amounts[0] = 500;
+        recipients[length - 1] = payable(royalty0);
+        amounts[length - 1] = 500;
+        engine.setSchedule(recipients, amounts, true);
+
+        (recipients, amounts) = ah.getRoyalty(address(nft), TOKEN, 1 ether);
+        assertEq(recipients.length, 1);
+        assertEq(recipients[0], creator);
+        assertEq(amounts[0], 0.1 ether);
+
+        uint256 lid = _listEth(ListingType.RESERVE_AUCTION, 1 ether, 1 hours);
+        _bid(bidder1, 1 ether, lid);
+        _settle();
+
+        assertEq(creator.balance, 0.1 ether);
+        assertEq(royalty0.balance, 0);
+        assertEq(payout.balance, 0.89 ether);
     }
 
     /// @dev Malformed direct `royaltyInfo` responses revert the helper, which the auction house catches: the sale
@@ -633,7 +662,7 @@ contract TLAuctionHouseEdgeTest is Test {
         ah.bid{value: erc20 ? 0 : 1 ether}(address(nft), TOKEN, currency, 1 ether, lid);
         Listing memory l = ah.getListing(address(nft), TOKEN);
         vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
-        vm.prank(seller);
+        vm.prank(bidder1);
         ah.cancelUnsettledAuction(address(nft), TOKEN);
         vm.prank(bidder1);
         vm.expectRevert(TLAuctionHouse.InvalidRecipient.selector);

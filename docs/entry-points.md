@@ -36,7 +36,7 @@ Auction house also: `setCreatorLookup()` → `setRoyaltyLookup()`. `RoyaltyLooku
 
 → `settleAuction()`  ◄── anyone, after `startTime + duration`
 
-→ `cancelUnsettledAuction()`  ◄── seller or highest bidder, after end + 7 days
+→ `cancelUnsettledAuction()`  ◄── highest bidder after end + 7 days; seller after end + 30 days
 
 → `claimFunds()` / `claimNft()`
 
@@ -179,7 +179,7 @@ NFT grants `APPROVED_MINT_CONTRACT`; caller is the NFT `owner` or `ADMIN_ROLE`
 | `TLAuctionHouse` | `updatePayoutReceiver` | `listing.seller` | `listing.payoutReceiver` | None | `nonReentrant`, `whenNotPaused` |
 | `TLAuctionHouse` | `delist` | `listing.seller`; no bid | deletes `_listings` | NFT out | `nonReentrant` |
 | `TLAuctionHouse` | `topUpBid` | `listing.highestBidder` | `highestBid` | Currency in | `nonReentrant`, `whenNotPaused` |
-| `TLAuctionHouse` | `cancelUnsettledAuction` | Seller or highest bidder; grace elapsed | deletes `_listings`; `claimableFunds`; `claimableNft` | Accounting only | `nonReentrant` |
+| `TLAuctionHouse` | `cancelUnsettledAuction` | Highest bidder after 7 days; seller after 30 days | deletes `_listings`; `claimableFunds`; `claimableNft` | Accounting only | `nonReentrant` |
 | `TLAuctionHouse` | `claimNft` | `claimableNft[nft][token]` | deletes `claimableNft` | NFT out | `nonReentrant` |
 | `TLAuctionHouse` | `acceptOwnership` | `pendingOwner` | `owner`, clears pending | None | inherited `Ownable2Step` |
 | `TLStacks721` | `configureDrop` | Drop admin; mint role | `_drops`, maybe `_rounds` | None | `nonReentrant`, `whenNotPaused` |

@@ -291,13 +291,14 @@ contract TLAuctionHouseFuzzTest is Test {
         assertEq(nft.ownerOf(SECONDARY_TOKEN), bidder2);
     }
 
-    /// @dev G-28: cancel opens one second after end + grace period, and not before
+    /// @dev G-28: cancel opens one second after the caller-specific grace period, and not before
     function testFuzz_G28_cancelBoundary(uint256 duration, bool bySeller) public {
         duration = bound(duration, 0, 30 days);
         uint256 lid = _list(SECONDARY_TOKEN, ListingType.RESERVE_AUCTION, address(0), 0, 0, duration, 0);
         _bidEth(bidder1, 1 ether, lid);
         Listing memory l = ah.getListing(address(nft), SECONDARY_TOKEN);
-        uint256 cancelOpens = l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1;
+        uint256 gracePeriod = bySeller ? ah.SELLER_SETTLEMENT_GRACE_PERIOD() : ah.SETTLEMENT_GRACE_PERIOD();
+        uint256 cancelOpens = l.startTime + l.duration + gracePeriod + 1;
         address caller = bySeller ? seller : bidder1;
 
         vm.warp(cancelOpens - 1);

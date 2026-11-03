@@ -15,7 +15,7 @@ import {IChainalysisSanctionsOracle, SanctionsCompliance} from "src/lib/Sanction
 import {Math} from "@openzeppelin-contracts-5.6.1/utils/math/Math.sol";
 import {ITLAuctionHouseEvents, ListingType, Listing, ListingConfig} from "src/utils/TLAuctionHouseUtils.sol";
 import {Receiver, RevertingReceiver, RevertingBidder, GriefingBidder} from "test/utils/Receiver.sol";
-import {MockERC20} from "test/utils/MockERC20.sol";
+import {FalseReturnERC20, MockERC20} from "test/utils/MockERC20.sol";
 import {MaliciousERC721} from "test/utils/MaliciousERC721.sol";
 import {BadERC721} from "test/utils/BadERC721.sol";
 import {BlocklistERC20} from "test/utils/BlocklistERC20.sol";
@@ -6665,6 +6665,179 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         assertEq(token.balanceOf(address(ah)), 0);
     }
 
+    function test_payout_erc20FullTransferReturningFalseDoesNotCreateCredit() public {
+        FalseReturnERC20 token = new FalseReturnERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        ah.setProtocolFeeSettings(tl, 0);
+        token.transfer(chris, 1 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(_cfg(address(nft), 1, ListingType.BUY_NOW, anon, address(token), block.timestamp, 0, 0, 1 ether));
+        vm.stopPrank();
+
+        token.setMode(FalseReturnERC20.Mode.FULL_TRANSFER_FALSE);
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        ah.buyNow(address(nft), 1, chris, address(token), 1 ether, lid);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(token.balanceOf(anon), 1 ether);
+        assertEq(token.balanceOf(address(ah)), 0);
+        assertEq(ah.claimableFunds(anon, address(token)), 0);
+    }
+
+    function test_payout_erc20NoTransferReturningFalseCreatesCredit() public {
+        FalseReturnERC20 token = new FalseReturnERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        ah.setProtocolFeeSettings(tl, 0);
+        token.transfer(chris, 1 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(_cfg(address(nft), 1, ListingType.BUY_NOW, anon, address(token), block.timestamp, 0, 0, 1 ether));
+        vm.stopPrank();
+
+        token.setMode(FalseReturnERC20.Mode.NO_TRANSFER_FALSE);
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        ah.buyNow(address(nft), 1, chris, address(token), 1 ether, lid);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(1), chris);
+        assertEq(token.balanceOf(anon), 0);
+        assertEq(token.balanceOf(address(ah)), 1 ether);
+        assertEq(ah.claimableFunds(anon, address(token)), 1 ether);
+    }
+
+    function test_payout_erc20PartialTransferReturningFalseReverts() public {
+        FalseReturnERC20 token = new FalseReturnERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        ah.setProtocolFeeSettings(tl, 0);
+        token.transfer(chris, 1 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(_cfg(address(nft), 1, ListingType.BUY_NOW, anon, address(token), block.timestamp, 0, 0, 1 ether));
+        vm.stopPrank();
+
+        token.setMode(FalseReturnERC20.Mode.PARTIAL_TRANSFER_FALSE);
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        lid = ah.getListing(address(nft), 1).id;
+        vm.expectRevert(TransferHelper.InsufficentERC20Transfer.selector);
+        ah.buyNow(address(nft), 1, chris, address(token), 1 ether, lid);
+        vm.stopPrank();
+
+        assertEq(nft.ownerOf(1), address(ah));
+        assertEq(token.balanceOf(chris), 1 ether);
+        assertEq(token.balanceOf(anon), 0);
+        assertEq(token.balanceOf(address(ah)), 0);
+        assertEq(ah.claimableFunds(anon, address(token)), 0);
+    }
+
+    function test_bid_erc20FullTransferReturningFalseRefundsWithoutCredit() public {
+        FalseReturnERC20 token = new FalseReturnERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        token.transfer(chris, 1 ether);
+        token.transfer(david, 2 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(
+            _cfg(
+                address(nft), 1, ListingType.RESERVE_AUCTION, anon, address(token), block.timestamp, 1 ether, 1 days, 0
+            )
+        );
+        vm.stopPrank();
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        ah.bid(address(nft), 1, address(token), 1 ether, lid);
+        vm.stopPrank();
+
+        token.setMode(FalseReturnERC20.Mode.FULL_TRANSFER_FALSE);
+        vm.startPrank(david);
+        token.approve(address(ah), 2 ether);
+        ah.bid(address(nft), 1, address(token), 2 ether, lid);
+        vm.stopPrank();
+
+        assertEq(token.balanceOf(chris), 1 ether);
+        assertEq(token.balanceOf(address(ah)), 2 ether);
+        assertEq(ah.claimableFunds(chris, address(token)), 0);
+    }
+
+    function test_settleAuction_erc20RevertingBalanceOfRevertsAtomically() public {
+        FalseReturnERC20 token = new FalseReturnERC20(address(this));
+        ah.setCurrencyAllowed(address(token), true);
+        token.transfer(chris, 1 ether);
+
+        vm.startPrank(ben);
+        nft.setApprovalForAll(address(ah), true);
+        ah.list(
+            _cfg(
+                address(nft), 1, ListingType.RESERVE_AUCTION, anon, address(token), block.timestamp, 1 ether, 1 days, 0
+            )
+        );
+        vm.stopPrank();
+
+        lid = ah.getListing(address(nft), 1).id;
+        vm.startPrank(chris);
+        token.approve(address(ah), 1 ether);
+        ah.bid(address(nft), 1, address(token), 1 ether, lid);
+        vm.stopPrank();
+        Listing memory l = ah.getListing(address(nft), 1);
+        vm.warp(l.startTime + l.duration + 1);
+
+        token.setBalanceQueriesDisabled(true);
+        vm.expectRevert("balance disabled");
+        ah.settleAuction(address(nft), 1);
+        token.setBalanceQueriesDisabled(false);
+
+        assertEq(nft.ownerOf(1), address(ah));
+        assertEq(token.balanceOf(address(ah)), 1 ether);
+        assertEq(ah.getListing(address(nft), 1).highestBid, 1 ether);
+    }
+
+    function test_cancelUnsettledAuction_sellerWaitsThirtyDays() public {
+        _listBidAndEnd(address(nft), 1, ben, anon, chris, 1 ether);
+        Listing memory l = ah.getListing(address(nft), 1);
+
+        vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
+        vm.prank(ben);
+        vm.expectRevert(TLAuctionHouse.SettlementGracePeriodNotOver.selector);
+        ah.cancelUnsettledAuction(address(nft), 1);
+
+        vm.prank(chris);
+        ah.cancelUnsettledAuction(address(nft), 1);
+        assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
+        assertEq(ah.claimableNft(address(nft), 1), ben);
+
+        _listBidAndEnd(address(nft), 2, ben, anon, chris, 1 ether);
+        l = ah.getListing(address(nft), 2);
+        vm.warp(l.startTime + l.duration + ah.SELLER_SETTLEMENT_GRACE_PERIOD() + 1);
+        vm.prank(ben);
+        ah.cancelUnsettledAuction(address(nft), 2);
+        assertEq(ah.claimableFunds(chris, address(0)), 2 ether);
+        assertEq(ah.claimableNft(address(nft), 2), ben);
+    }
+
+    function test_cancelUnsettledAuction_sellerWhoIsHighestBidderUsesBidderDelay() public {
+        _listBidAndEnd(address(nft), 1, ben, anon, ben, 1 ether);
+        Listing memory l = ah.getListing(address(nft), 1);
+
+        vm.warp(l.startTime + l.duration + ah.SETTLEMENT_GRACE_PERIOD() + 1);
+        vm.prank(ben);
+        ah.cancelUnsettledAuction(address(nft), 1);
+
+        assertEq(ah.claimableFunds(ben, address(0)), 1 ether);
+        assertEq(ah.claimableNft(address(nft), 1), ben);
+    }
+
     function test_claim_whilePaused() public {
         RevertingBidder bidder = new RevertingBidder(address(ah));
         vm.startPrank(ben);
@@ -6891,9 +7064,9 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         vm.expectRevert(TLAuctionHouse.NotSellerOrBidder.selector);
         ah.cancelUnsettledAuction(address(nft), 1);
 
-        // seller can cancel, even while paused
+        // highest bidder can cancel after the shorter grace period, even while paused
         ah.pause(true);
-        vm.prank(ben);
+        vm.prank(chris);
         ah.cancelUnsettledAuction(address(nft), 1);
         ah.pause(false);
         assertEq(ah.claimableFunds(chris, address(0)), 1 ether);
@@ -6902,7 +7075,7 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
         // auction can no longer be settled or canceled
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         ah.settleAuction(address(nft), 1);
-        vm.prank(ben);
+        vm.prank(chris);
         vm.expectRevert(TLAuctionHouse.InvalidListingType.selector);
         ah.cancelUnsettledAuction(address(nft), 1);
 
@@ -6913,13 +7086,13 @@ contract TLAuctionHouseTest is Test, ITLAuctionHouseEvents {
     }
 
     function test_settleAuction_sanctionedBidder() public {
-        // sanctioned bidder: settlement reverts, seller cancels after the grace period and the refund is frozen
+        // sanctioned bidder: settlement reverts, seller cancels after the longer delay and the refund is frozen
         _listBidAndEnd(address(nft), 1, ben, ben, chris, 1 ether);
         _sanction(chris);
         vm.expectRevert(SanctionsCompliance.SanctionedAddress.selector);
         ah.settleAuction(address(nft), 1);
 
-        vm.warp(block.timestamp + ah.SETTLEMENT_GRACE_PERIOD());
+        vm.warp(block.timestamp + ah.SELLER_SETTLEMENT_GRACE_PERIOD());
         vm.prank(ben);
         ah.cancelUnsettledAuction(address(nft), 1);
         vm.prank(ben);

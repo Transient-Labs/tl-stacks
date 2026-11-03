@@ -89,10 +89,10 @@ Per-call checks. Each one is numbered so it can be cited.
 `if (listing.highestBidder == address(0)) revert AuctionNotStarted();` · `TLAuctionHouse.cancelUnsettledAuction` · unwind requires a stored high bidder
 
 #### G-27
-`if (msg.sender != listing.seller && msg.sender != listing.highestBidder) revert NotSellerOrBidder();` · `TLAuctionHouse.cancelUnsettledAuction` · only the stored seller or stored high bidder can unwind
+`msg.sender == listing.highestBidder` / `msg.sender == listing.seller`, otherwise `revert NotSellerOrBidder();` · `TLAuctionHouse.cancelUnsettledAuction` · only the stored seller or stored high bidder can unwind; if they are the same address, the bidder branch applies
 
 #### G-28
-`if (block.timestamp <= listing.startTime + listing.duration + SETTLEMENT_GRACE_PERIOD)` · `TLAuctionHouse.cancelUnsettledAuction` · unwind waits until the stored end plus the seven-day grace constant; the next line reverts `SettlementGracePeriodNotOver`
+`if (block.timestamp <= listing.startTime + listing.duration + gracePeriod)` · `TLAuctionHouse.cancelUnsettledAuction` · unwind waits until the stored end plus the caller-specific delay: 7 days for the high bidder or 30 days for the seller; the next line reverts `SettlementGracePeriodNotOver`
 
 #### G-29
 `if (!_hasBuyNow(listing.type_)) revert InvalidListingType();` · `TLAuctionHouse.buyNow` · `buyNow` only proceeds when the stored type has a fixed price
@@ -297,9 +297,9 @@ Per-call checks. Each one is numbered so it can be cited.
 
 `Temporal` · On-chain: **Yes**
 
-> `settleAuction` runs only when `block.timestamp > listing.startTime + listing.duration`. `cancelUnsettledAuction` runs only when `block.timestamp > listing.startTime + listing.duration + SETTLEMENT_GRACE_PERIOD`.
+> `settleAuction` runs only when `block.timestamp > listing.startTime + listing.duration`. `cancelUnsettledAuction` runs only after the stored end plus the caller's delay: `SETTLEMENT_GRACE_PERIOD` for the high bidder or `SELLER_SETTLEMENT_GRACE_PERIOD` for the seller.
 
-**Derivation** — temporal: `if (block.timestamp <= listing.startTime + listing.duration) revert AuctionNotEnded();` in `TLAuctionHouse.settleAuction`, and `if (block.timestamp <= listing.startTime + listing.duration + SETTLEMENT_GRACE_PERIOD)` in `cancelUnsettledAuction`. Both read the stored end. `bid` checks the previous end before it extends `duration`.
+**Derivation** — temporal: `if (block.timestamp <= listing.startTime + listing.duration) revert AuctionNotEnded();` in `TLAuctionHouse.settleAuction`, and `if (block.timestamp <= listing.startTime + listing.duration + gracePeriod)` in `cancelUnsettledAuction`, where `gracePeriod` is selected from the caller's stored role. Both read the stored end. `bid` checks the previous end before it extends `duration`.
 
 **If violated** — Settlement or unwind would move escrow against a different clock than the one stored on the listing.
 
@@ -427,7 +427,7 @@ On-chain: **No**
 
 **Caller side** — `TLAuctionHouse._quoteRoyalties` passes the arrays `getRoyalty` returned to `_capRoyalties`, which trusts them and then caps them (`I-14`).
 
-**Callee side** — `RoyaltyLookup.getRoyalty` and `getRoyaltyView` prefer correctly shaped engine schedules with at least one nonzero amount to a nonzero recipient. Missing/codeless/reverting/mismatched engine schedules, and schedules with nothing payable, fall back to direct ERC-2981. A reverting `royaltyInfo` yields empty arrays; a malformed successful response reverts the helper, which the auction house catches as no royalty. The auction house does not call `royaltyInfo` itself, and a reverting helper results in no royalty. Selection precedes filters/caps, so nonzero engine royalties can still differ from direct royalties.
+**Callee side** — `RoyaltyLookup.getRoyalty` and `getRoyaltyView` prefer correctly shaped engine schedules with at least one nonzero amount to a nonzero recipient other than the caller in the first `MAX_ROYALTY_RECIPIENTS` entries. Missing/codeless/reverting/mismatched engine schedules, and schedules with nothing payable inside that limit after the caller filter, fall back to direct ERC-2981. A reverting `royaltyInfo` yields empty arrays; a malformed successful response reverts the helper, which the auction house catches as no royalty. The auction house does not call `royaltyInfo` itself, and a reverting helper results in no royalty. Selection precedes the auction house's remaining amount cap, so nonzero engine royalties can still differ from direct royalties.
 
 **If violated** — The auction house caps and pays a schedule that did not come from the token's `royaltyInfo`.
 
@@ -479,7 +479,7 @@ Ownership renunciation reverts in all three sales contracts, including while pau
 
 `payoutGasLimit` initializes to `1e5` and can only be changed by the owner to a nonzero value. `_payout` reads it for each automatic ETH call, including outbid refunds and all sale payees. The setter emits previous/new values and remains usable while paused. No hard upper bound is enforced under the trusted owner model.
 
-A failed call credits exactly its payment when the surrounding transaction can complete. The setting neither redirects credits nor changes their ownership. Transaction-wide exhaustion still rolls back the operation. Explicit claims use the available-gas atomic helper, and ERC-20 payouts use their existing separate path.
+A failed call credits exactly its payment when the surrounding transaction can complete. The setting neither redirects credits nor changes their ownership. Transaction-wide exhaustion still rolls back the operation. Explicit claims use the available-gas atomic helper. Automatic ERC-20 payouts use a separate balance-reconciliation path: false with no movement creates a credit, false after exact full movement counts as paid, and another delta reverts.
 
 ## Remaining audit fixes
 
@@ -489,3 +489,5 @@ A failed call credits exactly its payment when the surrounding transaction can c
 - Every listing-state function (`list`, `batchList`, `updateListing`, `updatePayoutReceiver`, `bid`, `topUpBid`) is `nonReentrant`, so callbacks cannot change a listing between its write and its event; live-listing events equal storage, and terminal events retain the historical deleted listing.
 - `int256.min` rates cannot enter drop storage. Negative reductions saturate before multiplication, preserving zero/exact-boundary behavior; positive endpoint limits remain in force.
 - Merkle verification bytes are unchanged; fixed vectors and [encoding guidance](presale-merkle.md) cover all mint routes.
+- Unsettled-auction cancellation uses caller-specific recovery delays: 7 days for the high bidder and 30 days for the seller, with bidder precedence when one address has both roles.
+- A failed automatic ERC-20 payout creates a credit only when the auction house's token balance did not move. Exact full movement counts as paid; partial or otherwise unexpected movement reverts atomically.

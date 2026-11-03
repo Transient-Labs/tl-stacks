@@ -5,6 +5,7 @@ import {IRoyaltyLookup} from "./IRoyaltyLookup.sol";
 import {Ownable} from "@openzeppelin-contracts-5.6.1/access/Ownable.sol";
 import {IRoyaltyEngineV1} from "./IRoyaltyEngineV1.sol";
 import {IERC2981} from "@openzeppelin-contracts-5.6.1/interfaces/IERC2981.sol";
+import {RoyaltyConstants} from "../utils/RoyaltyConstants.sol";
 
 /// @title RoyaltyLookup.sol
 /// @notice Contract to enable TLAuctionHouse to determine royalties to payout on secondary sales
@@ -42,7 +43,7 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
             try royaltyEngine.getRoyalty(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
-                if (_hasPayableRoyalty(r, a)) return (r, a);
+                if (_hasPayableRoyalty(r, a, msg.sender)) return (r, a);
             } catch {}
         }
         return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
@@ -58,7 +59,7 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
             try royaltyEngine.getRoyaltyView(nftAddress, tokenId, value) returns (
                 address payable[] memory r, uint256[] memory a
             ) {
-                if (_hasPayableRoyalty(r, a)) return (r, a);
+                if (_hasPayableRoyalty(r, a, msg.sender)) return (r, a);
             } catch {}
         }
         return _getERC2981RoyaltyInfo(nftAddress, tokenId, value);
@@ -78,15 +79,19 @@ contract RoyaltyLookup is Ownable, IRoyaltyLookup {
     /////////////////////////////////////////////////////////////////////
 
     /// @notice Internal function to check if an engine schedule is usable
-    /// @dev True when the arrays match and at least one nonzero amount goes to a nonzero recipient
-    function _hasPayableRoyalty(address payable[] memory recipients, uint256[] memory amounts)
-        internal
-        pure
-        returns (bool)
-    {
+    /// @dev True when the arrays match and at least one entry inside the auction house's positional recipient limit
+    ///      has a nonzero amount and a recipient that the calling auction house does not filter
+    function _hasPayableRoyalty(
+        address payable[] memory recipients,
+        uint256[] memory amounts,
+        address filteredRecipient
+    ) internal pure returns (bool) {
         if (recipients.length != amounts.length) return false;
-        for (uint256 i = 0; i < amounts.length; ++i) {
-            if (amounts[i] != 0 && recipients[i] != address(0)) return true;
+        uint256 limit = amounts.length < RoyaltyConstants.MAX_ROYALTY_RECIPIENTS
+            ? amounts.length
+            : RoyaltyConstants.MAX_ROYALTY_RECIPIENTS;
+        for (uint256 i = 0; i < limit; ++i) {
+            if (amounts[i] != 0 && recipients[i] != address(0) && recipients[i] != filteredRecipient) return true;
         }
         return false;
     }

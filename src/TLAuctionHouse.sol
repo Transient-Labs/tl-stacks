@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Ownable, Ownable2Step} from "@openzeppelin-contracts-5.6.1/access/Ownable2Step.sol";
 import {Pausable} from "@openzeppelin-contracts-5.6.1/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin-contracts-5.6.1/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin-contracts-5.6.1/token/ERC20/IERC20.sol";
 import {IERC721} from "@openzeppelin-contracts-5.6.1/token/ERC721/IERC721.sol";
 import {Math} from "@openzeppelin-contracts-5.6.1/utils/math/Math.sol";
 import {TransferHelper} from "./lib/TransferHelper.sol";
@@ -12,6 +13,7 @@ import {CurrencyAllowlist} from "./lib/CurrencyAllowlist.sol";
 import {ListingType, Listing, ListingConfig, ITLAuctionHouseEvents} from "./utils/TLAuctionHouseUtils.sol";
 import {ICreatorLookup} from "./helpers/ICreatorLookup.sol";
 import {IRoyaltyLookup} from "./helpers/IRoyaltyLookup.sol";
+import {RoyaltyConstants} from "./utils/RoyaltyConstants.sol";
 
 /// @title TLAuctionHouse
 /// @notice Transient Labs Auction House for ERC-721 tokens
@@ -36,9 +38,10 @@ contract TLAuctionHouse is
     uint256 public constant BID_INCREASE_BPS = 500; // 5% increase between bids
     uint256 public constant MAX_PROTOCOL_FEE_BPS = 500; // 5% max protocol fee
     uint256 public constant MAX_ROYALTY_BPS = 1_000; // royalties can take at most 10% of the sale value
-    uint256 public constant MAX_ROYALTY_RECIPIENTS = 10; // bounds gas spent on royalty payouts
+    uint256 public constant MAX_ROYALTY_RECIPIENTS = RoyaltyConstants.MAX_ROYALTY_RECIPIENTS; // bounds gas spent on royalty payouts
     uint256 public constant MAX_AUCTION_DURATION = 30 days; // initial duration only; anti-snipe extensions may exceed it
-    uint256 public constant SETTLEMENT_GRACE_PERIOD = 7 days; // time after an auction ends before an unsettled auction can be canceled
+    uint256 public constant SETTLEMENT_GRACE_PERIOD = 7 days; // bidder cancellation delay after an auction ends
+    uint256 public constant SELLER_SETTLEMENT_GRACE_PERIOD = 30 days; // seller cancellation delay after an auction ends
 
     /////////////////////////////////////////////////////////////////////
     // STORAGE
@@ -384,8 +387,9 @@ contract TLAuctionHouse is
     ///      - the seller and highest bidder cannot be sanctioned
     ///      - the nft is delivered to the highest bidder before any funds are released to the seller
     ///      - royalties are paid out on secondary sales, where the creator of the token is not the seller
-    /// @dev Settlement either fully completes or reverts. If an auction can't be settled, the seller or highest bidder
-    ///      can cancel it after `SETTLEMENT_GRACE_PERIOD` via `cancelUnsettledAuction`.
+    /// @dev Settlement either fully completes or reverts. If an auction can't be settled, the highest bidder can
+    ///      cancel it after `SETTLEMENT_GRACE_PERIOD`, and the seller can cancel it after
+    ///      `SELLER_SETTLEMENT_GRACE_PERIOD`, via `cancelUnsettledAuction`.
     /// @param nftAddress The nft contract address
     /// @param tokenId The nft token id
     function settleAuction(address nftAddress, uint256 tokenId) external nonReentrant whenNotPaused {
@@ -416,9 +420,10 @@ contract TLAuctionHouse is
 
     /// @notice Function to cancel an auction that couldn't be settled
     /// @dev Requirements
-    ///      - only the seller or highest bidder can cancel
+    ///      - only the seller or highest bidder can cancel; if they are the same address, the bidder delay applies
     ///      - the listing must be configured as an auction and have been bid on
-    ///      - the auction must have ended more than `SETTLEMENT_GRACE_PERIOD` ago without being settled
+    ///      - the auction must have ended more than `SETTLEMENT_GRACE_PERIOD` ago for the highest bidder, or more than
+    ///        `SELLER_SETTLEMENT_GRACE_PERIOD` ago for the seller, without being settled
     /// @dev The highest bid is credited to the bidder's `claimableFunds` balance and the nft is held for the seller to
     ///      claim via `claimNft`. No external calls are made, so a misbehaving nft or payee can't block this.
     ///      Anything owed to a sanctioned address stays frozen until the address is no longer sanctioned.
@@ -435,11 +440,18 @@ contract TLAuctionHouse is
         // check that auction was bid on
         if (listing.highestBidder == address(0)) revert AuctionNotStarted();
 
-        // only the parties to the sale can cancel
-        if (msg.sender != listing.seller && msg.sender != listing.highestBidder) revert NotSellerOrBidder();
+        // only the parties to the sale can cancel; the bidder gets the shorter recovery window
+        uint256 gracePeriod;
+        if (msg.sender == listing.highestBidder) {
+            gracePeriod = SETTLEMENT_GRACE_PERIOD;
+        } else if (msg.sender == listing.seller) {
+            gracePeriod = SELLER_SETTLEMENT_GRACE_PERIOD;
+        } else {
+            revert NotSellerOrBidder();
+        }
 
-        // ensure the grace period for settlement has passed
-        if (block.timestamp <= listing.startTime + listing.duration + SETTLEMENT_GRACE_PERIOD) {
+        // ensure the caller's grace period for settlement has passed
+        if (block.timestamp <= listing.startTime + listing.duration + gracePeriod) {
             revert SettlementGracePeriodNotOver();
         }
 
@@ -893,6 +905,9 @@ contract TLAuctionHouse is
     /// @notice Internal function to abstract payouts when settling a listing
     /// @dev If `to` is sanctioned or the transfer fails, the funds are credited to `to` to be claimed,
     ///      provided enough transaction gas remains to complete the operation.
+    /// @dev If an ERC-20 call reports failure after the full amount left this contract, it counts as paid. No movement
+    ///      creates a credit; any other movement reverts atomically rather than creating an unfunded credit. This adds
+    ///      a required `balanceOf` call to each attempted automatic ERC-20 payout.
     ///      A configured sanctions oracle is a required dependency: screening errors propagate and revert.
     function _payout(address to, address currencyAddress, uint256 value) private {
         if (to == address(0) || value == 0) return;
@@ -906,7 +921,16 @@ contract TLAuctionHouse is
         if (currencyAddress == address(0)) {
             success = _trySafeTransferETH(to, value, payoutGasLimit);
         } else {
+            uint256 initialBalance = IERC20(currencyAddress).balanceOf(address(this));
             success = _trySafeTransferERC20(to, currencyAddress, value);
+            if (!success) {
+                uint256 finalBalance = IERC20(currencyAddress).balanceOf(address(this));
+                if (initialBalance >= finalBalance && initialBalance - finalBalance == value) {
+                    success = true;
+                } else if (finalBalance != initialBalance) {
+                    revert InsufficentERC20Transfer();
+                }
+            }
         }
         if (!success) _credit(to, currencyAddress, value);
     }
